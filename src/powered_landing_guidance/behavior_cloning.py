@@ -187,17 +187,27 @@ def load_bc_dataset(directory: Path, config: dict[str, Any]) -> BCDataset:
 class BCPolicy:
     """Float32 ReLU MLP with a linear normalized-action head."""
 
-    def __init__(self, hidden_sizes: tuple[int, ...], seed: int) -> None:
+    def __init__(self, hidden_sizes: tuple[int, ...], seed: int, activation: str = "relu") -> None:
+        if activation not in {"relu", "tanh"}:
+            raise ValueError("activation must be relu or tanh")
+        self.activation = activation
         widths = (7, *hidden_sizes, 2)
         rng = np.random.default_rng(seed)
         self.weights = [
-            np.asarray(rng.normal(0.0, np.sqrt(2.0 / left), (left, right)), dtype=np.float32)
+            np.asarray(
+                rng.normal(
+                    0.0, np.sqrt((2.0 if activation == "relu" else 1.0) / left), (left, right)
+                ),
+                dtype=np.float32,
+            )
             for left, right in zip(widths[:-1], widths[1:], strict=True)
         ]
         self.biases = [np.zeros(right, dtype=np.float32) for right in widths[1:]]
 
     def copy(self) -> BCPolicy:
-        result = BCPolicy(tuple(weight.shape[1] for weight in self.weights[:-1]), 0)
+        result = BCPolicy(
+            tuple(weight.shape[1] for weight in self.weights[:-1]), 0, self.activation
+        )
         result.weights = [weight.copy() for weight in self.weights]
         result.biases = [bias.copy() for bias in self.biases]
         return result
@@ -207,29 +217,54 @@ class BCPolicy:
         if values.ndim != 2 or values.shape[1] != 7:
             raise ValueError("states must have shape (batch, 7)")
         for weight, bias in zip(self.weights[:-1], self.biases[:-1], strict=True):
-            values = np.maximum(values @ weight + bias, 0.0)
+            pre = values @ weight + bias
+            values = np.maximum(pre, 0.0) if self.activation == "relu" else np.tanh(pre)
         return values @ self.weights[-1] + self.biases[-1]
 
     def gradients(
-        self, states: NDArray[np.float32], actions: NDArray[np.float32]
+        self,
+        states: NDArray[np.float32],
+        actions: NDArray[np.float32],
+        sample_weights: NDArray[Any] | None = None,
+        action_weights: tuple[float, float] = (1.0, 1.0),
     ) -> tuple[float, list[NDArray[np.float32]], list[NDArray[np.float32]]]:
         activations = [states]
         preactivations = []
         for weight, bias in zip(self.weights[:-1], self.biases[:-1], strict=True):
             pre = activations[-1] @ weight + bias
             preactivations.append(pre)
-            activations.append(np.maximum(pre, 0.0))
+            activations.append(np.maximum(pre, 0.0) if self.activation == "relu" else np.tanh(pre))
         prediction = activations[-1] @ self.weights[-1] + self.biases[-1]
         error = prediction - actions
-        loss = float(np.mean(error * error))
-        delta = error * np.float32(2.0 / error.size)
+        row_weights = (
+            np.ones((len(states), 1), dtype=np.float32)
+            if sample_weights is None
+            else np.asarray(sample_weights, dtype=np.float32).reshape(-1, 1)
+        )
+        column_weights = np.asarray(action_weights, dtype=np.float32).reshape(1, 2)
+        if (
+            row_weights.shape != (len(states), 1)
+            or not np.all(np.isfinite(row_weights))
+            or np.any(row_weights <= 0)
+        ):
+            raise ValueError("sample weights must be finite, positive, and aligned")
+        if not np.all(np.isfinite(column_weights)) or np.any(column_weights <= 0):
+            raise ValueError("action weights must be finite and positive")
+        denominator = float(np.sum(row_weights) * np.sum(column_weights))
+        loss = float(np.sum(row_weights * column_weights * error * error) / denominator)
+        delta = error * row_weights * column_weights * np.float32(2.0 / denominator)
         weight_grads = [np.empty_like(weight) for weight in self.weights]
         bias_grads = [np.empty_like(bias) for bias in self.biases]
         for layer in range(len(self.weights) - 1, -1, -1):
             weight_grads[layer] = activations[layer].T @ delta
             bias_grads[layer] = np.sum(delta, axis=0)
             if layer:
-                delta = (delta @ self.weights[layer].T) * (preactivations[layer - 1] > 0.0)
+                derivative = (
+                    preactivations[layer - 1] > 0.0
+                    if self.activation == "relu"
+                    else 1.0 - activations[layer] ** 2
+                )
+                delta = (delta @ self.weights[layer].T) * derivative
         return loss, weight_grads, bias_grads
 
     def predict_action(
@@ -344,10 +379,25 @@ def train_bc(
     dataset: BCDataset,
     settings: TrainingSettings,
     progress: Any = None,
+    *,
+    activation: str = "relu",
+    sample_weights: NDArray[Any] | None = None,
+    action_weights: tuple[float, float] = (1.0, 1.0),
+    initial_policy: BCPolicy | None = None,
 ) -> tuple[BCPolicy, dict[str, Any]]:
     """Choose the lowest IID-validation MSE checkpoint with early stopping."""
     rng = np.random.default_rng(settings.seed)
-    policy = BCPolicy(settings.hidden_sizes, settings.seed)
+    policy = (
+        BCPolicy(settings.hidden_sizes, settings.seed, activation)
+        if initial_policy is None
+        else initial_policy.copy()
+    )
+    if tuple(weight.shape[1] for weight in policy.weights[:-1]) != settings.hidden_sizes:
+        raise ValueError("initial policy architecture does not match training settings")
+    if policy.activation != activation:
+        raise ValueError("initial policy activation does not match")
+    if sample_weights is not None and len(sample_weights) != len(dataset.train_states):
+        raise ValueError("sample weights must align with training rows")
     optimizer = Adam(policy, settings.learning_rate)
     best = policy.copy()
     best_loss = float("inf")
@@ -358,7 +408,10 @@ def train_bc(
         for start in range(0, len(indices), settings.batch_size):
             subset = indices[start : start + settings.batch_size]
             _, weights, biases = policy.gradients(
-                dataset.train_states[subset], dataset.train_actions[subset]
+                dataset.train_states[subset],
+                dataset.train_actions[subset],
+                None if sample_weights is None else sample_weights[subset],
+                action_weights,
             )
             optimizer.step(weights, biases)
         training = action_error(
@@ -410,7 +463,7 @@ def load_checkpoint(path: Path) -> tuple[BCPolicy, dict[str, Any]]:
     with np.load(path, allow_pickle=False) as archive:
         metadata = json.loads(str(archive["metadata_json"].item()))
         widths = tuple(metadata["training_settings"]["hidden_sizes"])
-        policy = BCPolicy(widths, 0)
+        policy = BCPolicy(widths, 0, metadata.get("activation", "relu"))
         expected = {"metadata_json"}
         for index in range(len(policy.weights)):
             for prefix, target in (("weight", policy.weights), ("bias", policy.biases)):

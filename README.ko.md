@@ -2,454 +2,69 @@
 
 [English README](README.md)
 
-2D 강체 시뮬레이션부터 고전제어, 최적제어 교사, 모방학습과 강건성 평가까지 단계적으로 구현하는 재사용 로켓 동력 착륙 프로젝트입니다.
+재사용 로켓의 평면상 최종 하강을 다루는 재현 가능한 시뮬레이션·제어 프로젝트입니다. 가변 질량 동역학, Gymnasium 환경, 고전제어 착륙기, 최적제어 궤적, 학습 정책, 동일 조건의 강건성 평가를 포함합니다.
 
-## 프로젝트 현황
+이 프로젝트의 범위는 **착륙**입니다. 발사부터 착륙까지의 전체 비행이나 3D 비행을 구현한 것은 아닙니다. 시뮬레이션 성공은 실제 하드웨어 안전성을 입증하지 않습니다.
 
-| 항목 | 현재 상태 |
+## 시스템 개요
+
+| 구성 요소 | 구현 내용 |
 |---|---|
-| 로드맵 | 25일차 Behavior Cloning 첫 학습 완료 |
-| 모델 | 가변 질량 평면 3자유도 |
-| 상태 | x, z, vx, vz, theta, omega, mass |
-| 제어 | throttle, gimbal angle |
-| 현재 제어기 | Suicide-burn, 수직 PID, 수평·자세 제어, 통합 착륙 제어 |
+| 상태 | `x, z, vx, vz, theta, omega, mass` |
+| 제어 | 스로틀과 짐벌 각도 |
+| 물리 모델 | 평면 강체, 가변 질량, 0.02초 간격 RK4 적분 |
+| 제어 주기 | 0.1초 |
+| 기준선 | Suicide-burn, 수직 PID, 통합 착륙 PID |
+| 학습 제어기 | 행동 복제, DAgger, PID 잔차 SAC |
 | 실행 환경 | Python 3.12.7 |
 
-현재 저장소에는 검증된 시뮬레이션 환경, 동결 PID·최적제어 Teacher 기준선, train 1,007개·validation 100개·hard OOD test 191개의 최종 offline dataset이 있습니다. 25일차에는 정규화한 Teacher 상태-action pair에서 throttle과 gimbal을 학습하는 NumPy MLP를 추가했습니다. 모델 구조 실험, BC 폐루프 착륙, DAgger와 폭넓은 강건성 평가는 이후 일정입니다.
+환경에는 바람과 돌풍, 추력·관성 오차, 센서 잡음, 관측·명령 지연, 엔진 응답 지연을 줄 수 있습니다. 안전 착륙과 실패는 같은 착륙 기준으로 판정합니다.
 
-## 최적제어 Teacher 문제 정식화
+## 현재 검증 결과
 
-15일차에는 7상태·2제어 명목 착륙 문제를 정의했습니다. 제어 구간 100개와 5-25초 자유 종료시간, 시뮬레이터와 일치하는 매끄러운 동역학, 고도·연료·구동기 경로 제한, 착륙 종단 제한, 1단계 가능해 탐색과 2단계 연료·접지·제어 변화 비용이 포함됩니다. [수식-코드 대응표](docs/spec.ko.md#15일차-최적제어-teacher-문제-정식화)와 [영문 명세](docs/spec.md#21-day-15-optimal-control-teacher-formulation)에서 세부 정의를 확인할 수 있습니다.
+현재 권장 제어기는 통합 PID입니다. 오프라인 최적제어 데이터셋은 채택된 학습 궤적 1,007개, 동일 분포 검증 궤적 100개, 채택된 어려운 분포 밖 테스트 궤적 191개로 구성됩니다. **Teacher 재시뮬레이션을 통과한** 어려운 테스트에서 PID는 191/191, 행동 복제는 0/191, DAgger는 3/191 착륙했습니다. 계획된 테스트 궤적 중 9개는 Teacher 재시뮬레이션에서 탈락했으므로, 이 결과를 모든 어려운 초기 조건에서의 PID 성공으로 일반화할 수는 없습니다. 집합 정의와 한계는 [데이터셋 카드](docs/dataset-card.ko.md)와 [모델 카드](docs/model-card.ko.md)에 정리했습니다.
 
-16일차에는 그중 `z, vz, mass` 수직 부분 문제를 CasADi/IPOPT 다중 사격법으로 풀었습니다. 아래 명령은 두 단계의 솔버 상태·제약 잔차가 담긴 JSON과 최적화 node를 독립 시뮬레이터 궤적과 비교한 PNG를 생성합니다. 기존 파일은 덮어쓰지 않습니다.
+별도 외란 평가 규약은 기준 시드 `378`과 분리된 학습·개발·최종 보류 집합을 사용합니다. 조건별 개발 집합 12개에서 PID의 안전 착륙 수는 다음과 같습니다.
 
-~~~bash
-python -m pip install -e ".[optimization]"
-python scripts/solve_vertical_landing.py --output-dir artifacts/day16-vertical
-~~~
+| 정상 조건 | 초기 상태 분포 밖 | 바람 | 모델 오차 | 센서·지연 | 복합 외란 |
+|---:|---:|---:|---:|---:|---:|
+| 12/12 | 12/12 | 6/12 | 8/12 | 6/12 | 0/12 |
 
-기본 초기조건 `z=100 m`, `vz=-20 m/s`, `mass=1000 kg`에서 솔버가 수렴했고, 명목 시뮬레이터 재적분은 약 `5.000초` 후 `-0.832 m/s`로 지면에 도달하며 연료 약 `27.435 kg`을 사용했습니다. 이는 수직 초기조건 한 건의 결과이지 2D Teacher 성공률이나 바람에 대한 강건성 결과가 아닙니다. [16일차 명세](docs/spec.ko.md#16일차-수직-casadiipopt-teacher)와 [영문 명세](docs/spec.md#22-day-16-vertical-casadiipopt-teacher)를 참고하세요.
+잔차 SAC가 복합 외란에서 한 사례를 착륙시킨 적은 있지만, 시험한 정책들은 다른 조건에서 기존 PID의 성공 사례를 잃었습니다. 조건별 성능 비퇴보 기준을 통과한 학습 제어기는 없으므로 PID를 교체하지 않았습니다. 개발 집합의 소수 사례만 본 결과이며 최종 강건성 추정치는 아닙니다. 최종 보류 집합은 아직 열지 않았습니다. 정확한 조건, 평가 규약, 실패 분석은 [기술 명세](docs/spec.ko.md)를 참조하세요.
 
-17일차에는 수평 위치·속도와 추력 벡터 방향 제어를 추가했습니다. 5상태 솔버의 초기 추정치는 해석식 또는 동결된 통합 PID 제어기의 궤적에서 선택할 수 있습니다. 기본 예시는 착륙 지점 오른쪽 10 m에서 출발하며, 2D 비행경로 PNG와 제약 진단 JSON을 저장합니다.
+## 착륙 실행
 
-~~~bash
-python scripts/solve_translation_landing.py --output-dir artifacts/day17-translation
-python scripts/solve_translation_landing.py --guess pid --output-dir artifacts/day17-pid
-~~~
+저장소 루트에서 Python 3.12.7을 사용합니다.
 
-기본 조건의 이상적인 추력 방향 재생 결과는 목표 위치 오차 약 `0.003 m`, 수평속도 `-0.005 m/s`, 수직속도 `-0.902 m/s`로 끝났습니다. 이 모델은 절대 추력 방향을 직접 명령하고 각 제어 구간 사이 재생 시 자세를 즉시 바꾸므로, 실제 자세·짐벌 궤적의 가능성을 증명하지는 않습니다. [17일차 명세](docs/spec.ko.md#17일차-평면-병진-teacher)와 [영문 명세](docs/spec.md#23-day-17-planar-translation-teacher)를 참고하세요.
+```powershell
+python -m pip install -e ".[dev,rl,video]"
+python scripts/run_episode.py --seed 378 --initial-state 10 100 0 -20 0 0 1000 --controller integrated-pid --output artifacts/landing.json --plot artifacts/landing.png --animation artifacts/landing.mp4
+```
 
-18일차에는 이 이상화를 없애고 `x, z, vx, vz, theta, omega, mass` 전체 상태와 실제 throttle·gimbal 제어를 사용합니다. 솔버는 몸체 기울기 20도, gimbal 15도, 각속도 초당 30도 제한과 최종 자세·각속도 제한을 적용합니다. PID episode는 초기 추정치로만 사용하며 두 최적화 단계와 독립 전체 모델 재적분을 각각 검증합니다.
+초기 상태의 순서는 `x z vx vz theta omega mass`이며 SI 단위를 사용합니다. 각도는 라디안입니다. 실행 결과로 착륙 판정과 최종 상태를 출력하고, 재생 가능한 기록·진단 그래프·MP4 애니메이션을 저장합니다. 기존 출력 파일은 덮어쓰지 않습니다. 저장된 기록만 다시 애니메이션으로 만들려면 다음 명령을 사용합니다.
 
-~~~bash
-python scripts/solve_planar_landing.py --output-dir artifacts/day18-planar-3dof
-~~~
+```powershell
+python scripts/run_episode.py --replay artifacts/landing.json --animation artifacts/landing-replay.mp4
+```
 
-기본 예시는 `x=10 m`, `z=100 m`, `vz=-20 m/s`, `theta=3도`, `omega=-1 deg/s`에서 시작합니다. 19일차 변화율 정규화 목적함수를 적용한 100구간 해는 `5.000초` 후 약 `x=0.012 m`, `vx=-0.023 m/s`, `vz=-0.974 m/s`, `theta=0.101도`, `omega=-0.028 deg/s`로 끝나며 연료 `27.907 kg`을 사용했습니다. 최대 몸체 기울기는 `15.749도`, 최대 각속도는 `21.680 deg/s`, 최대 gimbal은 `14.671도`입니다. 이는 무풍·즉시 반응 구동기를 가정한 단일 명목 해이며 강건성이나 하드웨어 안전 결과가 아닙니다. [18일차 명세](docs/spec.ko.md#18일차-전체-평면-3자유도-teacher)와 [영문 명세](docs/spec.md#24-day-18-full-planar-3-dof-teacher)를 참고하세요.
+SAC 또는 MP4가 필요 없다면 `.[dev]`만 설치하고 `--animation` 옵션을 제외해도 됩니다.
 
-## 19일차 목적함수와 수치 연구
+## 검증 재현
 
-19일차에는 전체 평면 B단계 비용의 모든 항에 명시적인 물리 척도를 적용했습니다. 연료는 사용 가능한 추진제, 접지 오차는 각 착륙 제한, 연속 제어 차이는 mesh 시간 간격과 `2 throttle/s`, `60 deg/s` 제어기 기준 변화율로 나눕니다. 이에 따라 기존 평활성 비용이 mesh 개수에 따라 달라지던 문제를 제거했습니다. 세 가지 가중치 profile로 연료·평활성 trade-off를 비교하고, baseline profile을 25, 50, 100, 200개 제어 구간에서 각각 풉니다. 모든 결과는 독립 simulator에서 `0.005 s` 간격으로 다시 적분합니다.
-
-~~~bash
-python scripts/analyze_optimal_control.py --output-dir artifacts/day19-study
-~~~
-
-| 평활성 가중치 | 연료 사용량 | 최대 throttle 변화율 | 최대 gimbal 변화율 |
-|---|---:|---:|---:|
-| 0.001, 연료 우선 | 27.858 kg | 1.479/s | 50.013 deg/s |
-| 0.01, baseline | 27.907 kg | 0.697/s | 23.824 deg/s |
-| 0.1, 평활 제어 | 28.003 kg | 0.478/s | 11.685 deg/s |
-
-네 mesh의 재적분 결과가 모두 상태별 최종 차이 허용오차 `0.001 m`, `0.001 m/s`, `0.01 deg`, `0.01 deg/s`, `0.001 kg` 안에 들어왔습니다. 최대 최종 오차/허용오차 비율은 25구간의 `0.231`에서 100구간의 `8.70e-4`로 감소했고, 개발 환경 측정 풀이 시간은 25구간 `0.613 s`에서 200구간 `2.618 s`로 늘었습니다. 이 시간은 상대 비교용 측정값이며 실행시간 보장이 아닙니다. 평활성은 soft objective이므로 기준 변화율은 아직 hard 구동기 제약이 아닙니다. [19일차 한글 명세](docs/spec.ko.md#19일차-목적함수와-수치-안정성-연구)와 [영문 명세](docs/spec.md#25-day-19-objective-and-numerical-stability-study)에서 자세히 볼 수 있습니다.
-
-## 20일차 다중 초기조건 Teacher pipeline
-
-20일차 pipeline은 `integrated_uniform_v1`으로 결정적인 batch를 만들고, 재사용 가능한 별도 process에서 각 최적제어 문제를 풉니다. 시도마다 30초 timeout을 실제로 강제합니다. 첫 case는 동결 PID 제어기의 초기 추정치를 사용합니다. 이후 case는 직전 성공 제어열을 새 초기상태에서 다시 적분해 먼저 warm-start하고, 실패하거나 timeout이 발생하면 새로운 PID 추정치로 한 번 재시도합니다. 장시간 solver 메모리 누적을 제한하기 위해 25회마다 worker를 교체합니다. 실패 시 단계, IPOPT 상태, 이름이 붙은 제약 진단, 예외 종류 또는 timeout metadata를 모두 남깁니다.
-
-~~~bash
-python scripts/generate_teacher_pipeline.py --output-dir artifacts/day20-teacher-pipeline
-~~~
-
-Seed `20260920`의 batch SHA-256은 `7a58dc505c4535e8f081544cea22de17743bff0d80f34debc9454b2029a9f9b9`입니다. 100개 case가 모두 첫 시도에 수렴하고 독립 simulator 재적분을 통과했습니다. 첫 case는 PID, 나머지 99개는 직전 성공 warm-start를 사용했으며 재시도, timeout과 실패는 모두 0건입니다. 평균 연료 사용량은 `27.349 kg`, 범위는 `24.669-30.571 kg`, 전체 측정시간은 `126.246 s`였습니다. 20일차 실행 완료 기준은 통과했지만, 이는 유한한 무풍 명목 표본이며 외란 강건성 보장은 아닙니다.
-
-명령은 JSON manifest 하나와 압축 NPZ 하나를 저장합니다. Manifest에는 batch hash, 정책, 모든 시도, solver·재적분 지표와 명시적인 실패 목록이 들어갑니다. NPZ에는 채택된 고정 mesh 궤적의 case index, 초기상태, 시간 node, 7상태 node, throttle·gimbal 제어와 종료시간만 저장합니다. 두 파일은 Git에서 제외되는 `artifacts/` 아래에 남습니다. [20일차 한글 명세](docs/spec.ko.md#20일차-다중-초기조건-teacher-pipeline)와 [영문 명세](docs/spec.md#26-day-20-multi-initial-condition-teacher-pipeline)에서 자세히 볼 수 있습니다.
-
-## 21일차 Teacher 검증과 동결
-
-21일차에는 `planar-teacher-v1`을 동결했습니다. 전체 생성 설정, 100-case 명목 시험 집합과 20일차 원본 산출물 두 개에 hash를 두어 동역학, PID 초기 추정 정책, 목적함수, mesh, 재적분 허용오차, 초기조건 범위, case 수, seed, 보고서 또는 궤적 archive가 바뀌면 평가를 중단합니다. 비교 전에는 JSON/NPZ schema, 배열 크기와 metadata, 채택 case index, 초기상태, 시간 node, 구동기 경계와 실패 목록의 완전성도 검사합니다.
-
-~~~bash
-python scripts/validate_teacher.py
-~~~
-
-명령은 저장된 모든 제어열을 `0.01 s` 간격으로 다시 적분한 다음, 정확히 같은 초기조건 100개에서 통합 PID를 실행합니다. Teacher는 `100/100`을 풀었고 100개 독립 재적분 모두 종단, 고도, 추진제, 기울기, 각속도, throttle, gimbal과 node 일치 검사를 통과했습니다. PID는 `99/100` 착륙했고, 실패 1건은 최종 위치·수평속도·각속도 제한을 넘은 crash였습니다. 두 방법 모두 착륙한 99건에서 평균 연료는 Teacher `27.347 kg`, PID `51.907 kg`이었으며 Teacher가 짝지은 case 평균 `24.560 kg`을 덜 사용했습니다.
-
-Teacher 생성 전체 측정시간은 `126.246 s`, 채택 시도 평균은 `1.236 s`였습니다. PID 명목 평가는 시뮬레이션을 포함해 `20.661 s`였고, 제어 명령 계산 자체는 합계 `5.609 s`, update당 약 `0.483 ms`였습니다. 앞 수치는 offline 최적화이고 뒤 수치는 online 제어 계산이므로 보고서에서는 직접 속도비로 합치지 않고 분리했습니다.
-
-3주차 통과 기준은 solver 성공률 90% 이상, 모든 채택 궤적의 새 simulator 재적분 통과, 모든 최적화 실패의 별도 집계입니다. 모든 항목이 통과했습니다. Teacher 연료 중앙값에 가장 가까운 22번 case를 대표로 정해 표준 재생 log와 240-frame GIF를 만들었습니다. 명령은 Git에서 제외되는 `artifacts/day21-teacher-validation/`에 `teacher-validation.json`, `representative-teacher.json`, `representative-teacher.gif`를 생성하며 기존 파일을 덮어쓰지 않습니다. 자세한 기준은 [21일차 기술 명세](docs/spec.ko.md#21일차-teacher-검증과-동결) 또는 [영문 명세](docs/spec.md#27-day-21-teacher-validation-and-freeze)에서 확인할 수 있습니다.
-
-## 22일차 데이터셋 규약과 split 설계
-
-22일차에는 대규모 궤적 생성 전에 `planar-bc-v1`을 정의했습니다. 저장 sample은 7상태 비종단 node와 그 다음 구간의 2제어를 한 쌍으로 사용합니다. 개별 row가 아니라 완전한 trajectory를 세 물리 shard 중 하나에만 배정합니다. Split과 무관하게 계산한 initial-condition ID로 split 내부 중복과 split 사이 겹침을 탐지합니다. 실패한 solver 시도는 manifest에 남기며 학습 label에는 넣지 않습니다.
-
-결정적 계획은 쉬운 train 800개, 같은 분포의 validation 100개와 어려운 OOD test 200개입니다. 모든 test case는 모든 train case보다 pad에서 멀고, 높고, 더 빠르게 하강하며, 사용할 수 있는 추진제가 적습니다. 수평속도, 자세와 각속도 범위도 더 넓습니다. Normalization은 채택된 train의 비종단 pair만 사용하고, float64 모집단 통계와 `1e-6` scale 하한을 저장합니다. 실제 수치 통계는 23-24일차에 채택 train 궤적이 만들어진 뒤 계산합니다.
-
-생성 계획은 split 내부 중복 0개, split 사이 겹침 0개로 다섯 완료 검사를 모두 통과했습니다. Dataset 설정 digest는 `7a45d09cc8d21bc795615538e6cf9c69a6a08eee58ffd1561228ecbc62f929f9`입니다. Train, validation, test 초기상태 digest는 각각 `06e0203d6ffb9f26687ce6d734fb9010c969b9cb7d139bbef22a1231311937d1`, `ca45656bf8785808716bb522f201bfa72827f45af21d67e98c1485e2652070eb`, `b244481859f99fd19c3ba44235fbd8f6afb4d31b04e59fa37e9d67c173420725`입니다.
-
-~~~bash
-python scripts/design_offline_dataset.py
-~~~
-
-명령은 다섯 완료 검사를 모두 수행하고 Git에서 제외되는 `artifacts/day22-dataset-design/`에 `dataset-design.json`과 `initial-condition-plan.npz`를 생성합니다. 기존 파일은 덮어쓰지 않습니다. 자세한 내용은 [한국어 데이터셋 카드](docs/dataset-card.ko.md), [22일차 기술 명세](docs/spec.ko.md#22일차-데이터셋-규약과-split-설계), [영문 데이터셋 카드](docs/dataset-card.md)와 [영문 명세](docs/spec.md#28-day-22-dataset-contract-and-split-design)에서 확인할 수 있습니다.
-
-## 23일차 대규모 쉬운 Teacher 궤적 생성
-
-23일차에는 22일차에 고정한 train 초기조건 800개를 timeout 격리 Teacher worker로 처리합니다. 각 case는 직전 채택 제어열을 새 초기상태에서 재적분한 warm start를 먼저 사용하고, 문제가 있으면 새 PID trajectory로 한 번 자동 재시도합니다. 10개마다 경과시간, 처리속도와 전체 실행 ETA를 측정합니다. Solver 이후 필터는 중복 ID, NaN·무한값, 잘못된 상태-action 정렬과 시간축, 재적분 실패, 종단·상태·구동기 제약 위반을 검사한 뒤 통과 trajectory만 묶습니다.
-
-~~~bash
-python scripts/generate_offline_dataset.py
-~~~
-
-계획된 800개를 모두 `947.487 s`에 실행했습니다. Solver와 독립 재적분을 통과한 trajectory는 797개로 성공률은 `99.625%`입니다. 4개 case가 재시도됐고 그중 1개는 복구됐으며, 3개는 세밀한 재적분에서 기울기 제한을 넘어서 제외됐습니다. Timeout은 0건이고 solver 성공 trajectory 중 중복, NaN, 구조 또는 제약 필터 추가 탈락도 0건입니다. 전체 800개 실행, 검증 trajectory 최소 500개와 packed shard 무결성을 요구하는 완료 gate는 모두 통과했습니다.
-
-채택 shard에는 상태 row 80,497개와 정렬된 action row 79,700개가 있습니다. Canonical SHA-256은 `04c0f2c0ff3c2e77a28276b37cd8005d2274dad041fbca2e145cd0aec9fe0876`입니다. Manifest와 shard는 Git에서 제외되는 `artifacts/day23-easy-dataset/`에 보관합니다. 24일차에는 더 넓고 어려운 범위를 생성하고 coverage를 확인한 뒤 최종 offline dataset version을 만듭니다. 자세한 내용은 [23일차 기술 명세](docs/spec.ko.md#23일차-대규모-쉬운-teacher-궤적-생성) 또는 [영문 명세](docs/spec.md#29-day-23-large-scale-easy-teacher-generation)에서 확인할 수 있습니다.
-
-## 24일차 최종 offline dataset
-
-24일차에는 검증된 23일차 train trajectory 797개를 보존하고 더 넓은 challenge 범위를 추가했습니다. 이 범위는 기존 train보다 넓지만 수평거리, 고도, 하강속도와 사용 가능한 추진제 기준으로 동결 hard OOD test보다 명확히 쉽습니다. 결정적 후보 640개의 위치·속도·자세·각속도·고도·질량 난이도를 계산한 뒤 상위 120개와 나머지 중 무작위 40개를 선택했습니다. Challenge trajectory 160개는 모두 solver와 세밀한 재적분 검증을 통과했습니다.
-
-Coverage는 수평 절대거리, 고도, 수평·수직속도, 자세, 각속도와 질량을 각각 8구간으로 나누고 구간당 최소 30개를 요구합니다. 첫 분석에서 부족한 marginal count 51개를 확인했습니다. 부족 구간을 직접 겨냥한 한 번의 추가 생성에서 51개 중 50개가 채택됐고, 다른 상태 성분의 무작위 배치가 실패한 목표 구간도 채워 최종 deficit은 0개, 가장 적은 구간은 정확히 30개가 됐습니다. 최종 train shard는 trajectory 1,007개와 정렬된 상태-action pair 100,700개를 담습니다.
-
-~~~bash
-python scripts/finalize_offline_dataset.py
-~~~
-
-IID validation은 `100/100`, hard OOD test는 `191/200`(`95.5%`)이 채택됐습니다. Hard test 실패 9개는 warm-start와 PID 시도 모두 세밀한 재적분을 통과하지 못한 기록으로 manifest에 보존했습니다. Timeout과 solver 성공 후 filter 탈락은 없습니다. 세 최종 shard에는 split 내부 또는 split 사이 initial-condition ID 중복이 없고, normalization은 최종 train transition만 사용합니다. 명령은 Git에서 제외되는 `artifacts/day24-final-dataset/`에 packed shard 3개, version manifest, normalization 통계와 분포 PNG를 저장하며 기존 결과를 덮어쓰지 않습니다. 자세한 내용은 [24일차 기술 명세](docs/spec.ko.md#24일차-최종-offline-dataset) 또는 [영문 명세](docs/spec.md#30-day-24-final-offline-dataset)에서 확인할 수 있습니다.
-
-## 25일차 Behavior Cloning 첫 정책
-
-학습 명령은 동결된 24일차 manifest, train·validation shard digest, split ID와 train 전용 정규화를 확인한 뒤 비종단 상태와 Teacher action을 짝지어 읽습니다. 은닉층 `64-64`의 ReLU MLP가 정규화된 throttle·gimbal 명령을 예측합니다. Seed `20260925`의 미니배치 Adam 학습은 분리된 IID validation으로 최고 checkpoint를 선택하며 patience 12의 조기 종료를 지원합니다. Hard OOD test shard는 읽거나 모델 선택에 사용하지 않습니다.
-
-~~~bash
-python -m pip install -e ".[optimization]"
-python scripts/train_behavior_cloning.py
-~~~
-
-작은 train 부분집합 16개에 대한 과적합 검사는 125단계에서 정규화 MSE `0.000707`을 기록해 기준 `0.0025`를 통과했습니다. 첫 전체 학습은 train 100,700 pair와 validation 10,000 pair를 사용했습니다. 80 epoch 중 최고 checkpoint는 79 epoch로 train MSE `0.024989`, IID validation MSE `0.030977`입니다. Validation 평균 절대 action 오차는 throttle `0.03299`, gimbal `0.273도`였습니다. 조기 종료 기능은 테스트로 확인했으며 이번 실행은 validation이 계속 개선되어 최대 epoch까지 진행됐습니다.
-
-Git에서 제외된 `artifacts/day25-bc/`에는 `bc-checkpoint.npz`와 `training-report.json`이 있습니다. Checkpoint는 모델, 정규화, 구동기 제한, 학습 설정, 데이터셋 digest와 선택 epoch를 포함하며 `powered_landing_guidance.behavior_cloning`의 `load_checkpoint`로 읽습니다. 이 지도학습 action 오차는 착륙 성공률이 아닙니다. 폐루프 착륙과 hard OOD 평가는 이후 일정에서 측정합니다. [25일차 기술 명세](docs/spec.ko.md#25일차-behavior-cloning-학습)와 [영문 명세](docs/spec.md#31-day-25-behavior-cloning-training)를 참고하세요.
-
-## 동결된 2주차 PID 기준선
-
-12일차 grid search에서 선택한 결과를 변경하지 않는 비교 기준 `pid-baseline-v1`로 동결했습니다. 선택된 위치 gain, 속도 gain, 하강 profile 배율 `(1.10, 0.95, 1.10)`은 실행 중 다시 곱하지 않고 `configs/pid-baseline-v1.yaml`에 실제 값으로 기록했습니다. Protocol은 통합 제어기 설정과 생성된 초기조건 행렬의 SHA-256을 모두 저장하며, 둘 중 하나라도 바뀌면 평가를 중단합니다.
-
-고정 평가 집합은 `integrated_uniform_v1`과 seed 20260914로 생성한 무풍 중간 난이도 초기조건 1,000개입니다. 수평 오차 3-15 m, 고도 80-120 m, 수평 속도 -2~2 m/s, 수직 속도 -25~-15 m/s, 자세 -5~5도, 각속도 -2~2 deg/s, 질량 950-1000 kg 범위를 포함합니다. Digest는 `a9593a383acc0017738ed383a123ca743a32bce46c64d249b08ca577a448a952`입니다.
-
-| 평가 항목 | 결과 |
-|---|---:|
-| 안전 착륙 | 999 / 1,000 (99.9%) |
-| 평균 / 최대 절대 접지 위치 | 0.4098 / 1.3494 m |
-| 평균 / 최대 수평 접지 속도 | 0.1656 / 0.5915 m/s |
-| 평균 / 95백분위 / 최대 수직 접지 속도 | 0.7802 / 0.7810 / 0.7814 m/s |
-| 평균 / 최대 접지 자세 | 0.5991 / 3.2498도 |
-| 평균 / 최대 접지 각속도 | 1.3178 / 3.6500 deg/s |
-| 평균 연료 사용량 | 51.4460 kg |
-| 최대 throttle / gimbal 변화율 | 초당 1.8658 / 초당 60.0000도 |
-
-2주차 통과 기준 70%를 충족했습니다. 한 사례는 착륙장 위치 제한 1 m를 벗어나 crash로 판정됐으며 나머지 접지 제한의 최대값은 모두 설정 범위 안이었습니다. 이 결과는 시뮬레이션 기준이며 실제 하드웨어 안전을 의미하지 않습니다. 아래 산출물 명령은 같은 초기상태에서 무풍 성공과 40 m/s 일정 바람 스트레스 실패도 생성합니다. 스트레스 실패는 명목 999/1,000 결과에 포함되지 않습니다.
-
-## 2주차 결과 요약
-
-| 단계 | 고정 평가 | 결과 |
-|---|---|---:|
-| 수직 suicide-burn | 경계 예시 3개 | 안전 착륙 3 / 3 |
-| 수직속도 PID | 수직·무풍 초기조건 100개 | 안전 착륙 100 / 100 |
-| 수평·자세 루프 | 8초 고도 유지 조건 100개 | 착륙장 방향 수렴 100 / 100 |
-| 통합 PID 튜닝 검증 | 선택에 쓰지 않은 초기조건 100개 | 안전 착륙 100 / 100 |
-| 동결 통합 PID | 명목 초기조건 1,000개 | 안전 착륙 999 / 1,000 |
-
-이후 제어기, 최적제어와 학습 정책 비교는 모두 `configs/pid-baseline-v1.yaml`을 `frozen_baseline_initial_states`로 읽어야 합니다. 따라서 초기조건을 동일하게 유지하고 설정 변경도 탐지할 수 있습니다.
-
-## 재현 가능한 기준선 튜닝
-
-통합 제어기는 Cartesian grid search와 seed를 고정한 random search를 모두 지원합니다. 기본 grid는 배율을 적용하지 않은 기준 후보를 포함해 13개 후보를 평가합니다. 후보 선택에는 seed 20260912의 초기조건 16개를 사용하고, 선택된 후보는 seed 20260913의 별도 초기조건 100개에서 한 번만 검증합니다. 검증 조건은 후보 선택에 사용하지 않습니다.
-
-최소화하는 목적함수는 실패율, 전체 250 kg 연료 대비 사용 비율, x·vx·vz·자세·각속도의 평균 정규화 접지 오차를 결합합니다.
-
-~~~text
-score = 1000 * failure_rate + 5 * fuel_fraction + 10 * normalized_landing_error
-~~~
-
-선택된 배율은 수평 위치 이득 1.10, 수평 속도 이득 0.95, 하강 profile 감속도 1.10입니다. 학습 조건에서 선택 후보와 배율을 적용하지 않은 기준 후보는 모두 16회 중 16회 성공했고, 선택 후보는 점수를 4.179125에서 3.716630으로, 평균 연료 사용량을 52.9862 kg에서 51.1532 kg으로 줄였습니다. 한 번도 선택에 사용하지 않은 검증 조건에서는 100회 모두 성공했고 평균 연료 사용량은 51.9394 kg, 평균 절대 위치 오차는 0.3942 m였습니다.
-
-생성되는 보고서에는 모든 후보, 목적함수 항, seed와 검증 지표가 기록됩니다. 생성 YAML은 그대로 불러올 수 있는 전체 설정입니다. `configs/default.yaml`은 동결 전 튜닝 기준으로 유지하고, `configs/pid-baseline-v1.yaml`은 이후 비교에 쓰는 선택·동결된 2주차 기준선입니다.
-
-## 분리 외란 벤치마크
-
-튜닝된 통합 PID를 seed 20260915의 동일 초기조건 30개에서 외란별로 따로 평가했습니다. 일정 바람과 2초 반사인 돌풍에 대한 이차 공기저항, 서로 독립인 Gaussian 센서 잡음, 실제 추력 scale 오차와 1차 throttle 지연을 다룹니다. 안전 착륙 성공률이 처음으로 95% 아래가 되는 실험 강도를 붕괴점으로 정의했습니다.
-
-| 외란 | 95% 이상인 마지막 실험 강도 | 첫 붕괴 강도 | 붕괴점 성공 |
-|---|---:|---:|---:|
-| 일정 바람 | 10 m/s | 20 m/s | 26 / 30 |
-| 돌풍 진폭 | 40 m/s | 60 m/s | 26 / 30 |
-| 센서 잡음 배율 | 1배 | 2배 | 26 / 30 |
-| 실제 추력 배율 | 1.00배 | 0.95배 | 28 / 30 |
-| Throttle 지연 시정수 | 0.2 s | 0.5 s | 27 / 30 |
-
-무외란 조건은 30회 중 29회 성공했습니다. 앞선 100/100 검증과 다른 seed에서 경계 조건 하나가 드러난 결과이며, 유한한 성공 표본이 모든 조건의 강건성을 보장하지 않는다는 뜻입니다. 초기조건, 바람 방향, 돌풍 시작 시각과 센서 잡음열은 강도 단계 사이에서 짝을 맞췄으므로 각 곡선에서는 하나의 모델 요소만 달라집니다. 이 수치는 설정된 실험 grid의 경계이지 인증된 운용 한계가 아닙니다.
-
-## 수평·자세 제어 벤치마크
-
-수평 제어기는 위치와 속도 오차를 제한된 목표 기울기로 바꾸고, 자세 PD 제어로 gimbal 명령을 계산합니다. 추력 방향이 기울어지면서 줄어드는 수직 추력 성분은 throttle로 보상합니다. 설정 제한은 수평 가속도 2.5 m/s², 목표 기울기 15도, 기체 gimbal 15도입니다.
-
-무풍 초기조건 100개에서 수평 위치 오차 5-20 m, 수평 속도 -2~2 m/s, 자세 -5~5도, 각속도 -2~2 deg/s, 질량 950-1000 kg을 사용했습니다. 수평·자세 동작만 분리해 보기 위해 각 실험은 고도 100 m를 유지하며 8초 동안 실행했습니다.
-
-| 평가 항목 | 결과 |
-|---|---:|
-| 정상 완료 | 100 / 100 |
-| 착륙장 방향 수렴 | 100 / 100 |
-| 평균 초기 절대 위치 오차 | 12.4712 m |
-| 평균 최종 절대 위치 오차 | 5.4894 m |
-| 최대 목표 기울기 | 9.7647도 |
-| 최대 gimbal 명령 | 7.0393도 |
-| 최대 고도 편차 | 0.0149 m |
-
-이 분리 벤치마크는 통합 착륙 제어기와 별개로 수평 동작만 진단할 때 계속 사용할 수 있습니다.
-
-## 수직속도 PID 벤치마크
-
-수직속도 제어기는 고도에 따라 달라지는 목표 하강속도를 throttle PID로 추종합니다. 중력과 목표 감속도를 feed-forward throttle로 계산하고, 출력이 0 또는 1에 도달하면 오차 방향을 확인해 적분을 멈추며 적분값 자체도 제한합니다.
-
-선택한 이득은 `Kp=0.08`, `Ki=0.001`, `Kd=0.01`입니다. 고도 80-120 m, 수직속도 -25~-15 m/s, 질량 950-1000 kg 범위에서 고정 seed로 100개 초기조건을 생성했습니다. 수직 전용 벤치마크이므로 수평 위치·속도와 자세·각속도는 0으로 고정했습니다.
-
-| 평가 항목 | 결과 |
-|---|---:|
-| 안전 착륙 | 100 / 100 |
-| 성공률 | 100% |
-| 평균 접지 속도 | 1.1010 m/s |
-| 접지 속도 95백분위 | 1.1938 m/s |
-| 평균 연료 사용량 | 37.4923 kg |
-
-모든 표본이 접지 속도 2 m/s 이하였습니다.
-
-## Suicide-burn 벤치마크
-
-Suicide-burn 제어기는 하강 중인 로켓이 설정된 접지 속도 2 m/s를 만족하도록 점화 시점을 계산합니다. 로드맵에서 요구한 상수 질량 폐형식 계산을 기준식으로 제공하고, 실제 실행 제어기에는 연료 소모에 따른 질량 변화와 0.02초 제어 주기 안에서 발생하는 점화 시점 보정을 적용했습니다.
-
-| 초기 고도 | 초기 수직 속도 | 초기 질량 | 점화 고도 | 접지 속도 | 결과 |
-|---:|---:|---:|---:|---:|---|
-| 80 m | -15 m/s | 950 kg | 42.184892 m | -1.998971 m/s | success |
-| 100 m | -20 m/s | 1000 kg | 58.397961 m | -1.996813 m/s | success |
-| 120 m | -25 m/s | 1000 kg | 73.606685 m | -1.995567 m/s | success |
-
-이 결과는 수직, 무풍 조건의 기준선 검증입니다. 구조 안전성이나 수평 오차, 기울기, 바람, 센서 잡음, 구동기 지연이 있는 조건의 성능을 의미하지 않습니다.
-
-## 시스템 흐름
-
-~~~text
-초기조건
-   |
-   v
-Gymnasium 환경 <---- 제어기
-   |                  ^
-   v                  |
-가변 질량 동역학 -----+
-   |
-   +----> 지면 접촉 및 연료 사건
-   |
-   +----> JSON 또는 NPZ 에피소드 기록
-                    |
-                    +----> 그래프와 애니메이션
-~~~
-
-상태와 제어 규약은 시뮬레이션, 제어기, 이후 데이터셋과 학습 정책이 함께 사용합니다. 저장한 에피소드는 물리를 다시 계산하지 않고 재생할 수 있습니다.
-
-## 설치
-
-프로젝트 루트에서 Python 3.12.7을 사용합니다.
-
-~~~powershell
-python --version
-python -m pip install -e ".[dev]"
-~~~
-
-## 착륙 제어기 실행
-
-수평·수직 오차가 있는 상태에서 통합 제어기를 실행합니다.
-
-~~~powershell
-python scripts/run_episode.py --initial-state 10 100 0 -20 0 0 1000 --controller integrated-pid
-~~~
-
-수직속도 PID 제어기를 실행합니다.
-
-~~~powershell
-python scripts/run_episode.py --initial-state 0 100 0 -20 0 0 1000 --controller velocity-pid
-~~~
-
-Suicide-burn 제어기를 실행합니다.
-
-~~~powershell
-python scripts/run_episode.py --initial-state 0 100 0 -20 0 0 1000 --controller suicide-burn
-~~~
-
-초기조건 순서는 x z vx vz theta omega mass입니다. 모든 값은 SI 단위이며 theta와 omega는 rad와 rad/s를 사용합니다.
-
-통합 착륙 에피소드 기록, 진단 그래프와 애니메이션을 함께 저장합니다.
-
-~~~powershell
-python scripts/run_episode.py --initial-state 10 100 0 -20 0 0 1000 --controller integrated-pid --output artifacts/integrated.json --plot artifacts/integrated.png --animation artifacts/integrated.gif
-~~~
-
-저장된 기록을 물리 계산 없이 재생할 수 있습니다.
-
-~~~powershell
-python scripts/run_episode.py --replay artifacts/velocity-pid.json --animation artifacts/replay.gif
-~~~
-
-생성물은 Git에서 제외되며 기존 파일을 자동으로 덮어쓰지 않습니다.
-
-## 검증
-
-전체 회귀 테스트와 코드 검사를 실행합니다.
-
-~~~powershell
+```powershell
 python -m pytest -p no:cacheprovider
 python -m ruff check --no-cache .
 python -m ruff format --check --no-cache .
-~~~
+python scripts/prepare_rl_protocol.py --output-dir artifacts/rl-protocol
+```
 
-1주차 수치 안정성 검증을 다시 실행할 수 있습니다.
+마지막 명령은 개발 사례에 대해서만 고정된 PID를 평가합니다. Git에서 제외한 `artifacts/` 아래 CSV와 규약 보고서를 작성하며 기존 파일은 덮어쓰지 않습니다. 조건 범위·기준 시드·정책 선택 기준은 [`configs/rl-evaluation-v1.yaml`](configs/rl-evaluation-v1.yaml)에 있습니다. 학습·평가 실행 코드는 [`scripts/`](scripts/)에, 구현 코드는 [`src/powered_landing_guidance/`](src/powered_landing_guidance/)에 있습니다.
 
-~~~powershell
-python scripts/verify_week1.py --episodes 100 --seed 20260907
-~~~
+## 범위와 한계
 
-이 검증은 좌표계와 토크 부호, 연료 유량, 5가지 종료 결과, 상태 유한성, 질량 단조 감소, 지면 침범, 사건 시간과 기록 일치를 확인합니다.
+- 최적제어 Teacher는 명목 모델을 풉니다. 복합 외란이나 구동기 지연 아래의 성능을 보증하지 않습니다.
+- 현재 잔차 명령 필터는 경험적 제한 장치이며 형식적인 안전 보증이 아닙니다. 필터를 거친 정책도 PID가 성공하는 사례를 실패하게 만들 수 있습니다.
+- 시뮬레이터는 발사, 3D 동역학, 구조 충격 손상, 비행 인증 수준의 하드웨어 동작을 모델링하지 않습니다.
+- 생성 결과와 로컬 전용 기록은 Git에서 제외합니다.
 
-동일한 초기조건에서 PID 이득 조합을 비교합니다.
-
-~~~powershell
-python scripts/sweep_velocity_gains.py --episodes 100 --seed 20260910
-~~~
-
-성공률, 접지 속도 통계와 평균 연료 사용량이 출력됩니다. 다른 조합은 `--kp`, `--ki`, `--kd`에 각각 여러 값을 전달해 비교할 수 있습니다.
-
-수평·자세 제어 벤치마크를 동일한 조건으로 다시 실행합니다.
-
-~~~powershell
-python scripts/evaluate_horizontal_control.py --episodes 100 --seed 20260914
-~~~
-
-착륙장 방향 수렴률, 위치 오차 감소량, 최대 기울기·gimbal과 수직 추력 보상 중 고도 편차를 출력합니다.
-
-중간 난이도 초기조건 100개의 통합 착륙 벤치마크를 실행합니다.
-
-~~~powershell
-python scripts/evaluate_integrated_control.py --episodes 100 --seed 20260914
-~~~
-
-모든 접지 상태값, 연료 사용량, phase별 제어 갱신 횟수와 실제 throttle·gimbal 변화율을 출력합니다.
-
-통합 기준선을 튜닝하고 전체 보고서와 최적 설정을 저장합니다.
-
-~~~powershell
-python scripts/tune_integrated_controller.py --report artifacts/tuning.json --best-config artifacts/best-integrated.yaml
-~~~
-
-Seed가 고정된 random search는 `--method random`을 추가해 실행합니다. 두 출력은 기존 파일을 자동으로 덮어쓰지 않습니다. 선택된 설정은 다른 실행 명령에서 바로 사용할 수 있습니다.
-
-~~~powershell
-python scripts/run_episode.py --config artifacts/best-integrated.yaml --initial-state 10 100 0 -20 0 0 1000 --controller integrated-pid --output artifacts/tuned-landing.json --plot artifacts/tuned-landing.png --animation artifacts/tuned-landing.gif --fps 20 --max-frames 240
-~~~
-
-GIF 렌더링은 시뮬레이션이 끝난 뒤 수행되므로 몇 초 이상 걸릴 수 있습니다. `--max-frames`는 기록된 궤적을 고르게 줄여 렌더링 시간과 파일 크기를 조절하며 물리 시뮬레이션 결과는 바꾸지 않습니다.
-
-동결된 2주차 초기조건 1,000개 평가와 성공·실패 GIF를 재현합니다.
-
-~~~powershell
-python scripts/evaluate_frozen_baseline.py --output-dir artifacts/week2-baseline
-~~~
-
-실행 전에 제어기와 초기조건 SHA-256을 검증하고 성공률 70% 통과 기준을 적용하며, 다섯 산출물 중 하나라도 있으면 덮어쓰지 않습니다. 두 GIF는 같은 초기조건을 사용합니다. 성공 영상은 명목 조건이고 실패 영상은 명시된 40 m/s 일정 바람 스트레스 조건입니다.
-
-분리 외란 보고서와 성능 곡선을 생성합니다.
-
-~~~powershell
-python scripts/evaluate_pid_disturbances.py --report artifacts/disturbances.json --plot artifacts/disturbances.png
-~~~
-
-강도별 기본 실험 횟수 30회는 `--episodes`로 바꿀 수 있습니다. 기존 출력은 덮어쓰지 않습니다.
-
-## Suicide-burn 계산
-
-첫 번째 기준 계산에서는 연소 중 질량을 현재값으로 고정합니다.
-
-~~~text
-a_net = T_max / mass - gravity
-h_stop = (downward_speed^2 - target_speed^2) / (2 * a_net)
-~~~
-
-필요 고도보다 위에서 점화하면 early_burn, 아래에서 점화하면 late_burn으로 분류합니다. 실제 실행 기준선은 가변 질량 해석으로 점화 고도를 보정하고, 이상적인 점화가 두 제어 시점 사이에 있으면 첫 연소 스텝에 부분 스로틀을 적용합니다.
-
-## 수직속도 profile
-
-목표값은 고도가 낮아질수록 허용 하강속도가 작아지도록 정의합니다.
-
-~~~text
-target_vz = -min(max_descent_speed, sqrt(touchdown_speed^2 + 2 * deceleration * altitude))
-throttle = saturate(feed_forward + Kp * error + Ki * integral + Kd * error_rate)
-~~~
-
-적분항은 설정 범위로 제한하며, 포화된 출력을 오차가 같은 방향으로 더 밀어내는 동안에는 누적하지 않습니다.
-
-## 수평 위치·자세 제어 루프
-
-외부 루프는 수평 위치·속도 오차를 목표 수평 가속도와 제한된 목표 자세로 변환합니다. 내부 루프는 자세 오차와 각속도로 목표 각가속도를 계산하고 추력 토크 식을 역으로 풀어 gimbal 각도를 구합니다.
-
-~~~text
-target_ax = clip(Kp_x * (target_x - x) - Kd_x * vx)
-target_theta = clip(atan2(target_ax, gravity), max_tilt)
-target_alpha = Kp_theta * (target_theta - theta) - Kd_theta * omega
-gimbal = clip(asin(-target_alpha * inertia / (lever_arm * thrust)))
-~~~
-
-Coupling 보상을 켜면 기본 throttle을 `cos(theta + gimbal)`로 나누어 수직 추력 성분을 유지합니다. 최종 throttle과 gimbal에는 구동기 제한이 적용됩니다. 추력이 0이면 자세 토크를 만들 수 없으므로 gimbal도 안전하게 0을 반환합니다.
-
-## 저장소 구조
-
-~~~text
-README.md / README.ko.md        영문 기본·한국어 프로젝트 소개
-configs/                        공용 실험 설정
-docs/spec.md / docs/spec.ko.md  영문 기본·한국어 기술 명세
-docs/dataset-card*.md           영문 기본·한국어 데이터셋 문서
-scripts/                        재현 가능한 실험 실행 명령
-src/powered_landing_guidance/   물리, 환경, 제어기와 시각화
-tests/                          회귀, 경계 조건과 제어기 테스트
-.local/experiment_logs/         Git에서 제외되는 로컬 일차 기록
-~~~
-
-Git에 포함되는 저장소에는 소스 코드, 재현 가능한 설정, 기술 문서와 테스트만 둡니다. 일차별 작업 기록은 개발 컴퓨터의 .local/experiment_logs/에 보관하며 GitHub에는 올라가지 않습니다.
-
-## 로드맵
-
-- 1주차: 시뮬레이터, 사건 처리, 기록, 재생과 수치 검증 - 완료
-- 2주차: suicide-burn과 동결 PID 기준선 - 완료
-- 3주차: 제약 최적제어 Teacher - 전체 평면 solver, 수치 튜닝, 100-case pipeline, 검증, 비교와 protocol 동결 완료
-- 4주차: train/validation/hard-test 1,007/100/191개 최종 offline dataset과 25일차 BC 첫 checkpoint 완료, 모델 실험과 폐루프 검증 예정
-- 5주차: DAgger 폐루프 개선
-- 6주차: 외란과 Monte Carlo 평가
-- 7주차: 보고서, 비교 시각화와 조작 화면
-
-## 현재 한계
-
-- 착륙 직전 동력 하강만 다루며 발사, 상승, 귀환 기동과 재진입은 범위 밖입니다.
-- 외란은 한 번에 하나씩 평가했으며 바람, 센서와 구동기 고장이 결합된 상황은 아직 다루지 않았습니다.
-- 공기저항은 공력 토크, 양력, 고도별 밀도와 난류가 없는 점 힘 모델입니다.
-- 센서 오차는 서로 독립인 영평균 Gaussian 표본이며 엔진 지연은 현재 throttle에만 적용합니다.
-- Throttle과 gimbal 변화율은 비용으로 억제하지만 아직 hard 구동기 변화율 제약은 아닙니다.
-- 지면 접촉은 착륙 다리와 구조 충격이 없는 점 모델입니다.
-- 성공 기준 2 m/s는 시뮬레이션 판정값이며 하드웨어 안전을 보증하지 않습니다.
-
-좌표계, 단위, 사건과 에피소드 기록 규약은 [한국어 모델·환경 명세](docs/spec.ko.md)에서 확인할 수 있습니다. [영문 명세](docs/spec.md)도 함께 제공합니다.
+자세한 내용: [기술 명세](docs/spec.ko.md) · [데이터셋 카드](docs/dataset-card.ko.md) · [모델 카드](docs/model-card.ko.md).

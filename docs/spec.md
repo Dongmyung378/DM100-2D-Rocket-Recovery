@@ -216,7 +216,7 @@ Each step contains `index`, `time_s`, `state`, `commanded_action`, `clipped_acti
 
 `save_episode_data` writes the same episode record as JSON or compressed NPZ. NPZ stores the source JSON plus validation arrays for `times_s`, `states`, `actions`, and `thrust_n`, without object pickle. `load_episode_data` checks those arrays against the source record. Both formats replay stored states directly rather than rerunning physics.
 
-Time-series plots show position, velocity, attitude, angular speed, mass, throttle, and gimbal. The 2D animation shows the x-z trajectory, vehicle attitude, thrust vector, ground, and the `x=0` landing target. Vehicle geometry is illustrative and does not model real dimensions or landing legs. GIF is supported directly; MP4 requires FFmpeg. Output functions never overwrite an existing file.
+Time-series plots show position, velocity, attitude, angular speed, mass, throttle, and gimbal. The 2D animation shows the x-z trajectory, vehicle attitude, thrust vector, ground, and the `x=0` landing target. Vehicle geometry is illustrative and does not model real dimensions or landing legs. GIF is supported directly; MP4 uses a system FFmpeg executable or the bundled executable from the `video` extra. Output functions never overwrite an existing file.
 
 ## 14. Vertical suicide-burn baseline
 
@@ -691,4 +691,81 @@ Before full training, an independent model must fit 16 train pairs to normalized
 python scripts/train_behavior_cloning.py
 ~~~
 
-The ignored `artifacts/day25-bc/` directory contains a pickle-free NPZ checkpoint and a JSON report with the complete epoch history, physical action errors, overfit gate, settings, data provenance, and timing. The checkpoint embeds normalization and actuator limits. `load_checkpoint` verifies parameter shapes, float32 dtypes, finite values, and the exact expected NPZ fields. This is an open-loop supervised result only; closed-loop landing, wind, and hard OOD policy success have not yet been measured.
+The ignored `artifacts/day25-bc/` directory contains a pickle-free NPZ checkpoint and a JSON report with the complete epoch history, physical action errors, overfit gate, settings, data provenance, and timing. The checkpoint embeds normalization and actuator limits. `load_checkpoint` verifies parameter shapes, float32 dtypes, finite values, and the exact expected NPZ fields. This Day 25 result is open-loop only; the following section measures closed-loop landing and hard OOD success.
+
+## 32. Days 26-35 closed-loop policy experiments
+
+`scripts/advance_imitation_learning.py` runs the following stages with deterministic train/validation splits. `--through` accepts 26, 28, 32, 34, or 35. The command reads the hard OOD test shard only after model selection and checkpoint freeze in Day 35.
+
+| Stage | Implementation and completion evidence |
+|---|---|
+| 26 | Compare 64-ReLU baseline, 96-tanh and 128-ReLU with action/terminal weighting; select minimum IID validation MSE. Result: 0.03098, 0.04185, 0.03692, so baseline retained. |
+| 27-28 | Roll out 100 validation initial states with 0.1 s learned control updates and 0.02 s RK4 physics; compare BC 14/100 and PID 100/100, classify failures, quantify normalized nearest-neighbor drift, render MP4, and verify checkpoint metadata. |
+| 29-32 | Roll out student policy from **train** initial states, select 48 visited states per iteration, re-solve each with the planar optimal-control Teacher, reject failed solver/replay cases, and retrain with about 5% replayed on-policy rows. Accepted labels: 43, 35, 47. The selected v4 checkpoint reached 5/32 on development validation versus BC 4/32. |
+| 33 | Compare raw and rate-limited commands plus sensor-noise and combined wind/thrust-error stress on a separate 32-case validation slice. Train a separate 20,000-row train-only sensor-noise augmentation candidate; it achieved 5/32 clean and 2/32 noisy, and was not used in the frozen final comparison. Limit is 2 throttle/s and 60 deg/s. Peak-rate calculations exclude a final shortened contact/fuel-cutoff step. |
+| 34 | Evaluate 25%, 50%, and 75% PID action blends as an optional residual-policy feasibility study. All achieved 0/32 and were rejected. No PPO training was run. |
+| 35 | Copy and SHA-256-check selected BC/DAgger checkpoints before reading 191 hard OOD initial states. Compare BC 0/191, DAgger 3/191, PID 191/191; measure inference latency and save failure/improvement MP4 replays. |
+
+The DAgger update uses the original 100,700 train pairs and repeats its accepted on-policy labels to about 5% of each training epoch; it does **not** modify the frozen Day 24 dataset. Its OCP Teacher uses the nominal model even when the student visited states under 0.8 m/s wind or 5% thrust loss. That model mismatch is explicit and can affect label quality. Neither the 32-case development slice nor the 100-case validation set is a hard OOD test. The Day 32 nominal-nondegradation target failed: the full validation success rate was BC 14/100 versus stabilized DAgger 11/100. The Day 35 OOD gain of three landings is insufficient for deployment. See the [model card](model-card.md) for failure analysis and use restrictions.
+
+## 33. Days 36-38 residual landing environment and command filter
+
+`configs/rl-evaluation-v1.yaml` fixes six condition groups and a root seed of `378`. Training, development, and final holdout use separate stream IDs `0`, `1`, and `2`. The final-holdout sampler is locked by default. The Day 36 PID pilot uses only development cases and does not filter initial states by Teacher success. The 180-row result and full condition/range/selection record are generated by `scripts/prepare_rl_protocol.py` under ignored `artifacts/day36-rl-protocol/`.
+
+`ResidualLandingEnv` uses the same physical/sensor/actuator stepper as that PID pilot. One normalized residual action in `[-1,1]^2` is submitted every `0.1 s`, and the selected command is sent to the actuator path for five `0.02 s` physics steps; action delay and engine lag can change the command actually applied. Before filtering, the candidate is `PID + [0.08 * residual_throttle, radians(2) * residual_gimbal]`; the second component is in radians. Its 17 float32 observation values are, in order: seven delayed/noisy physical state values divided by `[30 m,160 m,10 m/s,40 m/s,20 deg,30 deg/s,250 kg]` (altitude is relative to ground and mass is relative to dry mass); two PID action values scaled by `[1, gimbal_limit]`; approach and terminal PID integrals divided by their limit; both previous vertical errors divided by `40 m/s`; terminal-phase flag; two pending command values scaled by `[1, gimbal_limit]`; and applied throttle. True state appears in `info` for diagnostics, not in the policy observation.
+
+The command filter returns the current PID command for malformed, non-finite, or out-of-range residuals, actuator saturation, command slew beyond `2 throttle/s` or `60 deg/s`, candidate fuel consumption that breaches a `1 kg` reserve while exceeding PID throttle, or projected attitude/ground margins that are already stressed and worsen relative to PID. The projection checks use the nominal vehicle model, a `0.1 s` horizon, `20 deg` attitude limit, and `0.5 m` ground stopping buffer. They are heuristics, especially under model error and delayed/noisy sensing; they do not prove physical safety or even preserve the PID's earlier trajectory after a previously accepted residual. The base environment retains its sparse simulator reward; the Day 39 wrapper supplies the training reward separately.
+
+Each control update records the baseline action, proposed residual, selected action, fallback reasons, cumulative interventions, and the physical outcome. Wall-clock filter time is kept in `env.safety_timing_us`, outside deterministic Gymnasium `info`. `scripts/verify_residual_landing.py` probes three training cases per group with independent uniform residual components in `[-0.25,0.25]`, writes a non-overwriting JSON report, and does not claim trained-policy performance. Zero residual matched every PID physics state and physical command in all six groups. The refactored 180-case PID CSV retained its previous canonical row digest `f4c2dc64c5bdcd4086bfacce14d82e98b5602552e92baae15048c49fa46a3b52`.
+
+## 34. Days 39-40 reward, curriculum, and SAC pilot
+
+`LandingRewardWrapper` changes only the training reward, not the physical transition or outcome. At each control step, reward is `potential(next) - potential(previous) - 0.1 * elapsed_seconds + terminal_bonus`. Potential lies in `[-11, 0]` and sums clipped penalties for horizontal error, altitude above ground, horizontal and vertical speed, attitude, and angular rate. It has no fuel term. Terminal bonuses are `+100` for success, `-120` for hard landing, `-150` for crash, and `-130` for fuel depletion or timeout. Potential differences telescope over an episode, and the simulator's finite horizon bounds the time term. Hovering incurs time cost, and every failure remains below any successful terminal return. The reward does not make a safety guarantee or imply that the learned policy will optimize the intended objective in a short run.
+
+`CurriculumResidualEnv` samples **train-split IDs only** using a seed-378 generator. Its named stages are nominal, initial OOD, wind, single disturbance, and combined disturbance. Each stage has fixed weights over train-group/difficulty pairs; a stage change takes effect at the next reset and the active episode retains its original stage label. The generator state and episode index are checkpointed. The development cases are sampled from a separate protocol stream, and the final holdout is never materialized by the pilot.
+
+`configs/sac-pilot-v1.yaml` fixes three 2,000-step stages (nominal, initial OOD, wind), total budget 6,000, CPU SAC, a `64x64` network, replay capacity 20,000, 200 initial collection steps, batch 64, learning rate `3e-4`, discount `0.99`, target update `0.005`, and one gradient update per environment step. The actor mean layer is initialized to zero, making the initial deterministic residual exactly zero. The initial 36 development cases reproduce PID outcomes. The run saves model/replay checkpoints with SHA-256 manifests, per-episode training records, paired per-case development evaluations, and PNG learning curves at steps 0, 2,000, 4,000, and 6,000. `--until N` and `--resume` support budget-bounded continuation; resumes restore the model, replay buffer, and curriculum sampler. This is functional checkpoint continuation, not a claim of bitwise-identical training across interrupted runs.
+
+| Environment steps | Nominal | Initial OOD | Wind | New failures on PID successes, in group order |
+|---:|---:|---:|---:|---|
+| PID / 0 | 12/12 | 12/12 | 6/12 | 0, 0, 0 |
+| 2,000 | 12/12 | 12/12 | 7/12 | 0, 0, 0 |
+| 4,000 | 11/12 | 10/12 | 7/12 | 1, 2, 3 |
+| 6,000 | 9/12 | 10/12 | 6/12 | 3, 2, 2 |
+
+All policy failures in this pilot were classified as crashes. The 2,000-step checkpoint rescued one wind case without losing a PID success among these 36 cases, but this small development result is exploratory. The 6,000-step checkpoint regressed and is not selected over PID. No final-holdout claim, independent-seed robustness claim, or six-group completion claim follows from this pilot.
+
+## 35. Days 41-42 multi-seed robustness and controlled filter experiment
+
+`scripts/advance_residual_sac.py` uses the protocol's root seed `378` and `numpy.SeedSequence(378).spawn(3)` to derive independent training seeds `3024638723`, `2326541261`, and `1907174973`. Day 41 initializes a separate zero-residual actor for each seed, rather than copying the Day 40 pilot. The fixed CPU `64x64` SAC uses learning rate `1e-4`, replay capacity 20,000, 200 initial collection steps, batch 64, discount `0.99`, and one update per environment step. Its 8,000-step curriculum boundaries are nominal 1,000, initial OOD 3,000, wind 5,000, and model mismatch 8,000. The training sampler uses only train-split IDs.
+
+Every checkpoint is evaluated on the same 12 development cases in each of the six condition groups. The evaluation records each case's PID and policy outcomes, paired rescues and new failures, crashes, fuel use as a descriptive field, total control updates, fallback rate and reasons, and which throttle/gimbal bound was exceeded. Fuel is not a model-selection criterion. Each seed's model/replay file, SHA-256 manifest, sampler state, episode records, and learning curve are saved separately. `--resume` continues from the latest complete checkpoint; the final holdout remains sealed. Repeating the same 12 cases under three training seeds does not create 36 independent test cases.
+
+At step 8,000 the safe-landing counts were, in group order nominal / initial OOD / wind / model mismatch / sensor-delay / combined:
+
+| Policy | Nominal | Initial OOD | Wind | Model mismatch | Sensor/delay | Combined |
+|---|---:|---:|---:|---:|---:|---:|
+| PID | 12 | 12 | 6 | 8 | 6 | 0 |
+| Seed 0 | 12 | 12 | 7 | 11 | 8 | 0 |
+| Seed 1 | 12 | 12 | 8 | 8 | 7 | 0 |
+| Seed 2 | 12 | 12 | 9 | 6 | 8 | 0 |
+
+All cells have denominator 12. Seed 2's model-mismatch result includes two rescued PID failures **and four new failures** on PID successes, so its net count is lower. Combined-condition policies landed 0/12 for all seeds; simulator `crash` outcomes were 12, 12, and 11 respectively. The `severe_crashes` report field counts this outcome label, not measured structural damage. In sensor/delay rollouts, fallback occurred on 10.1%, 16.1%, and 14.9% of control updates. Re-evaluating the frozen checkpoints with axis diagnostics found throttle-slew rejection counts of 121, 132, and 176 versus gimbal-slew counts of 10, 18, and 34. This motivated a single-parameter Day 42 comparison, not a claim that the filter caused every crash.
+
+Day 42 starts each branch from the **same** seed-matched Day 41 step-8,000 model and replay buffer. Both branches train 2,000 steps in a sensor/delay-focused mixture and 2,000 in a broader mixture including combined disturbances, using the same development cases. The control retains the Day 41 filter; `reduced_throttle` changes only the normalized throttle residual scale from `0.08` to `0.04`. Configuration validation checks that the control matches the source filter and that exactly one parameter differs. Results at step 12,000 were:
+
+| Branch / seed | Nominal | Initial OOD | Wind | Model mismatch | Sensor/delay | Combined |
+|---|---:|---:|---:|---:|---:|---:|
+| Control 0 | 9 | 11 | 8 | 9 | 5 | 1 |
+| Control 1 | 9 | 11 | 5 | 6 | 6 | 1 |
+| Control 2 | 10 | 12 | 7 | 8 | 6 | 1 |
+| Reduced throttle 0 | 11 | 7 | 5 | 6 | 9 | 0 |
+| Reduced throttle 1 | 9 | 7 | 5 | 3 | 3 | 0 |
+| Reduced throttle 2 | 12 | 11 | 6 | 9 | 8 | 1 |
+
+Every cell again has denominator 12. One combined landing in some branches came with new failures in nominal or other previously successful conditions. Neither continuation meets the protocol's per-group non-regression rule; the one-parameter reduction is rejected, and the PID remains the recommended baseline. These 12-case development observations are diagnostic, not a final robustness estimate or hardware safety claim. No final-holdout case was sampled.
+
+~~~bash
+python -m scripts.advance_residual_sac
+python -m scripts.advance_residual_sac --settings configs/sac-day42-v1.yaml --output-dir artifacts/day42-sac
+~~~

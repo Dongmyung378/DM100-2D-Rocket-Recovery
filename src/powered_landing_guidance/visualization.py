@@ -39,6 +39,18 @@ class EpisodeTrajectory:
     ground_z_m: float
 
 
+def _ffmpeg_available() -> bool:
+    if writers.is_available("ffmpeg"):
+        return True
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+
+        matplotlib.rcParams["animation.ffmpeg_path"] = get_ffmpeg_exe()
+    except (ImportError, RuntimeError):
+        return False
+    return writers.is_available("ffmpeg")
+
+
 def _vector(values: Any, size: int, label: str) -> NDArray[np.float64]:
     vector = np.asarray(values, dtype=np.float64)
     if vector.shape != (size,) or not np.all(np.isfinite(vector)):
@@ -258,8 +270,8 @@ def save_animation(
     suffix = destination.suffix.lower()
     if suffix not in {".gif", ".mp4"}:
         raise ValueError("animation output must end in .gif or .mp4")
-    if suffix == ".mp4" and not writers.is_available("ffmpeg"):
-        raise RuntimeError("MP4 output requires FFmpeg; use .gif when FFmpeg is unavailable")
+    if suffix == ".mp4" and not _ffmpeg_available():
+        raise RuntimeError("MP4 output requires FFmpeg or the video extra")
     trajectory = episode_trajectory(episode)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
