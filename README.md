@@ -1,70 +1,128 @@
 # 2D Powered Landing Guidance
 
-[한국어 README](README.ko.md)
+[한국어](README.ko.md)
 
-A reproducible simulation and control project for the terminal descent of a reusable rocket in a vertical plane. It combines custom variable-mass dynamics, a Gymnasium environment, classical landing controllers, optimal-control trajectories, learned policies, and paired robustness evaluation.
+A **3,000 kg planar rocket simulator** for ascent, 10 km separation and PID-guided
+first-stage return to the launch pad. Aero-PID Return (APR) combines variable-mass
+rigid-body dynamics, aerodynamic control fins and compliant landing-leg contact.
 
-This is a **landing** project, not a launch-to-landing or 3D flight simulator. Simulated success is not evidence of hardware safety.
+The retained implementation is the current 3 t APR model. Upper-stage flight and
+insertion into the assumed 700 km orbit are **not simulated or verified**.
+This is a provisional software model, not a hardware-qualified launch vehicle.
 
-## System at a glance
+## Vehicle and mission
 
-| Component | Implementation |
+| Item | Current design |
 |---|---|
-| State | `x, z, vx, vz, theta, omega, mass` |
-| Control | Throttle and gimbal angle |
-| Physics | Planar rigid body, variable mass, 0.02 s RK4 integration |
-| Control interval | 0.1 s |
-| Baselines | Suicide-burn, vertical PID, integrated landing PID |
-| Learned controllers | Behavior cloning, DAgger, PID-residual SAC |
-| Runtime | Python 3.12.7 |
+| Launch mass | 3,000 kg |
+| First-stage dry mass | 520 kg, including 24 kg control fins |
+| Main / RCS propellant | 1,450 kg / 15 kg |
+| Upper assembly | 1,015 kg, including a 30 kg payload |
+| Main engine | 42 kN sea-level thrust; nominal Isp 260 s |
+| Initial thrust-to-weight | Approximately 1.43 |
+| Throttle / gimbal | Continuous 0-100% / ±6° |
+| Separation gate | 10,000 ±100 m; target tilt 9°; after observed Max-Q |
+| Recovery target | Original launch pad |
 
-The environment supports wind and gusts, thrust and inertia mismatch, sensor noise, observation and action delays, and engine lag. The same landing limits are used to classify safe touchdowns and failures.
+The controller coordinates return braking and landing ignition, horizontal
+alignment and descent. Its final descent reference is 0.9 m/s; touchdown must
+also meet position, horizontal speed, attitude, angular-rate and contact limits.
 
-## Current evidence
+## Setup
 
-The integrated PID remains the recommended controller. The offline optimal-control dataset contains 1,007 accepted training trajectories, 100 IID validation trajectories, and 191 accepted hard out-of-distribution test trajectories. On that **Teacher-accepted** hard test, the PID landed 191/191, behavior cloning 0/191, and DAgger 3/191. This comparison does not imply that PID succeeds on every possible hard initial condition; nine planned test trajectories were rejected by Teacher replay. See the [dataset card](docs/dataset-card.md) and [model card](docs/model-card.md) for the cohort definitions and limitations.
+Python 3.12.x is required; the project target is 3.12.7. The existing 3.12.14
+fallback is also used for implementation checks.
 
-A separate disturbance protocol uses root seed `378` and distinct training, development, and sealed final-holdout streams. On 12 development cases per condition, the PID safe-landing counts are:
+~~~powershell
+python -m pip install -e ".[dev,video]"
+~~~
 
-| Nominal | Initial-state OOD | Wind | Model mismatch | Sensor/delay | Combined disturbances |
-|---:|---:|---:|---:|---:|---:|
-| 12/12 | 12/12 | 6/12 | 8/12 | 6/12 | 0/12 |
+Core dependencies are NumPy, SciPy, PyYAML and Matplotlib. The optional `video`
+extra supplies FFmpeg for MP4 export; `dev` supplies pytest and Ruff.
+There is no Gymnasium, CasADi or reinforcement-learning dependency in the current
+model. An existing environment can be reused.
 
-Residual SAC has occasionally landed one combined-disturbance case, but tested variants also lost successes in other groups. None met the protocol's no-regression requirement, so no learned controller replaces the PID baseline. These are small development samples, not a final robustness estimate; the final holdout has not been opened. The [technical specification](docs/spec.md) describes the exact scenarios, evaluation protocol, and failure analysis.
+## Run a flight
 
-## Run a landing
+Run these commands from the repository root. Every output directory must be new.
 
-From the repository root, use Python 3.12.7:
+~~~powershell
+# Check eligible inputs without simulating a flight.
+python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --check-inputs
 
-```powershell
-python -m pip install -e ".[dev,rl,video]"
-python scripts/run_episode.py --seed 378 --initial-state 10 100 0 -20 0 0 1000 --controller integrated-pid --output artifacts/landing.json --plot artifacts/landing.png --animation artifacts/landing.mp4
-```
+# Calm air, standard atmosphere, no equipment uncertainty.
+python -m scripts.run_nominal_flight --output-dir artifacts/apr-calm
 
-The initial state is `x z vx vz theta omega mass` in SI units, with angles in radians. The command prints the touchdown outcome and final state, then saves a replayable episode, diagnostic plot, and MP4 animation. Output files are not overwritten. To animate a saved episode without rerunning the simulation:
+# Altitude wind, gusts and healthy vehicle/sensor deviations.
+python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --output-dir artifacts/apr-weather
 
-```powershell
-python scripts/run_episode.py --replay artifacts/landing.json --animation artifacts/landing-replay.mp4
-```
+# Start at the recorded first-stage separation state.
+python -m scripts.run_nominal_flight --separation-record artifacts/apr-calm/result.json --output-dir artifacts/apr-return
+~~~
 
-For a smaller installation without SAC or MP4 support, install `.[dev]` and omit `--animation`.
+Each flight saves `result.json` and `trajectory.png`. Results include the state
+history, event and acceptance checks, separate fuel inventories and source/input
+hashes. Failed flights remain failures; the runner returns a nonzero exit code.
 
-## Reproduce checks
+Recovery-only runs preserve the supplied position, velocity, fuel and actual
+throttle, but initialize controller memory. They do not revalidate upstream
+ascent or unchanged separation feasibility under a new weather profile.
 
-```powershell
+## Replay a saved flight
+
+Rendering uses saved states and does **not** run another simulation. Playback is
+at normal speed, with altitude-dependent sky colors, visible fins and legs, and
+a thrust plume. Contact uses the feet rather than the rocket center.
+
+~~~powershell
+python -m powered_landing_guidance.visualization --replay artifacts/apr-calm/result.json --animation artifacts/apr-calm/flight.mp4 --preview artifacts/apr-calm/preview.png --fps 20
+~~~
+
+Existing MP4 and preview files are never overwritten.
+
+## Conditions, acceptance and evidence
+
+Inputs use root seed **378** and a fixed vehicle design. The YAML validator
+rejects known faults, failed weather/health reviews and inputs outside the
+provisional normal operating envelope. These bounds are project assumptions,
+**not certified launch limits**. The example YAML is eligible input, not evidence
+that the corresponding weather flight succeeds.
+
+Touchdown requires COM position error ≤2 m, foot vertical speed ≤1 m/s, foot
+horizontal speed ≤0.5 m/s, tilt ≤3° and angular rate ≤0.5°/s. Gear must be locked
+and feet on the pad. Main propellant must remain positive and RCS nonnegative;
+no extra residual-fuel reserve is required. Success also requires engine-off
+standing, contact/load limits and the applicable ascent and recovery checks.
+
+Retained flight evidence covers a calm full-flight development case. Success
+throughout the operating envelope and independent success rates have **not**
+been established. Supply/pressurization, coupled slosh, engine ignition/restart,
+elastic structure, physical separation shock, upper-stage ignition/plume,
+detailed thermal/ground-damage analysis and material-level leg/pad strength are
+not connected to APR. See the [technical specification](docs/spec.md).
+
+## Project layout and checks
+
+~~~text
+configs/apr-operating-v1.yaml             Eligible synthetic operating inputs
+docs/spec.md, docs/spec.ko.md             English and Korean model contracts
+scripts/run_nominal_flight.py            Flight runner and diagnostic plots
+src/powered_landing_guidance/
+  apr_recovery.py                        Current vehicle, environment and PID
+  recovery_physics.py                    Shared physical laws and foot contact
+  integrators.py                        Fixed-step integration
+  visualization.py                      Saved-flight MP4 replay
+  __init__.py                           Public package exports
+tests/test_recovery_physics.py           Model, input, event and replay checks
+~~~
+
+~~~powershell
 python -m pytest -p no:cacheprovider
 python -m ruff check --no-cache .
 python -m ruff format --check --no-cache .
-python scripts/prepare_rl_protocol.py --output-dir artifacts/rl-protocol
-```
+~~~
 
-The final command evaluates the frozen PID on development cases only. It writes a CSV and protocol report under the Git-ignored `artifacts/` directory and refuses to overwrite existing outputs. The exact condition ranges, root seed, and selection rules are in [`configs/rl-evaluation-v1.yaml`](configs/rl-evaluation-v1.yaml). Training and evaluation entry points are in [`scripts/`](scripts/); the implementation is in [`src/powered_landing_guidance/`](src/powered_landing_guidance/).
-
-## Scope and limitations
-
-- The optimal-control Teacher solves a nominal model; it does not certify performance under combined disturbances or actuator delays.
-- The current residual-action filter is a heuristic, not a formal safety guarantee. A filtered policy may still turn a PID success into a failure.
-- The simulator omits launch, 3D dynamics, structural impact damage, and flight-qualified hardware behavior.
-- Generated outputs and local-only notes are excluded from Git.
-
-Further details: [technical specification](docs/spec.md) · [dataset card](docs/dataset-card.md) · [model card](docs/model-card.md).
+Generated results live in Git-ignored `artifacts/`. Private notes and schedules
+remain local under `.local/experiment_logs/`; neither belongs in the public
+portfolio. Obsolete vehicle models and their learning pipelines are not part
+of this implementation.

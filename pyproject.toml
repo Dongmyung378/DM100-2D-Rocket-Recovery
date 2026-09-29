@@ -5,32 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "powered-landing-guidance"
 version = "0.1.0"
-description = "Planar reusable-rocket powered-landing simulation and guidance research project"
+description = "Planar 3 t rocket ascent, staging and PID first-stage recovery"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "numpy",
     "scipy",
     "PyYAML",
-    "gymnasium>=1.0,<2",
     "matplotlib>=3.8,<4",
 ]
 
 [project.optional-dependencies]
-optimization = [
-    "casadi>=3.7,<4",
-]
-rl = [
-    "stable-baselines3>=2.9,<3",
-]
-video = [
-    "imageio-ffmpeg>=0.6,<1",
-]
-dev = [
-    "casadi>=3.7,<4",
-    "pytest>=7",
-    "ruff",
-]
+video = ["imageio-ffmpeg>=0.6,<1"]
+dev = ["pytest>=7", "ruff"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
