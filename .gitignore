@@ -19,8 +19,8 @@ venv/
 # Generated project outputs
 artifacts/
 
-# Local experiment notes
-.local/experiment_logs/
+# Local environments, experiment notes and verification provenance
+.local/
 
 # OS files
 .DS_Store

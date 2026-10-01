@@ -1,8 +1,12 @@
-"""3 t APR physics, PID, input, event and replay contracts."""
+"""100 t APR mass, physics, operating-input and evidence contracts.
+
+These unit tests are not successful-flight evidence. Full baseline flight
+results are recorded separately and must satisfy the unchanged landing gates.
+"""
 
 import json
 from copy import deepcopy
-from dataclasses import asdict, replace
+from dataclasses import asdict, astuple, replace
 from pathlib import Path
 
 import numpy as np
@@ -10,83 +14,1026 @@ import pytest
 import yaml
 
 from powered_landing_guidance.apr_recovery import (
+    FINS,
     OPERATING_SCOPE,
+    PHYSICS,
+    PROFILE_TOP_M,
+    SAFETY,
+    STATE_NAMES,
     UNCONNECTED_SYSTEMS,
     AprConditions,
     AprFlight,
+    Design,
     RecoveryDisturbances,
+    build_descent_reference,
     load_apr_operating,
 )
-from powered_landing_guidance.integrators import integrate_fixed_step, rk4_step
+from powered_landing_guidance.integrators import rk4_step
 from powered_landing_guidance.recovery_physics import (
     G0,
-    RecoverySensorEstimator,
+    R_AIR,
+    AtmosphereSettings,
     atmosphere,
     clock_torque,
     engine_performance,
     foot_kinematics,
-    gear_contacts,
     gravity,
     mass_gradients,
     mass_properties,
     rotation,
 )
+from powered_landing_guidance.vehicle_systems import SloshSettings, initial_feed_state
 from powered_landing_guidance.visualization import (
     _nominal_flight_frame_times,
     _nominal_flight_geometry,
     _NominalFlightAnimationScene,
+    _NominalFlightFrameRenderer,
     _NominalFlightReplay,
     save_nominal_flight_replay,
 )
 from scripts import run_nominal_flight as apr_cli
-from scripts.run_nominal_flight import (
-    FINS,
-    PHYSICS,
-    AlignmentDescent,
-    CoastEstimate,
-    Design,
-    HorizontalTransfer,
-    NominalFlight,
-    ReturnGuidanceSettings,
-    fin_authority_table,
+from scripts.evaluate_operating_envelope import (
+    MANIFEST_SCHEMA_VERSION,
+    ROOT_SEED,
+    VEHICLE_ID,
+    _encoded,
+    _load_manifest,
+    _sha,
+    _source_hashes,
+    _stage,
+    freeze,
+    make_manifest,
+    observation_seed_sequence,
+    prepare,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+ISA_HEIGHTS = (0.0, 11000.0, 20000.0, 32000.0, 47000.0, 51000.0, 71000.0, 84852.0, PROFILE_TOP_M)
 
 
 def apr_separation_state():
-    return np.asarray(
-        (307.0, 10000.0, 18.0, 124.0, np.deg2rad(9.0), 0.0, 461.5, 15.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    """Explicit 19-state pose, including a consistent feed inventory."""
+    state = AprFlight().state.copy()
+    state[:8] = (
+        10712.8,
+        37113.9,
+        773.5,
+        613.7,
+        np.deg2rad(80.0),
+        0.0,
+        20000.0,
+        Design().rcs_propellant_kg,
     )
+    state[13:17] = astuple(initial_feed_state(state[6]))
+    return state
 
 
-def test_apr_formal_environment_and_old_cli_use_one_model():
-    assert NominalFlight is AprFlight
+def test_complete_separation_state_preserves_explicit_system_history():
+    complete = AprFlight.from_separation(apr_separation_state(), time_s=98.0).state.copy()
+    complete[13] *= 0.9
+    complete[14] = 0.8
+    complete[17:19] = (0.01, -0.02)
+    flight = AprFlight.from_separation(complete, time_s=98.0)
+    np.testing.assert_array_equal(flight.state, complete)
+
+
+@pytest.mark.parametrize("wrong_size", (13, 15, 21))
+def test_separation_input_rejects_incompatible_state_formats(wrong_size):
+    with pytest.raises(ValueError, match="19"):
+        AprFlight.from_separation(np.zeros(wrong_size), time_s=98.0)
+
+
+def _write_config(tmp_path, mutate):
+    data = yaml.safe_load((ROOT / "configs/apr-operating-v1.yaml").read_text(encoding="utf-8"))
+    mutate(data)
+    path = tmp_path / "conditions.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return path
+
+
+def test_one_public_model_is_the_100_t_design():
+    assert apr_cli.AprFlight is AprFlight
+    design = Design()
+    assert design.launch_mass_kg == 100_000.0
+    assert design.dry_mass_kg == 12_000.0
+    assert design.main_propellant_kg == 70_200.0
+    assert design.rcs_propellant_kg == 300.0
+    assert design.upper_mass_kg == 17_500.0
+    assert design.payload_mass_kg == 500.0
+    assert design.upper_stage_wet_mass_kg == 17_000.0
+    assert "100t" in OPERATING_SCOPE
+    assert PROFILE_TOP_M == 100_000.0
+
+
+def test_rcs_redistribution_keeps_first_stage_mass_and_actuator_authority():
+    design = Design()
+    flight = AprFlight()
+    assert design.dry_mass_kg + design.main_propellant_kg + design.rcs_propellant_kg == 82_500.0
+    assert design.main_propellant_kg + design.rcs_propellant_kg == 70_500.0
+    assert design.rcs_torque_limit_nm == 100_000.0
+    assert design.rcs_isp_s == 220.0
+    assert flight.state[6:8] == pytest.approx((70_200.0, 300.0))
+    assert flight.mass(flight.state) == 100_000.0
+
+
+def test_100_t_dry_budget_is_not_double_counted_as_fuel():
+    geometry = PHYSICS.geometry
+    dry = geometry.engine_mass_kg + geometry.airframe_mass_kg + geometry.gear_mass_kg
+    fixed = sum(component[0] for component in PHYSICS.fixed_mass_components)
+    assert geometry.engine_mass_kg == 1200.0
+    assert geometry.airframe_mass_kg == 8700.0
+    assert geometry.gear_mass_kg == 1500.0
+    assert fixed == FINS.mass_kg == 600.0
+    assert dry + fixed == Design().dry_mass_kg
+    assert geometry.body_length_m == 20.0
+    assert geometry.body_radius_m == 1.5
+
+
+def test_full_first_stage_liquid_inventory_fits_the_equivalent_tank():
+    design = Design()
+    properties = mass_properties(
+        design.dry_mass_kg + design.main_propellant_kg + design.rcs_propellant_kg,
+        0.0,
+        PHYSICS,
+    )
+    assert 0.0 < properties.fuel_height_m <= PHYSICS.geometry.tank_length_m
     assert (
-        sum(
-            (
-                PHYSICS.geometry.engine_mass_kg,
-                PHYSICS.geometry.airframe_mass_kg,
-                PHYSICS.geometry.gear_mass_kg,
-                FINS.mass_kg,
-            )
-        )
-        == Design().dry_mass_kg
+        PHYSICS.geometry.tank_bottom_m + properties.fuel_height_m < PHYSICS.geometry.body_length_m
     )
-    assert PHYSICS.geometry.engine_mass_kg == 110.0
-    assert PHYSICS.acceptance.max_position_error_m == 2.0
+    assert properties.inertia_kg_m2 > 0.0
 
 
-def test_apr_operating_config_loads_without_running_a_flight():
+@pytest.mark.parametrize("mass", (12_500.0, 32_500.0, 82_500.0))
+@pytest.mark.parametrize("deployment", (0.0, 0.4, 1.0))
+def test_100_t_mass_and_deployment_gradients_match_finite_differences(mass, deployment):
+    props = mass_properties(mass, deployment, PHYSICS)
+    cm, cg, im, ig = mass_gradients(mass, deployment, PHYSICS, props)
+    mass_step, gear_step = 0.01, 1e-5
+    before = mass_properties(mass - mass_step, deployment, PHYSICS)
+    after = mass_properties(mass + mass_step, deployment, PHYSICS)
+    assert cm == pytest.approx((after.cg_m - before.cg_m) / (2 * mass_step), abs=1e-9)
+    assert im == pytest.approx(
+        (after.inertia_kg_m2 - before.inertia_kg_m2) / (2 * mass_step), rel=1e-6
+    )
+    before = mass_properties(mass, deployment - gear_step, PHYSICS)
+    after = mass_properties(mass, deployment + gear_step, PHYSICS)
+    assert cg == pytest.approx((after.cg_m - before.cg_m) / (2 * gear_step), abs=1e-9)
+    assert ig == pytest.approx(
+        (after.inertia_kg_m2 - before.inertia_kg_m2) / (2 * gear_step), rel=1e-6
+    )
+
+
+def test_landing_limits_are_preserved_without_positive_reserve_threshold():
+    acceptance = PHYSICS.acceptance
+    assert acceptance.max_position_error_m == 2.0
+    assert acceptance.max_horizontal_contact_speed_m_s == 0.5
+    assert acceptance.max_vertical_foot_speed_m_s == 1.5
+    assert acceptance.max_contact_tilt_deg == 3.0
+    assert acceptance.max_contact_rate_deg_s == 0.5
+
+
+def test_fin_policy_changes_preserve_physical_and_acceptance_limits():
+    flight = AprFlight()
+    assert flight.return_settings.vertical_body_height_m == 3_000.0
+    assert flight.return_settings.fin_min_descent_speed_m_s == 200.0
+    assert flight.design.launch_mass_kg == 100_000.0
+    assert flight.design.gimbal_limit_deg == 6.0
+    assert FINS.mass_kg == 600.0
+    assert FINS.deployment_time_s == FINS.retraction_time_s == 2.0
+    assert FINS.deflection_limit_deg == 20.0
+    assert FINS.deflection_rate_deg_s == 60.0
+    assert FINS.control_max_alpha_deg == 25.0
+    assert FINS.per_fin_hinge_limit_nm == 5_000.0
+    assert SAFETY.max_q_pa == 30_000.0
+    assert SAFETY.max_angular_acceleration_deg_s2 == 5.0
+    assert PHYSICS.acceptance.max_vertical_foot_speed_m_s == 1.5
+
+
+def _fin_policy_bench(monkeypatch, *, height_m=5_000.0, alpha_deg=0.0):
+    """Exercise fin state derivatives without integrating a flight trajectory."""
+    flight = AprFlight()
+    flight.upper_attached = False
+    flight.on_pad = False
+    flight.phase = "entry"
+    state = flight.state.copy()
+    state[:8] = (0.0, 5_000.0, 0.0, -201.0, 0.0, 0.0, 20_000.0, Design().rcs_propellant_kg)
+    state[10] = 0.5
+    state[13:17] = astuple(initial_feed_state(state[6]))
+    monkeypatch.setattr(flight, "height", lambda *_args, **_kwargs: height_m)
+    monkeypatch.setattr(flight, "alpha_deg", lambda *_args, **_kwargs: alpha_deg)
+    return flight, state
+
+
+@pytest.mark.parametrize(
+    "vertical_speed,expected_rate", ((-201.0, 0.5), (-200.0, -0.5), (-199.0, -0.5))
+)
+def test_fin_policy_retracts_at_the_200_m_s_boundary(monkeypatch, vertical_speed, expected_rate):
+    flight, state = _fin_policy_bench(monkeypatch)
+    state[3] = vertical_speed
+    rate = flight.derivative(state, (0.0, 0.0, 0.0, 0.0))
+    assert rate[10] == expected_rate
+
+
+@pytest.mark.parametrize(
+    "phase,expected_rate",
+    (
+        ("coast", 0.5),
+        ("entry", 0.5),
+        ("landing", 0.5),
+        ("ascent", -0.5),
+        ("flip", -0.5),
+        ("boostback", -0.5),
+    ),
+)
+def test_fin_policy_preserves_the_active_phase_gate(monkeypatch, phase, expected_rate):
+    flight, state = _fin_policy_bench(monkeypatch)
+    flight.phase = phase
+    assert flight.derivative(state, (0.0, 0.0, 0.0, 0.0))[10] == expected_rate
+
+
+@pytest.mark.parametrize(
+    "height_m,expected_rate",
+    (
+        (499.0, -0.5),
+        (500.0, -0.5),
+        (501.0, 0.5),
+        (19_999.0, 0.5),
+        (20_000.0, -0.5),
+        (20_001.0, -0.5),
+    ),
+)
+def test_fin_policy_preserves_the_strict_altitude_window(monkeypatch, height_m, expected_rate):
+    flight, state = _fin_policy_bench(monkeypatch, height_m=height_m)
+    assert flight.derivative(state, (0.0, 0.0, 0.0, 0.0))[10] == expected_rate
+
+
+@pytest.mark.parametrize(
+    "alpha_deg,expected_rate", ((-15.0, -0.5), (-14.99, 0.5), (14.99, 0.5), (15.0, -0.5))
+)
+def test_fin_policy_preserves_the_deployment_angle_gate(monkeypatch, alpha_deg, expected_rate):
+    flight, state = _fin_policy_bench(monkeypatch, alpha_deg=alpha_deg)
+    assert flight.derivative(state, (0.0, 0.0, 0.0, 0.0))[10] == expected_rate
+
+
+@pytest.mark.parametrize("upper_attached,fin_mode", ((True, "active"), (False, "stowed")))
+def test_fin_policy_keeps_attached_and_stowed_fins_retracted(monkeypatch, upper_attached, fin_mode):
+    flight, state = _fin_policy_bench(monkeypatch)
+    flight.upper_attached = upper_attached
+    flight.fin_mode = fin_mode
+    assert flight.derivative(state, (0.0, 0.0, 0.0, 0.0))[10] == -0.5
+
+
+@pytest.mark.parametrize("vertical_speed,extension", ((-201.0, 1.0), (-200.0, 0.0)))
+def test_fin_policy_stops_extension_at_the_physical_endpoints(
+    monkeypatch, vertical_speed, extension
+):
+    flight, state = _fin_policy_bench(monkeypatch)
+    state[3] = vertical_speed
+    state[10] = extension
+    assert flight.derivative(state, (0.0, 0.0, 0.0, 0.0))[10] == 0.0
+
+
+def test_fin_policy_retraction_takes_two_seconds_not_an_instantaneous_switch(monkeypatch):
+    flight, state = _fin_policy_bench(monkeypatch)
+    state[3] = -200.0
+    state[10] = 1.0
+    original = state.copy()
+    control = (0.0, 0.0, 0.0, 0.0)
+    dt_s = 0.01
+    for step in range(199):
+        rate = flight.derivative(state, control)[10]
+        assert rate == -0.5
+        state[10] += dt_s * rate
+        assert state[10] == pytest.approx(1.0 - (step + 1) * dt_s / 2.0, abs=1e-12)
+    assert state[10] == pytest.approx(0.005, abs=1e-12)
+    assert state[10] > 0.0
+    state[10] = max(0.0, state[10] + dt_s * flight.derivative(state, control)[10])
+    assert state[10] == pytest.approx(0.0, abs=1e-12)
+    assert flight.derivative(state, control)[10] == 0.0
+    np.testing.assert_array_equal(state[:10], original[:10])
+    np.testing.assert_array_equal(state[11:], original[11:])
+
+
+@pytest.mark.parametrize("target_deg", (-20.0, 20.0))
+def test_fin_policy_retains_the_finite_deflection_rate_limit(monkeypatch, target_deg):
+    flight, state = _fin_policy_bench(monkeypatch)
+    rate = flight.derivative(state, (0.0, 0.0, 0.0, np.deg2rad(target_deg)))
+    assert rate[9] == pytest.approx(np.sign(target_deg) * np.deg2rad(60.0))
+
+
+def _angular_torque_observer_bench(monkeypatch, *, body_torque_nm=0.0):
+    """Constant-inertia telemetry bench, not a simulated flight trajectory."""
+    flight = AprFlight()
+    flight.upper_attached = False
+    flight.on_pad = False
+    flight.time_s = 20.0
+    properties = replace(
+        flight.properties(flight.state, predicted=True),
+        inertia_kg_m2=100_000.0,
+        cg_m=7.0,
+    )
+    load_times = []
+
+    def nominal_properties(_state, *, predicted=False):
+        assert predicted is True
+        return properties
+
+    def nominal_engine(_throttle, _altitude, *, actual=False):
+        assert actual is False
+        return 0.0, 0.0
+
+    def nominal_loads(state, *, predicted=False, time_s=None):
+        assert predicted is True
+        np.testing.assert_array_equal(state[17:19], 0.0)
+        load_times.append(time_s)
+        return np.zeros(2), body_torque_nm, 0.0, 0.0
+
+    monkeypatch.setattr(flight, "properties", nominal_properties)
+    monkeypatch.setattr(flight, "engine", nominal_engine)
+    monkeypatch.setattr(flight, "loads", nominal_loads)
+    measured = flight.state.copy()
+    measured[1] = 5_000.0
+    measured[4:6] = 0.0
+    return flight, measured, properties, load_times
+
+
+def _observer_rate_after_rcs_interval(
+    flight, properties, rate, duration, mean_rcs, mean_abs_rcs, bias
+):
+    geometry = flight.physics.geometry
+    flux_coefficient = (geometry.rcs_arm_m**2 + (geometry.rcs_station_m - properties.cg_m) ** 2) / (
+        geometry.rcs_arm_m * flight.design.rcs_isp_s * G0
+    )
+    damping = mean_abs_rcs * flux_coefficient
+    return (
+        properties.inertia_kg_m2 * rate
+        + duration * (mean_rcs + bias)
+        - duration * damping * rate / 2.0
+    ) / (properties.inertia_kg_m2 + duration * damping / 2.0)
+
+
+def test_angular_torque_observer_recovers_the_sign_of_a_nominal_model_bias(monkeypatch):
+    flight, old, props, load_times = _angular_torque_observer_bench(
+        monkeypatch, body_torque_nm=2_000.0
+    )
+    flight.navigation_command_history.append((10.02, (0.0, 0.0, 0.0, 0.0)))
+    flight.observe_angular_torque(old, 10.0)
+    measured = old.copy()
+    measured[5] = 0.02 * (2_000.0 - 1_000.0) / props.inertia_kg_m2
+    before = measured.copy()
+    flight.observe_angular_torque(measured, 10.02)
+    blend = 1.0 - np.exp(-0.02 / 0.12)
+    assert flight.angular_torque_bias_nm == pytest.approx(-1_000.0 * blend, abs=1e-8)
+    assert load_times == pytest.approx([10.01])
+    np.testing.assert_array_equal(measured, before)
+
+
+def test_angular_torque_observer_integrates_executed_not_requested_or_future_rcs(monkeypatch):
+    flight, old, props, _ = _angular_torque_observer_bench(monkeypatch)
+    old[5] = 0.03
+    flight.control = (0.0, 0.0, -90_000.0, 0.0)
+    flight.requested_control = (0.0, 0.0, 100_000.0, 0.0)
+    flight.navigation_command_history.extend(
+        ((10.01, (0.0, 0.0, 5_000.0, 0.0)), (10.02, (0.0, 0.0, -2_000.0, 0.0)))
+    )
+    flight.observe_angular_torque(old, 10.0)
+    measured = old.copy()
+    measured[5] = _observer_rate_after_rcs_interval(
+        flight, props, old[5], 0.02, 1_500.0, 3_500.0, 500.0
+    )
+    flight.observe_angular_torque(measured, 10.02)
+    assert flight.angular_torque_bias_nm == pytest.approx(
+        500.0 * (1.0 - np.exp(-0.02 / 0.12)), abs=1e-8
+    )
+
+
+def test_angular_torque_observer_keeps_absolute_rcs_outflow_when_signed_torque_cancels(monkeypatch):
+    flight, old, props, _ = _angular_torque_observer_bench(monkeypatch)
+    old[5] = 0.05
+    flight.navigation_command_history.extend(
+        ((10.01, (0.0, 0.0, 10_000.0, 0.0)), (10.02, (0.0, 0.0, -10_000.0, 0.0)))
+    )
+    flight.observe_angular_torque(old, 10.0)
+    measured = old.copy()
+    measured[5] = _observer_rate_after_rcs_interval(flight, props, old[5], 0.02, 0.0, 10_000.0, 0.0)
+    flight.observe_angular_torque(measured, 10.02)
+    assert flight.angular_torque_bias_nm == pytest.approx(0.0, abs=1e-8)
+
+
+@pytest.mark.parametrize("timestamp", (9.99, 10.02))
+def test_angular_torque_observer_ignores_older_or_duplicate_measurements(monkeypatch, timestamp):
+    flight, old, _, _ = _angular_torque_observer_bench(monkeypatch)
+    flight.observe_angular_torque(old, 10.02)
+    flight.angular_torque_bias_nm = 123.0
+    measured = old.copy()
+    measured[5] = 10.0
+    flight.observe_angular_torque(measured, timestamp)
+    assert flight.angular_torque_bias_nm == 123.0
+    assert flight.angular_observation[0] == 10.02
+    np.testing.assert_array_equal(flight.angular_observation[1], old)
+
+
+@pytest.mark.parametrize("mode", ("attached", "pad", "before_separation"))
+def test_angular_torque_observer_resets_support_and_stage_impulse_windows(monkeypatch, mode):
+    flight, measured, _, _ = _angular_torque_observer_bench(monkeypatch)
+    flight.angular_observation = (10.0, measured.copy())
+    flight.angular_torque_bias_nm = 500.0
+    if mode == "attached":
+        flight.upper_attached = True
+    elif mode == "pad":
+        flight.on_pad = True
+    else:
+        flight.separation = {"time_s": 10.03}
+    flight.observe_angular_torque(measured, 10.02)
+    assert flight.angular_observation is None
+    assert flight.angular_torque_bias_nm == 0.0
+
+
+def test_angular_torque_observer_initializes_after_separation_without_differencing_across_impulse(
+    monkeypatch,
+):
+    flight, measured, _, _ = _angular_torque_observer_bench(monkeypatch)
+    flight.separation = {"time_s": 10.0}
+    flight.angular_torque_bias_nm = 500.0
+    measured[5] = 1.0
+    flight.observe_angular_torque(measured, 9.99)
+    measured[5] = -1.0
+    flight.observe_angular_torque(measured, 10.0)
+    assert flight.angular_observation[0] == 10.0
+    assert flight.angular_torque_bias_nm == 0.0
+
+
+@pytest.mark.parametrize("missing_part", ("prefix", "suffix"))
+def test_angular_torque_observer_rejects_incomplete_command_windows(monkeypatch, missing_part):
+    flight, old, _, load_times = _angular_torque_observer_bench(monkeypatch)
+    flight.observe_angular_torque(old, 10.0)
+    flight.angular_torque_bias_nm = 500.0
+    if missing_part == "prefix":
+        flight.navigation_command_history.extend(
+            ((10.06, (0.0, 0.0, 1_000.0, 0.0)), (10.08, (0.0, 0.0, 1_000.0, 0.0)))
+        )
+        timestamp = 10.08
+    else:
+        flight.navigation_command_history.append((10.01, (0.0, 0.0, 1_000.0, 0.0)))
+        timestamp = 10.02
+    measured = old.copy()
+    measured[5] = 10.0
+    flight.observe_angular_torque(measured, timestamp)
+    assert flight.angular_torque_bias_nm == 0.0
+    assert load_times == []
+
+
+@pytest.mark.parametrize("sign", (-1.0, 1.0))
+def test_angular_torque_observer_clips_extreme_residuals_to_a_finite_equivalent_torque(
+    monkeypatch, sign
+):
+    flight, old, props, _ = _angular_torque_observer_bench(monkeypatch)
+    flight.navigation_command_history.append((10.02, (0.0, 0.0, 0.0, 0.0)))
+    flight.observe_angular_torque(old, 10.0)
+    measured = old.copy()
+    measured[5] = sign * 0.02 * 100_000.0 / props.inertia_kg_m2
+    flight.observe_angular_torque(measured, 10.02)
+    bound = props.inertia_kg_m2 * np.deg2rad(4.0)
+    assert flight.angular_torque_bias_nm == pytest.approx(
+        sign * bound * (1.0 - np.exp(-0.02 / 0.12)), abs=1e-8
+    )
+    assert np.isfinite(flight.angular_torque_bias_nm)
+    assert abs(flight.angular_torque_bias_nm) <= bound
+
+
+def test_angular_torque_observer_uses_momentum_difference_when_inertia_changes(monkeypatch):
+    flight, old, props, _ = _angular_torque_observer_bench(monkeypatch)
+
+    def moving_inertia(state, *, predicted=False):
+        assert predicted is True
+        return replace(props, inertia_kg_m2=props.inertia_kg_m2 + 10_000.0 * state[8])
+
+    monkeypatch.setattr(flight, "properties", moving_inertia)
+    flight.navigation_command_history.append((10.02, (0.0, 0.0, 0.0, 0.0)))
+    old[5] = 0.1
+    old[8] = 0.0
+    flight.observe_angular_torque(old, 10.0)
+    measured = old.copy()
+    measured[8] = 0.01
+    measured[5] = (
+        old[5]
+        * moving_inertia(old, predicted=True).inertia_kg_m2
+        / moving_inertia(measured, predicted=True).inertia_kg_m2
+    )
+    flight.observe_angular_torque(measured, 10.02)
+    assert flight.angular_torque_bias_nm == pytest.approx(0.0, abs=1e-8)
+
+
+def test_angular_torque_observer_does_not_consult_hidden_plant_or_fluid_coordinates(monkeypatch):
+    first, second, _ = _hidden_uncertainty_pair()
+    old = apr_separation_state()
+    old[5] = 0.02
+    old[11:13] = (0.01, 0.1)
+    measured = old.copy()
+    measured[5] = 0.0201
+
+    def hidden_access(*_args, **_kwargs):
+        raise AssertionError("Angular observer must not call the actual plant.")
+
+    for index, flight in enumerate((first, second)):
+        flight.time_s = 98.04
+        flight.state[5] = 100.0 if index == 0 else -100.0
+        flight.state[17:19] = (1.0, -1.0) if index == 0 else (-1.0, 1.0)
+        flight.navigation_command_history.append((98.02, (0.1, 0.01, 1_000.0, 0.0)))
+        monkeypatch.setattr(flight, "derivative", hidden_access)
+        monkeypatch.setattr(flight, "actual_engine", hidden_access)
+        monkeypatch.setattr(flight, "feed_status", hidden_access)
+        delayed = old.copy()
+        delayed[17:19] = flight.state[17:19]
+        flight.observe_angular_torque(delayed, 98.0)
+        delayed = measured.copy()
+        delayed[17:19] = -flight.state[17:19]
+        flight.observe_angular_torque(delayed, 98.02)
+    assert first.angular_torque_bias_nm == pytest.approx(second.angular_torque_bias_nm, abs=1e-12)
+
+
+def _contact_gate_bench(**options):
+    """Construct one contact pose without integrating or claiming a flight."""
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0, **options)
+    flight.state[8] = 1.0
+    flight.state[4:6] = 0.0
+    flight.state[11:13] = 0.0
+    flight.state[:4] = (
+        0.0,
+        flight.properties(flight.state).cg_m - flight.physics.gear.foot_station_m,
+        0.0,
+        -1.0,
+    )
+    return flight
+
+
+@pytest.mark.parametrize(
+    "index,value,criterion",
+    (
+        (0, 2.001, "position"),
+        (0, -2.001, "position"),
+        (2, 0.501, "horizontal_foot_speed"),
+        (2, -0.501, "horizontal_foot_speed"),
+        (3, -1.501, "vertical_foot_speed"),
+        (4, np.deg2rad(3.001), "tilt"),
+        (4, np.deg2rad(-3.001), "tilt"),
+        (5, np.deg2rad(0.501), "angular_rate"),
+        (5, np.deg2rad(-0.501), "angular_rate"),
+        (6, 0.0, "main_propellant"),
+        (8, 0.99, "gear_deployed"),
+    ),
+)
+def test_touchdown_gates_reject_each_outside_limit_without_relaxation(index, value, criterion):
+    flight = _contact_gate_bench()
+    flight.state[index] = value
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert flight.contact["criteria"][criterion] is False
+
+
+@pytest.mark.parametrize("speed,accepted", ((1.499, True), (1.5, True), (1.501, False)))
+def test_touchdown_vertical_limit_remains_one_point_five(speed, accepted):
+    flight = _contact_gate_bench()
+    flight.state[3] = -speed
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert flight.contact["criteria"]["vertical_foot_speed"] is accepted
+
+
+def test_zero_rcs_inventory_is_allowed_but_positive_main_inventory_is_required():
+    flight = _contact_gate_bench()
+    flight.state[7] = 0.0
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert flight.contact["criteria"]["rcs_propellant"] is True
+    assert flight.contact["criteria"]["main_propellant"] is True
+    flight.state[6] = 0.0
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert flight.contact["criteria"]["main_propellant"] is False
+
+
+def test_default_landing_assumes_gear_capacity_without_claiming_structural_verification():
+    flight = _contact_gate_bench()
+    flight.state[3] = -1.5
+    before = flight.state.copy()
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    result = flight.run()
+    assert result["landing_assessment"] == "kinematic_touchdown"
+    assert result["acceptance_version"] == "apr_100t_kinematic_touchdown_v1"
+    assert result["landing_success"] is True
+    assert result["simulated_acceptance_passed"] is True
+    assert result["assessment_scope"]["contact_structural_dynamics"] is False
+    assert result["assessment_scope"]["post_contact_settling"] is False
+    assert result["time_s"] == result["contact"]["time_s"] == 98.0
+    np.testing.assert_array_equal(flight.state, before)
+
+
+def test_simple_touchdown_still_rejects_excessive_descent_and_prior_flight_loads():
+    flight = _contact_gate_bench()
+    flight.state[3] = -1.501
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    result = flight.run()
+    assert result["outcome"] == "touchdown_limits_exceeded"
+    assert result["landing_success"] is False
+    assert result["simulated_acceptance_passed"] is False
+    flight = _contact_gate_bench()
+    flight.max_acceleration = 5.001
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    result = flight.run()
+    assert result["landing_success"] is True
+    assert result["criteria"]["angular_acceleration"] is False
+    assert result["simulated_acceptance_passed"] is False
+
+
+def test_contact_event_stops_at_first_touchdown_without_fabricating_stationary_state():
+    flight = _contact_gate_bench()
+    flight.state[1] += 0.005
+    flight.state[12] = 0.2
+    flight.control = (0.2, 0.0, 0.0, 0.0)
+    flight.next_control_s = flight.time_s + 1.0
+    flight.next_record_s = flight.time_s + 1.0
+    before_time = flight.time_s
+
+    for _ in range(20):
+        flight.advance()
+        if flight.outcome != "running":
+            break
+    assert flight.outcome == "landed"
+    assert 0.0 < flight.time_s - before_time < 0.02
+    assert flight.time_s == flight.contact["time_s"]
+    assert abs(flight.height(flight.state)) < 1e-8
+    assert flight.state[12] == pytest.approx(0.2)
+    assert flight.state[3] < -0.9  # State was not fabricated as stationary.
+    final = flight.state.copy()
+    flight.advance()
+    np.testing.assert_array_equal(flight.state, final)
+
+
+def test_recovery_only_scope_cannot_certify_an_unobserved_ascent_or_separation():
+    # Synthetic successful-contact output checks scope reporting only.
+    flight = _contact_gate_bench()
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert all(flight.contact["criteria"].values())
+    flight.outcome = "landed"
+    result = flight.run()
+    assert result["landing_success"] is True
+    assert result["ascent_simulated"] is False
+    assert result["criteria"]["separation"] is None
+    assert result["mission_success"] is False
+    assert result["simulation_scope"] == "37km_separation_to_touchdown"
+    assert result["simulated_acceptance_passed"] is True
+
+
+def test_contact_requires_both_actual_feet_inside_the_pad():
+    flight = _contact_gate_bench()
+    flight.physics = replace(
+        flight.physics, gear=replace(flight.physics.gear, pad_half_width_m=3.0)
+    )
+    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
+    assert flight.contact["criteria"]["position"] is True
+    assert flight.contact["criteria"]["feet_on_pad"] is False
+    points, _ = foot_kinematics(flight.vector(flight.state), flight.state[8], flight.settings())
+    assert np.max(np.abs(points[:, 0])) == pytest.approx(4.0)
+
+
+def test_touchdown_foot_velocity_includes_rigid_body_rotation():
+    mass = 32_500.0
+    props = mass_properties(mass, 1.0, PHYSICS)
+    state = np.asarray(
+        (
+            0.0,
+            props.cg_m - PHYSICS.gear.foot_station_m,
+            0.0,
+            -1.0,
+            0.0,
+            0.02,
+            mass,
+            20_000.0,
+            0.0,
+            0.0,
+        )
+    )
+    points, velocities = foot_kinematics(state, 1.0, PHYSICS)
+    np.testing.assert_allclose(points[:, 1], 0.0, atol=1e-10)
+    assert velocities[0, 1] > -1.0
+    assert velocities[1, 1] < -1.0
+    assert np.ptp(velocities[:, 1]) == pytest.approx(2.0 * PHYSICS.gear.half_span_m * state[5])
+
+
+def test_engine_pressure_performance_matches_the_100_t_design():
+    design = Design()
+    sea_thrust, sea_flow = engine_performance(
+        1.0,
+        0.0,
+        PHYSICS,
+        sea_level_thrust_n=design.sea_level_thrust_n,
+        sea_level_isp_s=design.sea_level_isp_s,
+    )
+    vac_thrust, vac_flow = engine_performance(
+        1.0,
+        PROFILE_TOP_M,
+        PHYSICS,
+        sea_level_thrust_n=design.sea_level_thrust_n,
+        sea_level_isp_s=design.sea_level_isp_s,
+    )
+    assert sea_thrust == pytest.approx(1_600_000.0)
+    assert sea_flow == pytest.approx(1_600_000.0 / (300.0 * G0))
+    assert vac_thrust == pytest.approx(1_760_000.0, abs=5.0)
+    assert vac_thrust / (vac_flow * G0) == pytest.approx(330.0, abs=0.001)
+    assert vac_flow == pytest.approx(sea_flow)
+
+
+def test_engine_zero_throttle_has_no_thrust_or_propellant_flow():
+    design = Design()
+    for height in (0.0, 37_100.0, PROFILE_TOP_M):
+        thrust, flow = engine_performance(
+            0.0,
+            height,
+            PHYSICS,
+            sea_level_thrust_n=design.sea_level_thrust_n,
+            sea_level_isp_s=design.sea_level_isp_s,
+        )
+        assert thrust == flow == 0.0
+
+
+def test_derivative_keeps_main_and_rcs_consumption_in_separate_inventory_channels():
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    flight.state[12] = 0.5
+    command = (0.5, 0.0, flight.design.rcs_torque_limit_nm, 0.0)
+    original = flight.state.copy()
+    derivative = flight.derivative(flight.state, command)
+    assert derivative.shape == flight.state.shape == (len(STATE_NAMES),)
+    assert np.isfinite(derivative).all()
+    np.testing.assert_array_equal(flight.state, original)
+    assert derivative[6] == pytest.approx(-flight.engine(0.5, flight.state[1], actual=True)[1])
+    expected_rcs_flow = command[2] / (
+        flight.physics.geometry.rcs_arm_m * flight.design.rcs_isp_s * G0
+    )
+    assert derivative[7] == pytest.approx(-expected_rcs_flow)
+
+
+def test_empty_rcs_inventory_removes_rcs_torque_and_consumption():
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    flight.state[7] = 0.0
+    nominal = flight.derivative(flight.state, (0.0, 0.0, 0.0, 0.0))
+    requested = flight.derivative(flight.state, (0.0, 0.0, flight.design.rcs_torque_limit_nm, 0.0))
+    np.testing.assert_array_equal(requested, nominal)
+    assert requested[7] == 0.0
+
+
+def _inventory_event_bench():
+    """Short event fixture with the complete current feed and slosh states."""
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    flight.next_control_s = flight.time_s + 0.05
+    flight.next_record_s = flight.time_s + 100.0
+    return flight
+
+
+def test_rcs_exhaustion_is_an_exact_zero_stock_event_and_does_not_end_the_flight():
+    flight = _inventory_event_bench()
+    flight.state[7] = 0.0002
+    flight.state[12] = 0.0
+    flight.control = (0.0, 0.0, flight.design.rcs_torque_limit_nm, 0.0)
+    flight.rcs_consumed = Design().rcs_propellant_kg - flight.state[7]
+    started = flight.time_s
+    initial_stock = flight.state[7]
+    flow = flight.control[2] / (flight.physics.geometry.rcs_arm_m * flight.design.rcs_isp_s * G0)
+    flight.advance()
+    assert flight.outcome == "running"
+    assert flight.state[7] == 0.0
+    assert flight.time_s - started == pytest.approx(initial_stock / flow, abs=1e-8)
+    assert flight.rcs_consumed == pytest.approx(Design().rcs_propellant_kg, abs=1e-8)
+    assert flight.max_mass_balance_error < 1e-6
+    consumed = flight.rcs_consumed
+    flight.advance()
+    assert flight.outcome == "running"
+    assert flight.state[7] == 0.0
+    assert flight.rcs_consumed == consumed
+
+
+def test_first_stage_initial_thrust_to_weight_matches_the_mass_budget():
+    design = Design()
+    thrust_to_weight = design.sea_level_thrust_n / (design.launch_mass_kg * G0)
+    assert thrust_to_weight == pytest.approx(1.631546, rel=1e-5)
+    assert thrust_to_weight > 1.0
+
+
+def _separation_event_regression_state():
+    """Current propellant split at a stress pose for stale-control regression."""
+    state = apr_separation_state()
+    state[:8] = (
+        10579.400581043896,
+        37271.10055257472,
+        445.1982537936092,
+        964.1566240568388,
+        0.4634664488795171,
+        -0.0033839639399277388,
+        22269.0810901671,
+        297.71041647653897,
+    )
+    state[11:13] = (0.10083304193118577, 0.0009865513294684658)
+    state[13:17] = astuple(initial_feed_state(state[6]))
+    return state
+
+
+def test_separation_event_invalidates_the_combined_vehicle_controller_schedule():
+    flight = AprFlight()
+    separated_state = _separation_event_regression_state()
+    old_cg = flight.properties(separated_state).cg_m
+    flight.upper_attached = False
+    booster_properties = flight.properties(separated_state)
+    new_cg = booster_properties.cg_m
+    booster_mass = flight.mass(separated_state)
+    flight.upper_attached = True
+    arm = rotation(separated_state[4]) @ np.array((0.0, new_cg - old_cg))
+    flight.state = separated_state.copy()
+    flight.state[:2] -= arm
+    flight.state[2:4] -= flight.state[5] * np.array((arm[1], -arm[0]))
+    flight.time_s = 95.91
+    flight.next_control_s = flight.time_s + 0.01
+    flight.on_pad = False
+    flight.cutoff_pending = True
+    flight.ascent_max_q_passed = True
+    before_inventory = flight.state[6:8].copy()
+    assert all(flight.separation_checks(flight.state).values())
+    flight.consider_separation()
+    assert flight.upper_attached is False
+    assert flight.phase == "flip"
+    assert flight.separation["time_s"] == flight.time_s == 95.91
+    assert flight.next_control_s == flight.time_s
+    # Keep the original COM-frame transform check and include the newly
+    # modelled pusher impulse; inventories still cannot jump at separation.
+    separator = flight.separation_settings
+    basis = rotation(separated_state[4])
+    reduced_mass = (
+        booster_mass * flight.design.upper_mass_kg / (booster_mass + flight.design.upper_mass_kg)
+    )
+    impulse = (
+        reduced_mass
+        * separator.relative_axial_speed_m_s
+        * (basis[:, 1] + basis[:, 0] * np.tan(np.deg2rad(separator.impulse_misalignment_deg)))
+    )
+    expected = separated_state.copy()
+    expected[2:4] -= impulse / booster_mass
+    event = flight.separation["impulse_model"]
+    expected[5] = event["booster_angular_rate_rad_s"]
+    expected[18] = event["booster_slosh_velocity_m_s"]
+    np.testing.assert_allclose(flight.state, expected, atol=1e-9)
+    np.testing.assert_array_equal(flight.state[6:8], before_inventory)
+    assert flight.steps == []
+
+
+def test_post_separation_recomputed_control_removes_the_stale_stack_torque_spike():
+    flight = AprFlight.from_separation(_separation_event_regression_state(), time_s=95.91)
+    # Suppress modal participation only for this local actuator allocation bench.
+    flight.slosh_settings = SloshSettings(modal_mass_fraction=1e-12)
+    measured = flight.state.copy()
+    stale_stack_control = (0.0, np.deg2rad(6.0), -100000.0, 0.0)
+    flight.control = stale_stack_control
+    stale_alpha = np.rad2deg(flight.derivative(measured, stale_stack_control)[5])
+    updated_control = flight.guidance(measured)
+    updated_alpha = np.rad2deg(flight.derivative(measured, updated_control)[5])
+    assert abs(stale_alpha) > SAFETY.max_angular_acceleration_deg_s2
+    assert updated_control[0] == 0.0
+    assert abs(updated_control[2]) < abs(stale_stack_control[2])
+    # Allocation balances the extrema of the held-interval TVC prediction,
+    # not a single midpoint. Derive that actuator response independently and
+    # account for the old/new RCS mass-flux feedforward difference explicitly.
+    properties = flight.properties(measured)
+    lever = properties.cg_m - flight.physics.geometry.nozzle_station_m
+    thrust, main_flow = flight.engine(measured[12], measured[1])
+    dt = flight.return_settings.control_dt_s
+    supplied_tvc = []
+    for instant in (0.0, dt / 2.0, dt):
+        angle = measured[11] + np.clip(
+            (updated_control[1] - measured[11]) * (1 - np.exp(-instant / 0.06)),
+            -np.deg2rad(60) * instant,
+            np.deg2rad(60) * instant,
+        )
+        for tau in (0.04, 0.05):
+            supplied_tvc.append(-lever * thrust * np.exp(-instant / tau) * np.sin(angle))
+    tvc_midrange = (min(supplied_tvc) + max(supplied_tvc)) / 2.0
+    current_tvc = -lever * thrust * np.sin(measured[11])
+    _, _, inertia_mass_gradient, _ = mass_gradients(
+        flight.mass(measured), measured[8], flight.settings(), properties
+    )
+    rcs_flow_before = abs(stale_stack_control[2]) / (
+        flight.physics.geometry.rcs_arm_m * flight.design.rcs_isp_s * G0
+    )
+    rcs_flow_after = abs(updated_control[2]) / (
+        flight.physics.geometry.rcs_arm_m * flight.design.rcs_isp_s * G0
+    )
+    rcs_exit_radius_squared = (
+        flight.physics.geometry.rcs_arm_m**2
+        + (flight.physics.geometry.rcs_station_m - properties.cg_m) ** 2
+    )
+    old_inertia_rate = -inertia_mass_gradient * (main_flow + rcs_flow_before)
+    old_flux = -(main_flow * lever**2 + rcs_flow_before * rcs_exit_radius_squared) * measured[5]
+    balanced_alpha = (
+        updated_control[2]
+        + tvc_midrange
+        + flight.loads(measured)[1]
+        + old_flux
+        - old_inertia_rate * measured[5]
+    ) / properties.inertia_kg_m2
+    # Initial-mass uncertainty changes fixed airframe mass, not the liquid
+    # inventory. The acceleration reference uses this permitted lower inertia.
+    lower_settings = replace(
+        flight.settings(),
+        geometry=replace(
+            flight.settings().geometry,
+            airframe_mass_kg=flight.settings().geometry.airframe_mass_kg - 1000.0,
+        ),
+    )
+    inertia_lower = (
+        0.97
+        * mass_properties(flight.mass(measured) - 1000.0, measured[8], lower_settings).inertia_kg_m2
+    )
+    expected_reference_alpha = -2.5 * inertia_lower / properties.inertia_kg_m2
+    assert np.rad2deg(balanced_alpha) == pytest.approx(expected_reference_alpha, abs=1e-9)
+    flow_correction = (
+        (rcs_flow_after - rcs_flow_before)
+        * (inertia_mass_gradient - rcs_exit_radius_squared)
+        * measured[5]
+    )
+    expected_initial_alpha = (
+        balanced_alpha + (current_tvc - tvc_midrange + flow_correction) / properties.inertia_kg_m2
+    )
+    assert updated_alpha == pytest.approx(np.rad2deg(expected_initial_alpha), abs=1e-9)
+    assert abs(updated_alpha) < SAFETY.max_angular_acceleration_deg_s2 == 5.0
+    np.testing.assert_array_equal(flight.state, measured)
+    assert flight.time_s == 95.91
+    assert flight.steps == []
+
+
+def test_missing_subsystems_are_disclosed_instead_of_claimed_as_certified():
+    assert "tank_pressurization_and_feed" not in UNCONNECTED_SYSTEMS
+    assert "physical_staging_impulse" not in UNCONNECTED_SYSTEMS
+    assert "elastic_structure" in UNCONNECTED_SYSTEMS
+    assert "detailed_heating_and_ground_damage" in UNCONNECTED_SYSTEMS
+    assert "leg_material_strength_and_pad_bearing" in UNCONNECTED_SYSTEMS
+
+
+@pytest.mark.parametrize("height", ISA_HEIGHTS[1:-1])
+def test_layered_atmosphere_is_continuous_at_every_layer_boundary(height):
+    lower = np.asarray(atmosphere(height - 1e-3, PHYSICS.atmosphere))
+    upper = np.asarray(atmosphere(height + 1e-3, PHYSICS.atmosphere))
+    np.testing.assert_allclose(lower, upper, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "height,temperature,pressure",
+    (
+        (0.0, 288.15, 101325.0),
+        (11000.0, 216.65, 22632.06),
+        (20000.0, 216.65, 5474.889),
+        (32000.0, 228.65, 868.019),
+        (47000.0, 270.65, 110.906),
+    ),
+)
+def test_layered_atmosphere_matches_reference_values(height, temperature, pressure):
+    actual_temperature, actual_pressure, density = atmosphere(height, PHYSICS.atmosphere)
+    assert actual_temperature == pytest.approx(temperature, abs=0.01)
+    assert actual_pressure == pytest.approx(pressure, rel=0.001)
+    assert density == pytest.approx(actual_pressure / (R_AIR * actual_temperature))
+
+
+def test_100_km_atmosphere_and_gravity_are_positive_and_decrease():
+    heights = np.linspace(0.0, PROFILE_TOP_M, 501)
+    values = np.asarray([atmosphere(height, PHYSICS.atmosphere) for height in heights])
+    assert np.all(np.isfinite(values))
+    assert np.all(values > 0.0)
+    assert np.all(np.diff(values[:, 1]) < 0.0)
+    assert np.all(np.diff(values[:, 2]) < 0.0)
+    assert gravity(PROFILE_TOP_M) < gravity(0.0)
+
+
+def test_baseline_operating_input_is_calm_without_hidden_uncertainties():
+    conditions = AprConditions()
+    disturbances = RecoveryDisturbances()
+    for height in (0.0, 5000.0, 37100.0, PROFILE_TOP_M):
+        for time_s in (0.0, 100.0, 300.0):
+            assert conditions.wind(height, time_s) == 0.0
+            assert conditions.wind(height, time_s, forecast=True) == 0.0
+    assert conditions.density_scale == 1.0
+    assert conditions.latitude_deg == 37.0
+    assert (
+        disturbances.thrust_scale
+        == disturbances.drag_coefficient_scale
+        == disturbances.initial_mass_scale
+        == 1.0
+    )
+    assert disturbances.sensor_position_error_m == disturbances.sensor_velocity_error_m_s == 0.0
+
+
+def test_public_example_config_uses_the_current_design_and_full_altitude_domain():
     conditions, disturbances = load_apr_operating(ROOT / "configs/apr-operating-v1.yaml")
-    assert conditions.wind(10000.0, 3.0) == pytest.approx(14.5)
-    assert conditions.wind(10000.0, 3.0, forecast=True) == 14.0
-    assert disturbances.thrust_scale == 0.99
+    assert conditions.wind_profile[0][0] == 0.0
+    assert conditions.wind_profile[-1][0] == PROFILE_TOP_M
+    assert conditions.vertical_wind_profile[-1][0] == PROFILE_TOP_M
+    assert 0.97 <= disturbances.thrust_scale <= 1.03
 
 
 @pytest.mark.parametrize(
     "overrides",
-    [
+    (
         {"health_checks_passed": False},
         {"known_fault": True},
         {"lightning_cloud_review_passed": False},
@@ -96,1148 +1043,1200 @@ def test_apr_operating_config_loads_without_running_a_flight():
         {"thunderstorm_or_hail_present": True},
         {"health_checks_passed": 1},
         {"known_fault": 0},
-        {"gust_amplitude_m_s": 2.01},
+        {"gust_amplitude_m_s": 5.01},
+        {"density_scale": 0.899},
+        {"density_scale": 1.101},
         {"gust_period_s": 7.99},
         {"gust_phase_rad": np.inf},
-        {"sea_level_temperature_k": 270.0},
-        {"sea_level_pressure_pa": 94000.0},
-        {"gust_amplitude_m_s": True},
-        {"wind_profile": ((0.0, 0.0), (10000.0, 0.0))},
-        {"wind_profile": ((0.0, 0.0), (100.0, 0.0), (100.0, 0.0), (20000.0, 0.0))},
-        {"wind_profile": ((0.0, 0.0), (1000.0, 4.01), (20000.0, 0.0))},
-        {"wind_profile": ((0.0, 0.0), (10000.0, np.nan), (20000.0, 0.0))},
-        {"wind_profile": ((0.0, 13.41), (20000.0, 13.41))},
-        {"wind_profile": ((0.0, 0.0), (10000.0, 28.01), (20000.0, 0.0))},
-        {"wind_profile": ((0.0, 0.0), (20000.0, 2.01))},
-    ],
+        {"latitude_deg": 91.0},
+        {"vertical_wind_profile": ((0.0, 3.01), (PROFILE_TOP_M, 3.01))},
+        {"vertical_wind_profile": ((0.0, -3.0), (1.0, 3.0), (PROFILE_TOP_M, 3.0))},
+        {"wind_profile": ((0.0, 8.01), (PROFILE_TOP_M, 8.01))},
+        {"wind_profile": ((0.0, 0.0), (10000.0, 20.01), (PROFILE_TOP_M, 0.0))},
+        {"wind_profile": ((0.0, 0.0), (100.0, 0.0), (100.0, 0.0), (PROFILE_TOP_M, 0.0))},
+        {"wind_profile": ((0.0, 0.0), (1000.0, 4.01), (PROFILE_TOP_M, 0.0))},
+        {"wind_profile": ((0.0, 0.0), (20000.0, 0.0))},
+        {"wind_profile": ((0.0, 0.0), (PROFILE_TOP_M, np.nan))},
+    ),
 )
-def test_apr_disallowed_weather_or_fault_is_rejected_not_a_success(overrides):
+def test_disallowed_weather_or_faults_are_rejected(overrides):
     with pytest.raises(ValueError):
         AprConditions(**overrides)
 
 
-def test_apr_combined_wind_bounds_are_checked_between_different_profile_knots():
-    with pytest.raises(ValueError, match="예보"):
-        AprConditions(
-            wind_profile=((0.0, 0.0), (20000.0, 0.0)),
-            forecast_wind_profile=((0.0, 0.0), (1000.0, 2.0), (20000.0, 0.0)),
-            gust_amplitude_m_s=0.1,
-        )
-    with pytest.raises(ValueError, match="지상"):
-        AprConditions(
-            wind_profile=((0.0, 13.0), (20000.0, 13.0)),
-            forecast_wind_profile=((0.0, 13.0), (20000.0, 13.0)),
-            gust_amplitude_m_s=0.5,
-        )
-
-
-def test_apr_boundary_inputs_and_above_separation_wind_are_explicit():
-    profile = ((0.0, 11.4), (50.0, 11.4), (10000.0, 26.0), (20000.0, 26.0))
-    conditions = AprConditions(
-        wind_profile=profile, forecast_wind_profile=profile, gust_amplitude_m_s=2.0
-    )
-    assert conditions.wind(15000.0, 3.0) == pytest.approx(28.0)
-    assert conditions.wind(50.0, 3.0) == pytest.approx(13.4)
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("root_seed", 379),
-        ("schema_version", True),
-        ("extra", 1),
-        ("vehicle", {"dry_mass_kg": 520.0}),
-    ],
-)
-def test_apr_config_rejects_incompatible_or_incomplete_contract(tmp_path, field, value):
-    data = yaml.safe_load((ROOT / "configs/apr-operating-v1.yaml").read_text(encoding="utf-8"))
-    data[field] = value
-    path = tmp_path / "invalid.yaml"
-    path.write_text(yaml.safe_dump(data), encoding="utf-8")
-    with pytest.raises(ValueError):
-        load_apr_operating(path)
-
-
-@pytest.mark.parametrize(
-    "group,field,value",
-    [
-        ("vehicle", "dry_mass_kg", 521.0),
-        ("vehicle", "sea_level_thrust_n", 1000000.0),
-        ("environment", "unknown", 0),
-        ("disturbances", "thrust_scale", 0.8),
-        ("disturbances", "inertia_scale", 0.8),
-        ("disturbances", "sensor_noise_scale", 1.01),
-        ("disturbances", "engine_lag_s", 0.051),
-        ("disturbances", "action_delay_steps", 2),
-        ("disturbances", "observation_delay_steps", 3),
-    ],
-)
-def test_apr_config_disallows_unrealistic_vehicle_and_fault_ranges(tmp_path, group, field, value):
-    data = yaml.safe_load((ROOT / "configs/apr-operating-v1.yaml").read_text(encoding="utf-8"))
-    data[group][field] = value
-    path = tmp_path / "invalid.yaml"
-    path.write_text(yaml.safe_dump(data), encoding="utf-8")
-    with pytest.raises(ValueError):
-        load_apr_operating(path)
-
-
-def test_apr_cli_rejects_bad_inputs_before_creating_output(tmp_path):
-    path = tmp_path / "bad.yaml"
-    path.write_text("schema_version: [", encoding="utf-8")
-    output = tmp_path / "must-not-exist"
-    with pytest.raises(SystemExit) as error:
-        apr_cli.main(["--conditions", str(path), "--output-dir", str(output)])
-    assert error.value.code == 2
-    assert not output.exists()
-
-
-def test_apr_cli_input_check_has_no_integration_or_output(monkeypatch, tmp_path):
-    monkeypatch.setattr(AprFlight, "run", lambda _: pytest.fail("input check ran a flight"))
-    output = tmp_path / "must-not-exist"
-    assert (
-        apr_cli.main(
-            [
-                "--conditions",
-                str(ROOT / "configs/apr-operating-v1.yaml"),
-                "--output-dir",
-                str(output),
-                "--check-inputs",
-            ]
-        )
-        == 0
-    )
-    assert not output.exists()
-
-
-def test_apr_cli_accepts_current_separation_record_without_running(monkeypatch, tmp_path):
-    monkeypatch.setattr(AprFlight, "run", lambda _: pytest.fail("input check ran a flight"))
-    case = AprFlight.from_separation(apr_separation_state(), time_s=78.0, after_max_q=True)
-    data = {"seed": 378, "design": asdict(Design()), "separation": case.separation}
-    path = tmp_path / "record.json"
-    path.write_text(json.dumps(data, default=lambda value: value.item()), encoding="utf-8")
-    assert apr_cli.main(["--separation-record", str(path), "--check-inputs"]) == 0
-
-
-def test_apr_changed_weather_does_not_silently_accept_an_invalid_separation(monkeypatch, tmp_path):
-    monkeypatch.setattr(AprFlight, "run", lambda _: pytest.fail("invalid separation ran a flight"))
-    case = AprFlight.from_separation(apr_separation_state(), time_s=78.0, after_max_q=True)
-    data = {"seed": 378, "design": asdict(Design()), "separation": case.separation}
-    path = tmp_path / "record.json"
-    path.write_text(json.dumps(data, default=lambda value: value.item()), encoding="utf-8")
-    output = tmp_path / "must-not-exist"
-    with pytest.raises(SystemExit) as error:
-        apr_cli.main(
-            [
-                "--separation-record",
-                str(path),
-                "--conditions",
-                str(ROOT / "configs/apr-operating-v1.yaml"),
-                "--output-dir",
-                str(output),
-            ]
-        )
-    assert error.value.code == 2
-    assert not output.exists()
-
-
-def test_apr_atmosphere_is_case_specific_and_shared_engine_has_compatible_defaults():
-    case = AprFlight(
-        conditions=AprConditions(sea_level_temperature_k=300.0, sea_level_pressure_pa=100000.0)
-    )
-    assert case.physics.atmosphere.sea_level_temperature_k == 300.0
-    assert PHYSICS.atmosphere.sea_level_temperature_k == 288.15
-    actual, _ = case.engine(0.5, 10000.0)
-    shared, _ = engine_performance(
-        0.5, 10000.0, case.physics, sea_level_thrust_n=42000.0, sea_level_isp_s=260.0
-    )
-    assert actual == shared
-    assert engine_performance(1.0, 0.0, PHYSICS)[0] == 42000.0
-
-
-def test_apr_true_wind_and_hidden_thrust_error_do_not_leak_into_guidance():
-    forecast = ((0.0, 0.0), (20000.0, 0.0))
-    positive = AprConditions(
-        wind_profile=((0.0, 1.0), (20000.0, 1.0)), forecast_wind_profile=forecast
-    )
-    negative = AprConditions(
-        wind_profile=((0.0, -1.0), (20000.0, -1.0)), forecast_wind_profile=forecast
-    )
-    initial = apr_separation_state()
-    first = AprFlight.from_separation(initial, time_s=78.0, after_max_q=True, conditions=positive)
-    second = AprFlight.from_separation(
-        initial,
-        time_s=78.0,
-        after_max_q=True,
-        conditions=negative,
-        disturbances=RecoveryDisturbances(thrust_scale=0.98, inertia_scale=1.03),
-    )
-    np.testing.assert_allclose(first.guidance(initial), second.guidance(initial), atol=1e-12)
-    assert first.loads(initial)[0][0] != second.loads(initial)[0][0]
-    assert first.engine(0.2, 10000.0) == second.engine(0.2, 10000.0)
-    assert second.engine(0.2, 10000.0, actual=True)[0] == pytest.approx(
-        0.98 * first.engine(0.2, 10000.0, actual=True)[0]
-    )
-
-
-def test_apr_gust_uses_integration_stage_time_and_air_relative_fin_forces():
-    conditions = AprConditions(gust_amplitude_m_s=1.0)
-    case = AprFlight.from_separation(
-        apr_separation_state(), time_s=0.0, after_max_q=True, conditions=conditions
-    )
-    state = case.state.copy()
-    state[3] = -100.0
-    state[4] = 0.0
-    state[12] = 1.0
-    assert case.wind_field(time_s=0.0).at(15000.0) == 0.0
-    assert case.wind_field(time_s=3.0).at(15000.0) == 1.0
-    assert case.fin_loads(state, time_s=0.0)[1] != case.fin_loads(state, time_s=3.0)[1]
-    assert case.alpha_deg(state, time_s=0.0) != case.alpha_deg(state, time_s=3.0)
-    assert not np.array_equal(
-        case.derivative(state, (0.0, 0.0, 0.0, 0.0), time_s=0.0),
-        case.derivative(state, (0.0, 0.0, 0.0, 0.0), time_s=3.0),
-    )
-
-
-def test_apr_noise_is_seeded_causal_and_does_not_change_the_true_state():
-    options = dict(
-        time_s=78.0,
-        after_max_q=True,
-        disturbances=RecoveryDisturbances(sensor_noise_scale=0.5, observation_delay_steps=2),
-    )
-    first = AprFlight.from_separation(apr_separation_state(), **options)
-    second = AprFlight.from_separation(apr_separation_state(), **options)
-    before = first.state.copy()
-    for index in range(3):
-        first.time_s = second.time_s = 78.0 + index * 0.01
-        np.testing.assert_array_equal(first.observe_control_state(), second.observe_control_state())
-    np.testing.assert_array_equal(first.state, before)
-    assert first.observations[0][0] == 78.0
-    assert not np.array_equal(first.observed_state[:6], before[:6])
-
-
-def test_apr_first_order_engine_lag_is_integrated_without_minimum_throttle():
-    case = AprFlight(disturbances=RecoveryDisturbances(engine_lag_s=0.02))
-    command = (0.1, 0.0, 0.0, 0.0)
-    assert case.applied_control(0.0, command, 0.0, 0.0)[0] == 0.0
-    assert case.applied_control(0.02, command, 0.0, 0.0)[0] == pytest.approx(
-        0.1 * (1.0 - np.exp(-1.0))
-    )
-    assert AprFlight().applied_control(0.0, command, 0.0, 0.0)[0] == 0.1
-    assert case.applied_control(0.02, (0.0, 0.0, 0.0, 0.0), 0.0, 0.1)[0] > 0.0
-
-
-def test_apr_action_delay_and_incremental_steps_preserve_fuel_balance():
-    case = AprFlight.from_separation(
-        apr_separation_state(),
-        time_s=78.0,
-        after_max_q=True,
-        disturbances=RecoveryDisturbances(action_delay_steps=1, engine_lag_s=0.02),
-    )
-    case.guidance = lambda observed: (0.1, 0.0, 0.0, 0.0)
-    case.advance()
-    assert case.control == (0.0, 0.0, 0.0, 0.0)
-    assert case.time_s == pytest.approx(78.01)
-    for _ in range(19):
-        case.advance()
-    assert np.all(np.isfinite(case.state))
-    assert case.main_consumed > 0.0
-    assert case.max_mass_balance_error < 1e-8
-    assert sum(case.initial_propellant) == pytest.approx(
-        case.state[6] + case.state[7] + case.main_consumed + case.rcs_consumed
-    )
-
-
-def test_apr_recovery_entry_preserves_momentum_and_marks_ascent_unverified():
-    initial = apr_separation_state()
-    case = AprFlight.from_separation(initial, time_s=78.0, after_max_q=True)
-    np.testing.assert_array_equal(case.state, initial)
-    assert not case.upper_attached
-    assert case.mass(case.state) == pytest.approx(520.0 + 461.5 + 15.0)
-    case.outcome = "timeout"
-    result = case.run()
-    assert result["environment_version"] == OPERATING_SCOPE
-    assert result["ascent_simulated"] is False
-    assert result["legacy_evidence_transferred"] is False
-    assert result["criteria"]["ascent_q"] is None
-    assert result["simulated_acceptance_passed"] is False
-    assert result["unconnected_systems"] == list(UNCONNECTED_SYSTEMS)
-    assert result["external_disturbances"]["environment"] == asdict(AprConditions())
-
-
-def test_apr_engine_lag_cannot_burn_unavailable_propellant():
-    initial = apr_separation_state()
-    initial[6] = 0.0001
-    case = AprFlight.from_separation(
-        initial,
-        time_s=78.0,
-        after_max_q=True,
-        disturbances=RecoveryDisturbances(engine_lag_s=0.02),
-    )
-    case.guidance = lambda observed: (1.0, 0.0, 0.0, 0.0)
-    for _ in range(3):
-        case.advance()
-    assert case.state[6] == 0.0
-    assert case.main_consumed == pytest.approx(0.0001, abs=1e-8)
-    assert case.max_mass_balance_error < 1e-8
-
-
-@pytest.mark.parametrize(
-    "index,value", [(1, 12000.0), (2, 61.0), (3, 0.0), (4, 0.0), (6, 0.0), (7, -0.1), (12, 1.0)]
-)
-def test_apr_recovery_entry_rejects_impossible_or_out_of_contract_states(index, value):
-    initial = apr_separation_state()
-    initial[index] = value
-    with pytest.raises(ValueError):
-        AprFlight.from_separation(initial, time_s=78.0, after_max_q=True)
-
-
-def test_apr_profile_domain_and_noisy_observation_cannot_fabricate_success():
-    case = AprFlight()
-    case.outcome = "timeout"
-    case.max_altitude = 20001.0
-    case.observed_state[0] = 0.0
-    case.state[0] = 3.0
-    case.upper_attached = False
-    case.state[8] = 1.0
-    case.state[1] = case.properties(case.state).cg_m - case.physics.gear.foot_station_m
-    case.first_contact(case.state, (0.0, 0.0, 0.0, 0.0))
-    assert case.contact["criteria"]["position"] is False
-    result = case.run()
-    assert result["criteria"]["weather_profile_domain"] is False
-    assert result["simulated_acceptance_passed"] is False
-
-
-def test_apr_payload_30_kg_is_included_in_the_existing_upper_mass_budget():
-    design = Design()
-    assert design.payload_mass_kg == 30.0
-    assert design.upper_stage_wet_mass_kg == 985.0
-    assert design.upper_stage_wet_mass_kg + design.payload_mass_kg == design.upper_mass_kg
-    assert design.launch_mass_kg == 3000.0
-
-
-@pytest.mark.parametrize("payload", [-1.0, 1015.0, 1016.0, np.nan, np.inf])
-def test_apr_payload_rejects_invalid_upper_mass_allocations(payload):
-    with pytest.raises(ValueError, match="payload_mass_kg"):
-        Design(payload_mass_kg=payload)
-
-
-def test_apr_payload_allocation_does_not_change_lumped_first_stage_dynamics():
-    reference, selected = NominalFlight(), NominalFlight()
-    reference.design = replace(reference.design, payload_mass_kg=0.0)
-    assert reference.mass(reference.state) == selected.mass(selected.state)
-    assert reference.properties(reference.state) == selected.properties(selected.state)
-    assert np.array_equal(
-        reference.derivative(reference.state, reference.control),
-        selected.derivative(selected.state, selected.control),
-    )
-
-
-def test_apr_orbit_mission_is_an_assumption_not_a_simulated_success():
-    flight = NominalFlight()
-    flight.outcome = "timeout"  # Inspect output without integrating a flight.
-    result = flight.run()
-    assert flight.time_s == 0.0
-    assert result["design"]["payload_mass_kg"] == 30.0
-    assert result["upper_stage_mission"] == {
-        "payload_mass_kg": 30.0,
-        "stage_wet_mass_kg": 985.0,
-        "target_orbit_altitude_m": 700_000.0,
-        "orbit_insertion_assumed": True,
-        "orbit_insertion_simulated": False,
-        "orbit_insertion_verified": False,
-    }
-    assert result["first_stage_mission"] == {
-        "separation_altitude_m": 10_000.0,
-        "separation_attitude_from_vertical_deg": 9.0,
-        "separation_attitude_tolerance_deg": 0.5,
-        "landing_target_x_m": 0.0,
-        "horizontal_distance_prescribed": False,
-        "horizontal_velocity_prescribed": False,
-    }
-
-
-def test_apr_ascent_gravity_turn_reference_reaches_nine_deg_without_state_clamps():
-    flight = NominalFlight()
-    y = flight.state.copy()
-    y[1:4] = (10_000.0, 120.0 * np.tan(np.deg2rad(9.0)), 120.0)
-    y[4] = np.deg2rad(9.0)
-    before = y.copy()
-    assert flight.ascent_attitude_target(y, 10_000.0) == pytest.approx(np.deg2rad(9.0))
-    assert flight.ascent_command["flight_path_reference_deg"] == pytest.approx(9.0)
-    assert flight.ascent_command["target_alpha_deg"] == pytest.approx(0.0, abs=1e-12)
-    assert np.array_equal(y, before)
-
-
-def test_apr_ascent_reference_turns_gradually_and_respects_steering_budgets():
-    flight = NominalFlight()
-    y = flight.state.copy()
-    y[3] = 120.0
-    references = []
-    for height in (500.0, 1500.0, 5000.0, 8500.0, 10_000.0):
-        y[1] = height
-        target = flight.ascent_attitude_target(y, height)
-        references.append(flight.ascent_command["flight_path_reference_deg"])
-        alpha_limit = (
-            flight.ascent_settings.preparation_alpha_reference_limit_deg
-            if height >= 9000.0
-            else flight.ascent_settings.alpha_reference_limit_deg
-        )
-        assert abs(np.rad2deg(target)) <= alpha_limit + 1e-12
-    assert np.all(np.diff(references) > 0.0)
-    assert references[-1] == pytest.approx(9.0)
-    y[3] = 500.0
-    flight.ascent_attitude_target(y, 10_000.0)
-    assert flight.ascent_command["horizontal_speed_reference_m_s"] == 25.0
-    y[0] = 900.0
-    flight.ascent_attitude_target(y, 10_000.0)
-    assert flight.ascent_command["horizontal_speed_reference_m_s"] <= 25.0
-
-
-def test_apr_separation_requires_actual_nine_deg_and_keeps_existing_gates():
-    flight = NominalFlight()
-    flight.max_q_passed = True
-    y = flight.state.copy()
-    y[1:6] = (10_000.0, 120.0 * np.tan(np.deg2rad(9.0)), 120.0, np.deg2rad(9.0), 0.0)
-    assert all(flight.separation_checks(y).values())
-    y[4] = np.deg2rad(9.6)
-    assert not flight.separation_checks(y)["mission_attitude"]
-    y[4] = np.deg2rad(9.4)
-    assert flight.separation_checks(y)["mission_attitude"]
-    flight.max_q_passed = False
-    assert flight.separation_checks(y)["after_observed_max_q"] is False
-    y[5] = np.deg2rad(6.0)
-    assert not flight.separation_checks(y)["angular_rate"]
-    y[1] = 10_101.0
-    assert not flight.separation_checks(y)["altitude"]
-
-
-def test_apr_separation_failure_does_not_force_the_nine_deg_mission_state():
-    flight = NominalFlight()
-    flight.max_q_passed = True
-    flight.state[1:6] = (10_101.0, 0.0, 120.0, 0.0, 0.0)
-    before = flight.state.copy()
-    flight.consider_separation(flight.state)
-    assert flight.outcome == "separation_gate_failed"
-    assert "separation_mission_attitude" in flight.failures
-    assert flight.upper_attached
-    assert flight.separation is None
-    assert np.array_equal(flight.state, before)
-
-
-def test_apr_fin_budget_is_inside_520_kg_and_fixed_masses_are_not_fuel():
-    flight = NominalFlight()
-    assert flight.mass(flight.state) == 3000.0
-    assert FINS.mass_kg == 24.0
-    g = PHYSICS.geometry
-    assert g.engine_mass_kg + g.airframe_mass_kg + g.gear_mass_kg + FINS.mass_kg == 520.0
-    flight.upper_attached = False
-    y = flight.state.copy()
-    y[6:8] = 0.0
-    props = flight.properties(y)
-    assert props.fuel_height_m == 0.0
-    expected_cg = (
-        110.0 * g.engine_station_m
-        + 326.0 * g.airframe_station_m
-        + 60.0 * 1.3
-        + 24.0 * FINS.station_m
-    ) / 520.0
-    assert props.cg_m == pytest.approx(expected_cg)
-
-
-def fin_bench():
-    flight = NominalFlight(fin_mode="active")
-    flight.upper_attached = False
-    flight.phase = "coast"
-    flight.state[1:4] = (2000.0, 0.0, -120.0)
-    flight.state[6:8] = (462.0, 15.0)
-    flight.state[12] = 1.0
-    return flight
-
-
-def test_apr_nine_deg_boostback_brakes_outbound_velocity_with_physical_controls():
-    flight = fin_bench()
-    flight.phase = "boostback"
-    flight.return_settings = ReturnGuidanceSettings.for_stage("sync")
-    flight.state[:6] = (350.0, 10_000.0, 19.0, 124.0, 0.0, 0.0)
-    flight.state[12] = 0.0
-    before = flight.state.copy()
-    throttle, gimbal, _, _ = flight.guidance()
-    assert throttle == pytest.approx(0.15)
-    assert flight.attitude_target < 0.0
-    assert abs(gimbal) <= np.deg2rad(flight.design.gimbal_limit_deg)
-    assert flight.phase == "boostback"
-    assert np.array_equal(flight.state, before)
-
-
-def test_apr_boostback_records_the_actual_state_before_coasting():
-    flight = fin_bench()
-    flight.phase = "boostback"
-    flight.return_settings = ReturnGuidanceSettings.for_stage("sync")
-    flight.state[:6] = (350.0, 10_000.0, -20.0, 80.0, 0.0, 0.0)
-    flight.state[12] = 0.0
-    before = flight.state.copy()
-    throttle, _, _, _ = flight.guidance()
-    assert throttle == 0.0
-    assert flight.phase == "coast"
-    assert flight.boostback_completed["x_m"] == 350.0
-    assert flight.boostback_completed["vx_m_s"] == -20.0
-    assert flight.boostback_completed["main_propellant_kg"] == 462.0
-    assert flight.boostback_completed["return_vx_reference_m_s"] < 0.0
-    assert flight.boostback_completed["reference_model"] == "ballistic"
-    assert np.array_equal(flight.state, before)
-
-
-@pytest.mark.parametrize("vz", [124.0, 0.0, -100.0, -300.0])
-def test_apr_coast_surrogate_obeys_its_analytic_drag_energy_and_velocity_decay(vz):
-    estimate = CoastEstimate.between(10_000.0, vz, 2000.0, 1000.0, 0.668)
-    k = 0.5 * estimate.mean_density_kg_m3 * 0.668 / 1000.0
-    terminal_squared = gravity(10_000.0) / k
-    rise = np.log1p(vz**2 / terminal_squared) / (2.0 * k) if vz > 0.0 else 0.0
-    if vz >= 0.0:
-        expected_downspeed_squared = terminal_squared * (1.0 - np.exp(-2 * k * (8000.0 + rise)))
-    else:
-        expected_downspeed_squared = terminal_squared + (vz**2 - terminal_squared) * np.exp(
-            -2 * k * 8000.0
-        )
-    assert estimate.downspeed_m_s**2 == pytest.approx(expected_downspeed_squared)
-    assert estimate.horizontal_velocity_ratio == pytest.approx(np.exp(-k * (8000.0 + 2 * rise)))
-    assert 0.0 < estimate.horizontal_gain_s < estimate.duration_s
-    assert 0.0 < estimate.horizontal_velocity_ratio < 1.0
-
-
-def test_apr_coast_surrogate_handles_terminal_speed_and_zero_coast_distance():
-    reference = CoastEstimate.between(10_000.0, -100.0, 2000.0, 1000.0, 0.668)
-    k = 0.5 * reference.mean_density_kg_m3 * 0.668 / 1000.0
-    terminal = np.sqrt(gravity(10_000.0) / k)
-    estimate = CoastEstimate.between(10_000.0, -terminal, 2000.0, 1000.0, 0.668)
-    assert estimate.duration_s == pytest.approx(8000.0 / terminal)
-    assert estimate.downspeed_m_s == pytest.approx(terminal)
-    stopped = CoastEstimate.between(2000.0, -100.0, 2000.0, 1000.0, 0.668)
-    assert stopped.duration_s == 0.0
-    assert stopped.horizontal_gain_s == 0.0
-    assert stopped.horizontal_velocity_ratio == 1.0
-    assert stopped.downspeed_m_s == 100.0
-
-
-@pytest.mark.parametrize(
-    "mass, area", [(0.0, 0.668), (-1.0, 0.668), (1000.0, 0.0), (np.nan, 0.668)]
-)
-def test_apr_coast_surrogate_rejects_invalid_physical_inputs(mass, area):
-    with pytest.raises(ValueError, match="coast estimate"):
-        CoastEstimate.between(10_000.0, -100.0, 2000.0, mass, area)
-
-
-def test_apr_cumulative_guidance_stages_keep_the_original_limits_and_can_be_selected():
-    approach = NominalFlight(guidance_stage="approach").return_settings
-    sync = NominalFlight(guidance_stage="sync").return_settings
-    joint = NominalFlight().return_settings
-    assert not approach.synchronized_alignment and not approach.joint_return_planning
-    assert sync.synchronized_alignment and not sync.joint_return_planning
-    assert joint.synchronized_alignment and joint.joint_return_planning
-    for settings in (approach, sync, joint):
-        assert settings.approach_speed_limit_m_s == 20.0
-        assert settings.load_governor_g == 4.75
-        assert settings.alignment_vertical_speed_gate_m_s == 1.5
-        assert settings.alignment_position_gate_m == 0.35
-        assert settings.alignment_dwell_s == 1.0
-        assert settings.boostback_tilt_limit_deg == 20.0
-    with pytest.raises(ValueError, match="guidance stage"):
-        NominalFlight(guidance_stage="other")
-
-
-def test_apr_joint_boostback_waits_for_physical_orientation_without_replacing_the_state():
-    flight = fin_bench()
-    flight.phase = "boostback"
-    flight.state[:6] = (350.0, 10_000.0, 19.0, 124.0, 0.0, 0.0)
-    flight.state[12] = 0.0
-    before = flight.state.copy()
-    throttle, gimbal, torque, _ = flight.guidance()
-    assert throttle == 0.0
-    assert flight.attitude_target < 0.0
-    assert abs(gimbal) <= np.deg2rad(flight.design.gimbal_limit_deg)
-    assert abs(torque) <= flight.design.rcs_torque_limit_nm
-    assert flight.return_plan["return_vx_reference_m_s"] < 0.0
-    assert flight.return_plan["candidate_count"] == 3
-    assert flight.return_plan["estimated_objective_propellant_kg"] >= 0.0
-    assert np.array_equal(flight.state, before)
-    flight.state[4] = np.deg2rad(-20.0)
-    throttle, _, _, _ = flight.guidance()
-    assert 0.0 < throttle <= flight.return_settings.boostback_throttle
-
-
-def test_apr_joint_plan_is_mirrored_and_refreshes_only_on_its_control_interval():
-    flights = []
-    for sign in (1.0, -1.0):
-        flight = fin_bench()
-        flight.phase = "boostback"
-        flight.state[:6] = (350.0 * sign, 10_000.0, 19.0 * sign, 124.0, 0.0, 0.0)
-        flight.state[12] = 0.0
-        flight.update_return_plan(flight.state)
-        flights.append(flight)
-    a, b = flights
-    assert a.return_plan["return_vx_reference_m_s"] == pytest.approx(
-        -b.return_plan["return_vx_reference_m_s"]
-    )
-    assert a.return_plan["estimated_objective_propellant_kg"] == pytest.approx(
-        b.return_plan["estimated_objective_propellant_kg"]
-    )
-    original_plan = a.return_plan
-    a.time_s = 0.4
-    a.update_return_plan(a.state)
-    assert a.return_plan is original_plan
-    a.time_s = 0.5
-    a.update_return_plan(a.state)
-    assert a.return_plan is not original_plan
-
-
-def test_apr_joint_ignition_includes_both_braking_and_horizontal_time_requirements():
-    flight = fin_bench()
-    y = flight.state
-    vertical = flight.joint_ignition_height(y, 180.0, 0.0, 0.0)
-    lateral = flight.joint_ignition_height(y, 180.0, 180.0, -0.7)
-    faster = flight.joint_ignition_height(y, 230.0, 0.0, 0.0)
-    assert lateral["horizontal_extra_time_s"] > 0.0
-    assert lateral["ignition_height_m"] > vertical["ignition_height_m"]
-    assert faster["ignition_height_m"] > vertical["ignition_height_m"]
-    assert vertical["reaction_time_s"] > flight.return_settings.return_plan_interval_s
-    assert vertical["braking_deceleration_m_s2"] <= 14.0
-
-
-def test_apr_joint_alignment_keeps_a_vertical_braking_horizon_after_horizontal_completion():
-    flight = fin_bench()
-    flight.phase = "landing"
-    flight.state[:6] = (0.1, 600.0, 0.01, -49.0, 0.0, 0.0)
-    flight.horizontal_transfer = HorizontalTransfer.plan(0.0, 1.0, -0.1, flight.return_settings)
-    flight.time_s = flight.horizontal_transfer.duration_s + 10.0
-    flight.update_alignment(flight.state, 600.0)
-    assert flight.alignment_descent is not None
-    assert flight.alignment_descent.duration_s == pytest.approx(12.0)
-    assert flight.alignment_descent.peak_deceleration_m_s2 <= 8.0
-    assert flight.phase == "alignment"
-    assert flight.alignment_completed is None
-
-
-def test_apr_lift_and_torque_are_coupled_and_drag_dissipates_energy():
-    flight = fin_bench()
-    force, torque, hinge = flight.fin_loads(flight.state, np.deg2rad(10.0))
-    assert torque > 0.0
-    arm = FINS.station_m - flight.properties(flight.state).cg_m
-    assert torque == pytest.approx(arm * force[0])
-    assert force @ flight.state[2:4] < 0.0
-    assert hinge > 0.0
-    opposite = flight.fin_loads(flight.state, np.deg2rad(-10.0))
-    assert opposite[1] == pytest.approx(-torque)
-
-
-@pytest.mark.parametrize("case", ["stowed", "still", "attached"])
-def test_apr_has_no_magic_aerodynamic_authority(case):
-    flight = fin_bench()
-    if case == "stowed":
-        flight.state[12] = 0.0
-    elif case == "still":
-        flight.state[2:4] = 0.0
-    else:
-        flight.upper_attached = True
-    force, torque, hinge = flight.fin_loads(flight.state, 0.1)
-    assert np.array_equal(force, np.zeros(2))
-    assert torque == hinge == 0.0
-
-
-def test_apr_servo_rate_and_deflection_limit_and_actual_torque_allocation():
-    flight = fin_bench()
-    target = flight.fin_command(flight.state, 1e9)
-    assert target == pytest.approx(np.deg2rad(FINS.deflection_limit_deg))
-    derivative = flight.derivative(flight.state, (0.0, 0.0, 0.0, target))
-    assert derivative[11] == pytest.approx(np.deg2rad(FINS.deflection_rate_deg_s))
-    requested_target = np.deg2rad(2.0)
-    _, unassisted_rcs, fin_target = flight.attitude(requested_target, 0.0)
-    assert unassisted_rcs > 0.0  # The servo has not moved yet.
-    flight.state[11] = fin_target
-    _, assisted_rcs, _ = flight.attitude(requested_target, 0.0)
-    assert abs(assisted_rcs) < abs(unassisted_rcs)
-
-
-def test_apr_same_hardware_and_initial_state_in_both_comparison_modes():
-    stowed, active = NominalFlight(fin_mode="stowed"), NominalFlight(fin_mode="active")
-    assert np.array_equal(stowed.state, active.state)
-    assert stowed.design == active.design
-    assert np.array_equal(
-        stowed.derivative(stowed.state, stowed.control),
-        active.derivative(active.state, active.control),
-    )
-
-
-def test_apr_fin_authority_scales_with_q_not_a_guaranteed_rcs_saving():
-    rows = fin_authority_table()
-    assert rows[2]["max_fin_torque_nm"] / rows[1]["max_fin_torque_nm"] == pytest.approx(5.0)
-    assert rows[-1]["max_fin_torque_nm"] > 6000.0
-    assert rows[0]["max_fin_torque_nm"] < 6000.0
-
-
-@pytest.mark.parametrize("fuel", [50.0, 462.0, 1450.0])
-def test_apr_fixed_fin_mass_preserves_analytic_cg_and_inertia_gradients(fuel):
-    mass, deployment, step = 520.0 + fuel, 0.5, 1e-3
-    props = mass_properties(mass, deployment, PHYSICS)
-    analytic = mass_gradients(mass, deployment, PHYSICS, props)
-    plus = mass_properties(mass + step, deployment, PHYSICS)
-    minus = mass_properties(mass - step, deployment, PHYSICS)
-    assert analytic[0] == pytest.approx((plus.cg_m - minus.cg_m) / (2 * step), rel=1e-6)
-    assert analytic[2] == pytest.approx(
-        (plus.inertia_kg_m2 - minus.inertia_kg_m2) / (2 * step), rel=1e-6
-    )
-
-
-def test_apr_passive_fins_restore_a_small_descent_attitude_error():
-    flight = fin_bench()
-    flight.state[4] = np.deg2rad(5.0)
-    assert flight.fin_loads(flight.state, 0.0)[1] < 0.0
-
-
-def test_apr_feet_use_fin_inclusive_cg_and_not_a_second_fuel_allocation():
-    flight = fin_bench()
-    flight.state[8] = 1.0
-    props = flight.properties(flight.state)
-    flight.state[1] = props.cg_m - PHYSICS.gear.foot_station_m
-    points, _ = foot_kinematics(flight.vector(flight.state), 1.0, PHYSICS)
-    assert np.allclose(points[:, 1], 0.0, atol=1e-12)
-
-
-def test_apr_envelope_failure_is_not_silently_accepted():
-    flight = fin_bench()
-    flight.outcome = "timeout"
-    flight.max_deployed_fin_alpha_deg = 30.0
-    result = flight.run()
-    assert result["criteria"]["fin_model_envelope"] is False
-    assert "fin_model_envelope" in result["failed_criteria"]
-    assert result["simulated_acceptance_passed"] is False
-
-
-def test_apr_powered_allocation_uses_tvc_and_only_residual_rcs():
-    flight = fin_bench()
-    flight.state[12] = 0.0
-    flight.fin_share = 0.0
-    gimbal, torque, _ = flight.attitude(np.deg2rad(1.0), 0.5)
-    assert abs(gimbal) < np.deg2rad(flight.design.gimbal_limit_deg)
-    assert abs(torque) < 1e-9
-    derivative = flight.derivative(flight.state, (0.5, gimbal, torque, 0.0))
-    assert np.rad2deg(derivative[5]) == pytest.approx(
-        flight.last_allocation["desired_angular_acceleration_deg_s2"], abs=1e-9
-    )
-
-
-def test_apr_blended_fin_request_fades_to_assistance_not_duplicate_tvc():
-    flight = fin_bench()
-    flight.fin_share = 1.0
-    flight.attitude(np.deg2rad(1.0), 0.5)
-    unpowered_role = flight.last_allocation["fin_requested_torque_nm"]
-    assert unpowered_role > 0.0
-    flight.fin_share = 0.0
-    flight.attitude(np.deg2rad(1.0), 0.5)
-    assert flight.last_allocation["fin_requested_torque_nm"] == 0.0
-
-
-def test_apr_fin_plan_does_not_deploy_at_apogee_and_retracts_before_alignment():
-    flight = fin_bench()
-    flight.state[12] = 0.0
-    flight.state[3] = 0.0
-    flight.update_fin_plan(flight.state, 10_000.0)
-    assert not flight.fin_deployment_started
-    flight.state[3] = -40.0
-    flight.update_fin_plan(flight.state, 9000.0)
-    assert flight.fin_deployment_started
-    assert flight.fin_extension_rate(flight.state) == 0.5
-    flight.state[12] = 1.0
-    flight.phase = "landing"
-    flight.update_fin_plan(flight.state, 1700.0)
-    assert flight.fin_retraction_started
-    assert flight.fin_extension_rate(flight.state) == -0.5
-    flight.state[12] = 0.0
-    assert flight.fin_extension_rate(flight.state) == 0.0
-
-
-def test_apr_reference_has_slew_limit_and_low_q_fins_feather():
-    flight = fin_bench()
-    target = flight.filter_attitude_reference(np.deg2rad(10.0))
-    assert (
-        abs(target)
-        <= np.deg2rad(flight.return_settings.attitude_reference_slew_deg_s)
-        * flight.return_settings.control_dt_s
-    )
-    flight.state[3] = -5.0
-    flight.state[4] = np.deg2rad(4.0)
-    assert flight.fin_command(flight.state, 1e6) == pytest.approx(np.deg2rad(4.0))
-
-
-@pytest.mark.parametrize("gimbal_deg", [-6.0, 0.0, 6.0])
-def test_apr_total_load_governor_includes_aero_for_every_gimbal_direction(gimbal_deg):
-    flight = fin_bench()
-    flight.state[6] = 50.0
-    flight.state[3] = -190.0
-    throttle = flight.governed_throttle(1.0, flight.state)
-    assert throttle < 1.0
-    aero = flight.loads(flight.state)[0]
-    thrust = flight.engine(throttle, flight.state[1])[0]
-    angle = flight.state[4] + np.deg2rad(gimbal_deg)
-    total = aero + thrust * np.array([np.sin(angle), np.cos(angle)])
-    assert np.linalg.norm(total) / (flight.mass(flight.state) * G0) <= 4.75 + 1e-12
-
-
-def test_apr_horizontal_pd_is_continuous_and_brakes_before_crossing_target():
-    flight = fin_bench()
-    flight.state[0], flight.state[2] = 10.0, -2.0
-    assert flight.horizontal_acceleration(flight.state) > 0.0
-    flight.state[0], flight.state[2] = -1e-6, 0.0
-    left = flight.horizontal_acceleration(flight.state)
-    flight.state[0] = 1e-6
-    right = flight.horizontal_acceleration(flight.state)
-    assert abs(left - right) < 1e-6
-    s = flight.return_settings
-    assert s.horizontal_kd_s_inv**2 == pytest.approx(4.0 * s.horizontal_kp_s2)
-
-
-@pytest.mark.parametrize(
-    ("position", "velocity"),
-    [(0.0, 0.0), (180.0, -0.7), (-180.0, 0.7), (180.0, 5.0), (20.0, -8.0), (0.0, 4.0)],
-)
-def test_apr_horizontal_transfer_matches_endpoints_and_bounds_reference(position, velocity):
-    settings = NominalFlight().return_settings
-    transfer = HorizontalTransfer.plan(50.0, position, velocity, settings)
-    assert transfer.duration_s >= settings.horizontal_transfer_min_duration_s
-    assert transfer.reference(50.0) == pytest.approx((position, velocity, 0.0))
-    end = 50.0 + transfer.duration_s
-    assert transfer.reference(end) == (0.0, 0.0, 0.0)
-    assert transfer.reference(end + 5.0) == (0.0, 0.0, 0.0)
-    assert transfer.reference(end - 1e-6) == pytest.approx((0.0, 0.0, 0.0), abs=1e-5)
-    assert (
-        transfer.peak_reference_acceleration_m_s2 <= settings.horizontal_transfer_acceleration_m_s2
-    )
-    assert transfer.peak_reference_jerk_m_s3 <= settings.horizontal_transfer_jerk_m_s3
-    assert (
-        transfer.peak_compensated_acceleration_m_s2
-        <= settings.horizontal_transfer_acceleration_m_s2
-    )
-    samples = [transfer.reference(t) for t in np.linspace(50.0, end, 101)]
-    assert max(abs(row[2]) for row in samples) <= transfer.peak_reference_acceleration_m_s2 + 1e-10
-    for t in np.linspace(50.0, end, 101):
-        compensated = transfer.reference(t)[
-            2
-        ] + transfer.attitude_lag_compensation_s * transfer.jerk(t)
-        assert abs(compensated) <= transfer.peak_compensated_acceleration_m_s2 + 1e-10
-    assert transfer.jerk(end + 1.0) == 0.0
-
-
 @pytest.mark.parametrize(
     "overrides",
-    [
-        {"horizontal_transfer_acceleration_m_s2": 0.0},
-        {"horizontal_transfer_acceleration_m_s2": 1.0},
-        {"horizontal_transfer_acceleration_m_s2": np.nan},
-        {"horizontal_transfer_jerk_m_s3": -1.0},
-        {"horizontal_transfer_jerk_m_s3": np.inf},
-        {"horizontal_transfer_min_duration_s": 0.0},
-        {"attitude_position_gain_s_inv": 0.0},
-        {"attitude_reference_tau_s": -1.0},
-    ],
+    (
+        {"thrust_scale": 0.969},
+        {"thrust_scale": 1.031},
+        {"drag_coefficient_scale": 0.849},
+        {"drag_coefficient_scale": 1.151},
+        {"initial_mass_scale": 0.989},
+        {"initial_mass_scale": 1.011},
+        {"inertia_scale": 0.969},
+        {"inertia_scale": 1.031},
+        {"sensor_position_error_m": 2.01},
+        {"sensor_velocity_error_m_s": 1.01},
+        {"observation_delay_steps": 3},
+        {"observation_delay_steps": True},
+        {"action_delay_steps": 2},
+        {"engine_lag_s": 0.051},
+    ),
 )
-def test_apr_horizontal_transfer_rejects_invalid_bounds(overrides):
-    settings = replace(NominalFlight().return_settings, **overrides)
-    with pytest.raises(ValueError, match="horizontal transfer"):
-        HorizontalTransfer.plan(0.0, 180.0, -0.7, settings)
+def test_nonhealthy_vehicle_uncertainty_is_rejected(overrides):
+    with pytest.raises(ValueError):
+        RecoveryDisturbances(**overrides)
 
 
-def test_apr_horizontal_transfer_is_symmetric_and_starts_from_measurements():
-    flight = fin_bench()
-    flight.state[:4] = (180.0, 2200.0, -0.7, -180.0)
+@pytest.mark.parametrize("scale", (0.99, 1.01))
+def test_initial_mass_uncertainty_is_accounted_for_without_changing_propellant_inventory(scale):
+    flight = AprFlight(disturbances=RecoveryDisturbances(initial_mass_scale=scale))
+    assert flight.mass(flight.state) == pytest.approx(100_000.0 * scale)
+    assert flight.design.launch_mass_kg == pytest.approx(100_000.0 * scale)
+    assert flight.state[6] == Design().main_propellant_kg
+    assert flight.state[7] == Design().rcs_propellant_kg
+    assert flight.physics.geometry.airframe_mass_kg == pytest.approx(
+        PHYSICS.geometry.airframe_mass_kg + 100_000.0 * (scale - 1.0)
+    )
+
+
+def test_sensor_measurement_error_vectors_are_seeded_and_respect_norm_limits():
+    settings = RecoveryDisturbances(sensor_position_error_m=2.0, sensor_velocity_error_m_s=1.0)
+    first, second = AprFlight(disturbances=settings), AprFlight(disturbances=settings)
+    true_state = first.state.copy()
+    for _ in range(100):
+        measured = first.observe_control_state()
+        repeated = second.observe_control_state()
+        np.testing.assert_array_equal(measured, repeated)
+        assert np.linalg.norm(measured[:2] - true_state[:2]) <= 2.0 + 1e-9
+        assert np.linalg.norm(measured[2:4] - true_state[2:4]) <= 1.0 + 1e-9
+        np.testing.assert_array_equal(measured[6:], true_state[6:])
+        np.testing.assert_array_equal(first.state, true_state)
+
+
+def _hidden_uncertainty_pair():
+    """Same forecast and measured state; different unobserved plant parameters."""
+    forecast = ((0.0, 0.0), (PROFILE_TOP_M, 0.0))
+    first = AprFlight.from_separation(
+        apr_separation_state(),
+        time_s=98.0,
+        conditions=AprConditions(
+            wind_profile=((0.0, 1.0), (PROFILE_TOP_M, 1.0)),
+            forecast_wind_profile=forecast,
+            density_scale=1.1,
+        ),
+        disturbances=RecoveryDisturbances(
+            initial_mass_scale=1.01,
+            thrust_scale=1.03,
+            drag_coefficient_scale=1.15,
+            inertia_scale=1.03,
+        ),
+    )
+    second = AprFlight.from_separation(
+        apr_separation_state(),
+        time_s=98.0,
+        conditions=AprConditions(
+            wind_profile=((0.0, -1.0), (PROFILE_TOP_M, -1.0)),
+            forecast_wind_profile=forecast,
+            density_scale=0.9,
+        ),
+        disturbances=RecoveryDisturbances(
+            initial_mass_scale=0.99,
+            thrust_scale=0.97,
+            drag_coefficient_scale=0.85,
+            inertia_scale=0.97,
+        ),
+    )
+    measured = first.state.copy()
+    measured[:6] = (500.0, 2000.0, 15.0, -240.0, 0.0, 0.0)
+    measured[9:13] = (0.1, 1.0, 0.0, 0.15)
+    return first, second, measured
+
+
+def test_predicted_aerodynamic_and_fin_loads_do_not_read_hidden_plant_parameters():
+    first, second, measured = _hidden_uncertainty_pair()
+    for method in ("body_loads", "fin_loads", "loads"):
+        left = getattr(first, method)(measured, predicted=True)
+        right = getattr(second, method)(measured, predicted=True)
+        for value, repeated in zip(left, right, strict=True):
+            np.testing.assert_allclose(value, repeated, atol=1e-10)
+    assert first.mass(measured) != second.mass(measured)
+    assert first.mass(measured, predicted=True) == second.mass(measured, predicted=True)
+
+
+def test_return_forecast_uses_the_same_observation_and_forecast_not_actual_density():
+    first, second, measured = _hidden_uncertainty_pair()
+    measured[:6] = (10_000.0, 37_000.0, 700.0, 600.0, 0.0, 0.0)
+    left = first.predict_return(20.0, measured, direction=-1.0)
+    right = second.predict_return(20.0, measured, direction=-1.0)
+    assert left == right
+
+
+@pytest.mark.parametrize("phase", ("coast", "landing"))
+def test_guidance_uses_nominal_predictions_when_observations_and_forecasts_are_identical(phase):
+    first, second, measured = _hidden_uncertainty_pair()
+    first.phase = second.phase = phase
+    if phase == "landing":
+        measured[:6] = (1.0, 30.0, 0.3, -5.0, 0.0, 0.0)
+    else:
+        measured[:6] = (500.0, 5000.0, 15.0, -300.0, 0.0, 0.0)
+    left = first.guidance(measured)
+    right = second.guidance(measured)
+    np.testing.assert_allclose(left, right, atol=1e-10)
+    if phase == "coast":
+        assert first.phase == second.phase == "entry"
+
+
+@pytest.mark.parametrize("density_scale", (0.9, 1.0, 1.1))
+def test_descent_reference_obeys_grid_pressure_and_backward_braking_bounds(density_scale):
+    settings = AtmosphereSettings(density_scale=density_scale)
+    q_budget = 0.6 * SAFETY.max_q_pa
+    heights, squared, times = build_descent_reference(settings, q_budget, 20.0, 8.0)
+    assert heights[0] == times[0] == 0.0
+    assert heights[-1] == PROFILE_TOP_M
+    assert squared[0] == Design().descent_reference_m_s ** 2 == 1.0
+    assert np.all(np.diff(heights) > 0.0)
+    assert np.all(np.diff(squared) >= 0.0)
+    assert np.all(np.diff(times) > 0.0)
+    density = np.array([atmosphere(height, settings)[2] for height in heights])
+    assert np.all(0.5 * density * squared <= q_budget + 1e-8)
+    blending = np.clip((heights - 1500.0) / 2000.0, 0.0, 1.0)
+    braking = 8.0 + 12.0 * blending**2 * (3.0 - 2.0 * blending)
+    slope = np.diff(squared) / np.diff(heights)
+    assert np.all(slope <= braking[:-1] + braking[1:] + 1e-8)
+    assert np.all(slope[heights[1:] <= 1500.0] <= 16.0 + 1e-8)
+    assert np.all(slope <= 40.0 + 1e-8)
+    np.testing.assert_allclose(
+        np.diff(times), 2.0 * np.diff(heights) / (np.sqrt(squared[1:]) + np.sqrt(squared[:-1]))
+    )
+    assert not heights.flags.writeable
+    assert not squared.flags.writeable
+    assert not times.flags.writeable
+    # These are guidance limits, not relaxed flight-safety acceptance criteria.
+    assert SAFETY.max_q_pa == 30000.0
+    assert SAFETY.max_recovery_flight_g == 5.0
+
+
+def test_interpolated_descent_reference_keeps_a_physical_stopping_distance():
+    flight = AprFlight()
+    heights = np.r_[0.0, np.geomspace(0.001, PROFILE_TOP_M, 501)]
+    previous_time = -1.0
+    for height in heights:
+        speed, gradient, remaining_time = flight.descent_speed(height)
+        assert np.isfinite((speed, gradient, remaining_time)).all()
+        assert speed >= Design().descent_reference_m_s
+        assert 0.0 <= speed * gradient <= 20.0 + 1e-8
+        stopping_distance = (speed**2 - Design().descent_reference_m_s ** 2) / (2.0 * 20.0)
+        assert stopping_distance <= height + 1e-8
+        if height <= 1500.0:
+            assert speed * gradient <= 8.0 + 1e-8
+            assert (speed**2 - 1.0) / 16.0 <= height + 1e-8
+        density = atmosphere(height, flight.settings(predicted=True).atmosphere)[2]
+        # Linear interpolation has small curvature error in its 18 kPa target;
+        # the unchanged 30 kPa physical limit must still be respected between knots.
+        assert 0.5 * density * speed**2 < SAFETY.max_q_pa
+        assert remaining_time > previous_time
+        previous_time = remaining_time
+    assert flight.descent_speed(-1.0) == flight.descent_speed(0.0)
+    assert flight.descent_speed(PROFILE_TOP_M + 1.0) == flight.descent_speed(PROFILE_TOP_M)
+
+
+@pytest.mark.parametrize("height", (0.75, 101.0, 1703.25, 4444.0, 37123.0, 81234.0))
+def test_descent_reference_speed_and_time_derivatives_match_the_interpolated_curve(height):
+    flight = AprFlight()
+    speed, gradient, _ = flight.descent_speed(height)
+    dh = 0.0001
+    lower_speed, _, lower_time = flight.descent_speed(height - dh)
+    upper_speed, _, upper_time = flight.descent_speed(height + dh)
+    assert (upper_speed - lower_speed) / (2.0 * dh) == pytest.approx(gradient, rel=1e-6)
+    assert (upper_time - lower_time) / (2.0 * dh) == pytest.approx(1.0 / speed, rel=1e-6)
+
+
+def _mock_return_prediction(landing_x, *, feasible=True):
+    return dict(
+        landing_x_m=landing_x,
+        terminal_state=[landing_x, 2000.0, 0.0, -100.0],
+        elapsed_s=200.0,
+        remaining_main_kg=5000.0,
+        peak_dynamic_pressure_pa=10000.0,
+        feasible=feasible,
+    )
+
+
+@pytest.mark.parametrize("remaining_main,feasible", ((500.0, False), (20000.0, True)))
+def test_return_predictor_budgets_the_terminal_burn_before_calling_a_plan_feasible(
+    remaining_main, feasible
+):
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    measured = flight.state.copy()
+    measured[:6] = (1.0, 2000.0, 10.0, -180.0, 0.0, 0.0)
+    measured[6] = remaining_main
+    measured[12] = 0.0
+    before = measured.copy()
+    # At the predictor's terminal altitude no candidate propagation is needed.
+    # This checks its conservative analytic budget, not a completed landing.
+    prediction = flight.predict_return(0.0, measured)
+    terminal_time = flight.descent_speed(measured[1])[2]
+    delta_v = np.linalg.norm(measured[2:4]) + G0 * terminal_time
+    expected_budget = flight.mass(measured, predicted=True) * (
+        1.0 - np.exp(-delta_v / (Design().sea_level_isp_s * G0))
+    )
+    assert prediction["remaining_main_kg"] == remaining_main
+    assert prediction["estimated_landing_propellant_kg"] == pytest.approx(expected_budget)
+    assert prediction["estimated_main_after_landing_kg"] == pytest.approx(
+        remaining_main - expected_budget
+    )
+    assert prediction["feasible"] is feasible
+    np.testing.assert_array_equal(measured, before)
+
+
+def test_finite_burn_prediction_does_not_read_hidden_plant_values_or_modify_real_state():
+    first, second, measured = _hidden_uncertainty_pair()
+    measured[:6] = (500.0, 12000.0, 35.0, -300.0, 0.0, 0.0)
+    before_measurement = measured.copy()
+    before_first, before_second = first.state.copy(), second.state.copy()
+    left = first.predict_return(0.25, measured)
+    right = second.predict_return(0.25, measured)
+    assert left == right
+    np.testing.assert_array_equal(measured, before_measurement)
+    np.testing.assert_array_equal(first.state, before_first)
+    np.testing.assert_array_equal(second.state, before_second)
+    assert first.time_s == second.time_s == 98.0
+
+
+def test_return_planner_rejects_unbracketed_miss_instead_of_executing_the_least_bad_burn(
+    monkeypatch,
+):
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
     before = flight.state.copy()
-    right = HorizontalTransfer.plan(10.0, 180.0, -0.7, flight.return_settings)
-    left = HorizontalTransfer.plan(10.0, -180.0, 0.7, flight.return_settings)
-    assert right.duration_s == left.duration_s
-    for elapsed in np.linspace(0.0, right.duration_s, 11):
-        assert right.reference(10.0 + elapsed) == pytest.approx(
-            tuple(-value for value in left.reference(10.0 + elapsed))
+    inventory_before = (flight.main_consumed, flight.rcs_consumed)
+    evaluations = []
+
+    def prediction(duration, observed):
+        evaluations.append(duration)
+        np.testing.assert_array_equal(observed, before)
+        return _mock_return_prediction(1000.0 - 10.0 * duration)
+
+    monkeypatch.setattr(flight, "predict_return", prediction)
+    flight.plan_return(before)
+    assert evaluations == [0.0, 8.0, 16.0, 24.0, 32.0, 40.0, 48.0]
+    assert flight.return_plan["feasible"] is False
+    assert flight.return_plan["reason"] == "no_bracketed_return_solution"
+    assert flight.outcome == "return_plan_infeasible"
+    assert flight.boost_end_s is None
+    assert flight.return_plan_history == []
+    np.testing.assert_array_equal(flight.state, before)
+    assert (flight.main_consumed, flight.rcs_consumed) == inventory_before
+
+
+@pytest.mark.parametrize("feasible", (False, True))
+def test_return_planner_executes_only_a_bracketed_physically_feasible_prediction(
+    monkeypatch, feasible
+):
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    before = flight.state.copy()
+    inventory_before = (flight.main_consumed, flight.rcs_consumed)
+    monkeypatch.setattr(
+        flight,
+        "predict_return",
+        lambda duration, observed: _mock_return_prediction(
+            100.0 - 50.0 * duration, feasible=feasible
+        ),
+    )
+    flight.plan_return(before)
+    assert flight.return_plan["remaining_burn_s"] == pytest.approx(2.0, abs=0.005)
+    assert flight.return_plan["predicted_ground_range_m"] == pytest.approx(0.0, abs=0.25)
+    assert flight.return_plan["feasible"] is feasible
+    assert flight.return_plan["touchdown_prediction_is_not_acceptance"] is True
+    assert flight.return_plan_history == [flight.return_plan]
+    if feasible:
+        assert flight.boost_end_s == pytest.approx(100.0, abs=0.005)
+        assert flight.next_plan_s == pytest.approx(99.0)
+        assert flight.outcome == "running"
+    else:
+        assert flight.boost_end_s is None
+        assert flight.outcome == "return_plan_infeasible"
+    np.testing.assert_array_equal(flight.state, before)
+    assert (flight.main_consumed, flight.rcs_consumed) == inventory_before
+
+
+def test_return_planner_does_not_confuse_small_position_miss_with_physical_feasibility(monkeypatch):
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    monkeypatch.setattr(
+        flight,
+        "predict_return",
+        lambda duration, observed: _mock_return_prediction(1.0, feasible=False),
+    )
+    flight.plan_return(flight.state.copy())
+    assert flight.return_plan["remaining_burn_s"] == 0.0
+    assert flight.return_plan["feasible"] is False
+    assert flight.outcome == "return_plan_infeasible"
+    assert flight.boost_end_s is None
+
+
+def test_attitude_feedforward_compensates_the_actual_fin_moment_exactly_once(monkeypatch):
+    flight = AprFlight.from_separation(apr_separation_state(), time_s=98.0)
+    # Isolate the torque allocator while retaining all current subsystem states.
+    flight.slosh_settings = SloshSettings(modal_mass_fraction=1e-12)
+    measured = flight.state.copy()
+    measured[:6] = (0.0, 5000.0, 0.0, -200.0, 0.0, 0.0)
+    measured[9:13] = (0.1, 1.0, 0.0, 0.5)
+    fin_calls, demands = [], []
+    monkeypatch.setattr(
+        flight, "body_loads", lambda *args, **kwargs: (np.zeros(2), 50.0, 1000.0, 0.0)
+    )
+
+    def fin_loads(*args, **kwargs):
+        fin_calls.append(kwargs)
+        return np.zeros(2), 100.0, 0.0
+
+    def fin_command(observed, requested):
+        demands.append(requested)
+        return 0.2
+
+    monkeypatch.setattr(flight, "fin_loads", fin_loads)
+    monkeypatch.setattr(flight, "fin_command", fin_command)
+    gimbal, rcs, target = flight.attitude_control(0.0, 0.5, measured)
+    assert demands == [-50.0]
+    # One sizing midpoint and three held-interval samples evaluate the same
+    # physical fin; these are alternative instants, not four added torques.
+    assert fin_calls == [{"predicted": True}] * 4
+    assert target == 0.2
+    properties = flight.properties(measured)
+    lever = properties.cg_m - flight.physics.geometry.nozzle_station_m
+    thrust = flight.engine(0.5, measured[1])[0]
+    midpoint = flight.return_settings.control_dt_s / 2
+    expected_gimbal = np.arcsin(150.0 / (lever * thrust))
+    mid_gimbal = np.clip(
+        expected_gimbal * (1 - np.exp(-midpoint / 0.06)),
+        -np.deg2rad(60) * midpoint,
+        np.deg2rad(60) * midpoint,
+    )
+    mid_tvc = -lever * thrust * np.sin(mid_gimbal)
+    dt = flight.return_settings.control_dt_s
+    end_gimbal = expected_gimbal * (1 - np.exp(-dt / 0.06))
+    end_tvc = -lever * thrust * np.sin(end_gimbal)
+    tvc_midrange = end_tvc / 2.0  # Initial gimbal/TVC torque is zero.
+    assert gimbal == pytest.approx(expected_gimbal, abs=1e-12)
+    assert rcs == pytest.approx(-150.0 - tvc_midrange, abs=1e-9)
+    assert gimbal != 0.0
+    # The held RCS cancels body + one fin + the TVC interval midrange.
+    assert 50.0 + 100.0 + rcs + tvc_midrange == pytest.approx(0.0, abs=1e-9)
+    assert 150.0 + rcs == pytest.approx(-(150.0 + rcs + end_tvc), abs=1e-9)
+    derivative = flight.derivative(measured, (0.5, gimbal, rcs, target))
+    assert derivative[5] == pytest.approx((150.0 + rcs) / properties.inertia_kg_m2, abs=1e-12)
+    assert abs(np.rad2deg(derivative[5])) < SAFETY.max_angular_acceleration_deg_s2 == 5.0
+    predicted_midpoint = measured.copy()
+    predicted_midpoint[11] = mid_gimbal
+    midpoint_derivative = flight.derivative(predicted_midpoint, (0.5, gimbal, rcs, target))
+    assert midpoint_derivative[5] == pytest.approx(
+        (mid_tvc - tvc_midrange) / properties.inertia_kg_m2, abs=1e-12
+    )
+
+
+def test_wind_and_forecast_are_validated_between_different_knots():
+    with pytest.raises(ValueError):
+        AprConditions(
+            wind_profile=((0.0, 0.0), (PROFILE_TOP_M, 0.0)),
+            forecast_wind_profile=((0.0, 0.0), (1000.0, 2.01), (PROFILE_TOP_M, 0.0)),
         )
-    flight.time_s = 10.0
-    flight.horizontal_transfer = right
-    assert flight.horizontal_acceleration(flight.state) == pytest.approx(
-        right.attitude_lag_compensation_s * right.jerk(10.0)
+
+
+def test_surface_mean_wind_is_not_misused_as_a_continuous_13_m_s_wind():
+    profile = ((0.0, 8.0), (50.0, 8.0), (10000.0, 20.0), (PROFILE_TOP_M, 20.0))
+    conditions = AprConditions(
+        wind_profile=profile,
+        forecast_wind_profile=profile,
+        gust_amplitude_m_s=5.0,
+        gust_phase_rad=np.pi / 2,
+        gust_start_s=-60.0,
+        gust_duration_s=120.0,
+        gust_altitude_center_m=0.0,
+        gust_altitude_half_width_m=5000.0,
     )
-    assert np.array_equal(flight.state, before)
+    assert conditions.mean_wind(0.0) == 8.0
+    assert conditions.wind(0.0, 0.0) == pytest.approx(13.0)
+    assert conditions.wind(0.0, 121.0) == 8.0
+    assert conditions.mean_wind(37100.0) == 20.0
 
 
-def test_apr_horizontal_transfer_adds_feed_forward_and_preserves_feedback_after_endpoint():
-    flight = fin_bench()
-    transfer = HorizontalTransfer.plan(0.0, 180.0, -0.7, flight.return_settings)
-    flight.horizontal_transfer = transfer
-    flight.time_s = 0.8 * transfer.duration_s
-    x, vx, ax = transfer.reference(flight.time_s)
-    flight.state[0], flight.state[2] = x, vx
-    assert ax > 0.0
-    compensated = ax + transfer.attitude_lag_compensation_s * transfer.jerk(flight.time_s)
-    assert flight.horizontal_acceleration(flight.state) == pytest.approx(compensated)
-    flight.state[0] += 1.0
-    assert flight.horizontal_acceleration(flight.state) == pytest.approx(
-        compensated - flight.return_settings.horizontal_kp_s2
+@pytest.mark.parametrize("scale", (0.9, 1.1))
+def test_density_band_is_relative_to_fixed_reference_across_the_full_domain(scale):
+    conditions = AprConditions(density_scale=scale)
+    perturbed = AtmosphereSettings(density_scale=conditions.density_scale)
+    for height in np.linspace(0.0, PROFILE_TOP_M, 101):
+        reference = atmosphere(height, AtmosphereSettings())[2]
+        assert atmosphere(height, perturbed)[2] / reference == pytest.approx(scale)
+
+
+def test_combined_temperature_pressure_and_density_cannot_exceed_the_final_band():
+    with pytest.raises(ValueError):
+        AprConditions(
+            sea_level_temperature_k=285.0, sea_level_pressure_pa=103000.0, density_scale=1.1
+        )
+
+
+def test_vehicle_configuration_must_match_the_fixed_100_t_design(tmp_path):
+    path = _write_config(tmp_path, lambda data: data["vehicle"].update(dry_mass_kg=12_100.0))
+    with pytest.raises(ValueError):
+        load_apr_operating(path)
+
+
+def test_operating_manifest_is_versioned_for_the_100_t_model_and_eligible():
+    manifest = make_manifest()
+    assert manifest == make_manifest()
+    assert manifest["schema_version"] == MANIFEST_SCHEMA_VERSION == 13
+    assert manifest["root_seed"] == ROOT_SEED == 378
+    assert manifest["vehicle"] == VEHICLE_ID
+    assert manifest["operating_scope"] == OPERATING_SCOPE
+    assert manifest["nominal_vehicle"] == asdict(Design())
+    assert len(manifest["development"]) == 133
+    assert len(manifest["holdout"]) == 72
+    cases = manifest["development"] + manifest["holdout"]
+    assert len({case["id"] for case in cases}) == len(cases)
+    assert all(case["stream"] == 0 for case in manifest["development"])
+    assert all(case["stream"] == 1 for case in manifest["holdout"][:64])
+    assert all(case["stream"] == 2 for case in manifest["holdout"][64:])
+    for case in cases:
+        conditions = AprConditions(**case["conditions"])
+        RecoveryDisturbances(**case["disturbances"])
+        assert conditions.wind_profile[-1][0] == PROFILE_TOP_M
+        assert conditions.vertical_wind_profile[-1][0] == PROFILE_TOP_M
+        assert abs(conditions.mean_wind(0.0)) <= 8.0
+        assert abs(conditions.mean_wind(37100.0)) <= 20.0
+
+
+def test_expanded_manifest_preserves_every_original_input_and_observation_identity():
+    manifest = make_manifest()
+    assert _sha(manifest["development"][:85]) == (
+        "2dae66a1d08f34e5307d8e96b0a24a7604e3a58a96e006364a3a4c5f793f6d6e"
     )
-    flight.time_s = transfer.duration_s + 1.0
-    flight.state[0], flight.state[2] = 10.0, -2.0
-    expected = -flight.return_settings.horizontal_kp_s2 * 10.0
-    expected += flight.return_settings.horizontal_kd_s_inv * 2.0
-    assert flight.horizontal_acceleration(flight.state) == pytest.approx(expected)
+    assert _sha(manifest["holdout"][:32]) == (
+        "8fa79f2b028c10436818ce89a27e876506c4deeee81ff02a0c0f40eaa932e59d"
+    )
+    assert len(manifest["development"][85:117]) == 32
+    groups = {case["group"] for case in manifest["holdout"][:64]}
+    assert groups == {
+        "surface",
+        "upper",
+        "shear",
+        "gust",
+        "vertical",
+        "density",
+        "vehicle",
+        "combined",
+    }
+    for group in groups:
+        assert sorted(
+            case["index"] for case in manifest["holdout"][:64] if case["group"] == group
+        ) == (list(range(8)))
 
 
-def test_apr_finished_reference_cannot_replace_actual_alignment_requirements():
-    flight = fin_bench()
-    flight.state[:6] = (3.0, 350.0, 0.6, -0.5, 0.0, 0.0)
-    flight.state[12] = 0.0
-    flight.phase = "landing"
-    flight.horizontal_transfer = HorizontalTransfer.plan(0.0, 180.0, -0.7, flight.return_settings)
-    flight.update_alignment(flight.state, 350.0)
-    flight.time_s = flight.horizontal_transfer.duration_s + 5.0
-    assert flight.horizontal_transfer.reference(flight.time_s) == (0.0, 0.0, 0.0)
-    flight.update_alignment(flight.state, 350.0)
-    assert flight.phase == "alignment"
-    assert flight.alignment_completed is None
-    assert flight.state[0] == 3.0
+def test_terminal_extension_preserves_all_prior_cases_before_adding_new_inputs():
+    manifest = make_manifest()
+    assert _sha(manifest["development"][:117]) == (
+        "b31e46392b8ff6287d4eb1ddb5ba6528fe518454193fe5d517206b1cce8f54dd"
+    )
+    assert _sha(manifest["holdout"][:64]) == (
+        "98378cf330358fff660a13eec855777135a632d8cdde69c1cf7732ca421dfbc2"
+    )
+    assert len(manifest["development"][117:]) == 16
+    assert len(manifest["holdout"][64:]) == 8
 
 
-def test_apr_alignment_fuel_accounting_uses_actual_event_inventories():
-    flight = fin_bench()
-    flight.phase = "landing"
-    flight.state[:6] = (0.1, 350.0, 0.02, -0.5, np.deg2rad(0.2), 0.0)
-    flight.state[12] = 0.0
-    flight.time_s = 10.0
-    flight.update_alignment(flight.state, 350.0)
-    flight.state[6] -= 1.5
-    flight.time_s = 11.01
-    flight.update_alignment(flight.state, 350.0)
-    assert flight.alignment_completed["duration_s"] == pytest.approx(1.01)
-    assert flight.alignment_completed["main_propellant_used_kg"] == 1.5
+@pytest.mark.parametrize("label", ("plus", "minus"))
+@pytest.mark.parametrize("event", ("short-entry", "short-landing", "thin-entry", "thin-landing"))
+def test_delayed_gust_cases_keep_the_original_weather_and_add_maximum_healthy_delay(label, event):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    original = cases[f"gust-{event}-{label}"]
+    delayed = cases[f"gust-{event}-delayed-{label}"]
+    assert delayed["conditions"] == original["conditions"]
+    assert delayed["disturbances"] == cases["late-corner-reserve-fast-plus"]["disturbances"]
+    assert delayed["disturbances"]["observation_delay_steps"] == 2
+    assert delayed["disturbances"]["action_delay_steps"] == 1
+    assert delayed["disturbances"]["engine_lag_s"] == 0.05
+    assert observation_seed_sequence(delayed).entropy != observation_seed_sequence(original).entropy
 
 
-def test_apr_alignment_descent_matches_measured_start_and_horizontal_deadline():
-    settings = NominalFlight().return_settings
-    plan = AlignmentDescent.plan(185.0, 600.0, -49.0, 17.0, settings)
-    assert plan is not None
-    assert plan.reference(185.0)[:2] == pytest.approx((600.0, -49.0))
-    height, vz, acceleration = plan.reference(202.0)
-    assert height == pytest.approx(plan.end_height_m)
-    assert vz == -1.0
-    assert acceleration == 0.0
-    assert height > settings.alignment_min_height_m
-    for elapsed in np.linspace(0.0, 17.0, 101):
-        h, v, a = plan.reference(185.0 + elapsed)
-        assert plan.end_height_m <= h <= 600.0
-        assert -49.0 <= v <= -1.0
-        assert 0.0 <= a <= settings.alignment_reference_deceleration_m_s2
-    assert plan.reference(1000.0) == (250.0, 0.0, 0.0)
+@pytest.mark.parametrize("label", ("plus", "minus"))
+@pytest.mark.parametrize("corner", ("reserve", "load"))
+@pytest.mark.parametrize("speed", ("fast", "slow"))
+def test_terminal_gust_windows_extend_coverage_without_changing_the_earlier_corner(
+    label, corner, speed
+):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    original = cases[f"late-corner-{corner}-{speed}-{label}"]
+    terminal = cases[f"touchdown-corner-{corner}-{speed}-{label}"]
+    expected = original["conditions"].copy()
+    expected.update(gust_start_s=370.0, gust_duration_s=120.0)
+    assert terminal["conditions"] == expected
+    assert terminal["disturbances"] == original["disturbances"]
+    assert original["conditions"]["gust_start_s"] == 310.0
+    assert original["conditions"]["gust_duration_s"] == 120.0
+    assert (
+        observation_seed_sequence(terminal).entropy != observation_seed_sequence(original).entropy
+    )
 
 
-def test_apr_alignment_descent_height_derivative_matches_velocity_and_acceleration():
-    plan = AlignmentDescent.plan(0.0, 600.0, -49.0, 35.0, NominalFlight().return_settings)
-    assert plan is not None
-    assert plan.speed_power > 2.0
-    assert plan.end_height_m == pytest.approx(250.0)
-    for t in (1.0, 10.0, 34.0):
-        dt = 1e-4
-        before, after = plan.reference(t - dt), plan.reference(t + dt)
-        h, vz, az = plan.reference(t)
-        assert h >= 250.0
-        assert (after[0] - before[0]) / (2 * dt) == pytest.approx(vz, abs=1e-6)
-        assert (after[1] - before[1]) / (2 * dt) == pytest.approx(az, abs=1e-6)
+def test_new_terminal_holdout_inputs_have_an_independent_stream_and_fixed_distribution():
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    manifest = make_manifest()
+    cases = manifest["holdout"][64:]
+    assert [case["index"] for case in cases] == list(range(8))
+    starts = []
+    for case in cases:
+        assert case["stream"] == 2
+        assert case["group"] == "combined"
+        assert case["id"] == f"late-combined-2-{case['index']:02d}"
+        original = campaign_cli._random_case("combined", 2, case["index"])
+        expected_conditions = original["conditions"].copy()
+        expected_conditions.update(
+            gust_start_s=case["conditions"]["gust_start_s"],
+            gust_duration_s=120.0,
+            gust_altitude_center_m=0.0,
+            gust_altitude_half_width_m=5000.0,
+        )
+        assert case["conditions"] == expected_conditions
+        assert 370.0 <= case["conditions"]["gust_start_s"] <= 390.0
+        assert 8.0 <= case["conditions"]["gust_period_s"] <= 60.0
+        assert 0.2 <= case["conditions"]["gust_amplitude_m_s"] <= 5.0
+        expected_disturbances = original["disturbances"].copy()
+        expected_disturbances.update(
+            observation_delay_steps=2, action_delay_steps=1, engine_lag_s=0.05
+        )
+        assert case["disturbances"] == expected_disturbances
+        starts.append(case["conditions"]["gust_start_s"])
+    assert len(set(starts)) == 8
+    assert cases == make_manifest()["holdout"][64:]
 
 
+@pytest.mark.parametrize("label,sign", (("plus", 1.0), ("minus", -1.0)))
 @pytest.mark.parametrize(
-    "height, vz, duration",
-    [(240.0, -49.0, 17.0), (600.0, 1.0, 17.0), (600.0, -49.0, 1.0), (600.0, -200.0, 10.0)],
+    "phase_name,start,center,duration",
+    (("boostback", 125.0, 70000.0, 30.0), ("coast-high", 180.0, 85000.0, 120.0)),
 )
-def test_apr_alignment_descent_uses_existing_hold_when_timing_is_not_feasible(height, vz, duration):
-    flight = fin_bench()
-    assert AlignmentDescent.plan(0.0, height, vz, duration, flight.return_settings) is None
-    expected = flight.return_settings.alignment_vertical_kp_s2 * (350.0 - height)
-    expected -= flight.return_settings.alignment_vertical_kd_s_inv * vz
-    flight.state[3] = vz
-    assert flight.alignment_acceleration(flight.state, height) == pytest.approx(expected)
+def test_high_altitude_gusts_are_predeclared_without_claiming_actual_phase_exposure(
+    label, sign, phase_name, start, center, duration
+):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    conditions = AprConditions(**cases[f"gust-{phase_name}-{label}"]["conditions"])
+    assert conditions.gust_start_s == start
+    assert conditions.gust_altitude_center_m == center
+    assert conditions.gust_duration_s == duration
+    assert conditions.gust_altitude_half_width_m == 5000.0
+    assert conditions.gust_amplitude_m_s == 5.0
+    assert conditions.gust_phase_rad == sign * np.pi / 2
+    assert conditions.forecast_gust_amplitude_m_s == 0.0
+    assert conditions.wind(center + 5000.0, start + 5.0) == 0.0
 
 
-def test_apr_alignment_descent_does_not_overwrite_or_accept_the_measured_state():
-    flight = fin_bench()
-    flight.phase = "landing"
-    flight.state[:6] = (30.0, 600.0, -4.0, -49.0, 0.0, 0.0)
-    before = flight.state.copy()
-    flight.horizontal_transfer = HorizontalTransfer.plan(0.0, 180.0, -0.7, flight.return_settings)
-    flight.time_s = flight.horizontal_transfer.duration_s - 17.0
-    flight.update_alignment(flight.state, 600.0)
-    assert flight.alignment_descent is not None
-    assert flight.alignment_completed is None
-    assert flight.alignment_acceleration(flight.state, 600.0) > 0.0
-    assert np.array_equal(before, flight.state)
-    flight.time_s += 30.0
-    flight.update_alignment(flight.state, 300.0)
-    assert flight.phase == "alignment"
-    assert flight.alignment_completed is None
+@pytest.mark.parametrize("label,sign", (("plus", 1.0), ("minus", -1.0)))
+@pytest.mark.parametrize(
+    "event,start,center,duration,width,peak_time",
+    (
+        ("short-entry", 319.0, 20000.0, 8.0, 5000.0, 324.8),
+        ("short-landing", 398.0, 0.0, 8.0, 5000.0, 400.0),
+        ("thin-entry", 318.0, 20000.0, 30.0, 100.0, 324.8),
+        ("thin-landing", 390.0, 125.0, 60.0, 100.0, 400.0),
+    ),
+)
+def test_short_and_thin_gust_inputs_have_the_intended_geometry_not_a_flight_success(
+    label, sign, event, start, center, duration, width, peak_time
+):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    conditions = AprConditions(**cases[f"gust-{event}-{label}"]["conditions"])
+    assert conditions.gust_start_s == start
+    assert conditions.gust_duration_s == duration
+    assert conditions.gust_altitude_half_width_m == width
+    assert conditions.gust_period_s == 8.0
+    assert conditions.wind(center, peak_time) == pytest.approx(sign * 5.0)
+    assert conditions.wind(center + width, peak_time) == 0.0
+    assert conditions.wind(center, start) == 0.0
+    assert conditions.wind(center, start + duration) == 0.0
 
 
-@pytest.mark.parametrize("thrust_acceleration", [9.8, 20.0, 40.0])
-def test_apr_linearized_lateral_attitude_filter_system_has_stable_poles(thrust_acceleration):
-    # A small-signal algebraic check, not another simulated trajectory.
-    flight = fin_bench()
-    s = flight.return_settings
-    props = flight.properties(flight.state)
-    lever = props.cg_m - PHYSICS.geometry.nozzle_station_m
-    b = props.inertia_kg_m2 / (flight.mass(flight.state) * lever)
-    kp = s.attitude_rate_gain_s_inv * s.attitude_position_gain_s_inv
-    kd, tau = s.attitude_rate_gain_s_inv, s.attitude_reference_tau_s
-    a = thrust_acceleration
-    matrix = np.array(
-        [
-            [0, 1, 0, 0, 0],
-            [0, 0, a + b * kp, b * kd, -b * kp],
-            [0, 0, 0, 1, 0],
-            [0, 0, -kp, -kd, kp],
-            [-s.horizontal_kp_s2 / (a * tau), -s.horizontal_kd_s_inv / (a * tau), 0, 0, -1 / tau],
-        ]
+@pytest.mark.parametrize("label,sign", (("plus", 1.0), ("minus", -1.0)))
+@pytest.mark.parametrize(
+    "corner,thrust,mass,inertia", (("reserve", 0.97, 1.01, 1.03), ("load", 1.03, 0.99, 0.97))
+)
+@pytest.mark.parametrize("speed_name,period", (("fast", 8.0), ("slow", 60.0)))
+def test_late_gust_corners_keep_wind_and_all_healthy_uncertainties_at_the_boundary(
+    label, sign, corner, thrust, mass, inertia, speed_name, period
+):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    case = cases[f"late-corner-{corner}-{speed_name}-{label}"]
+    conditions = AprConditions(**case["conditions"])
+    assert conditions.mean_wind(0.0) == sign * 8.0
+    assert conditions.mean_wind(10000.0) == sign * 20.0
+    assert conditions.gust_start_s == 310.0
+    assert conditions.gust_altitude_center_m == 0.0
+    assert conditions.gust_altitude_half_width_m == 5000.0
+    assert conditions.gust_amplitude_m_s == 5.0
+    assert conditions.gust_period_s == period
+    assert conditions.density_scale == 1.1
+    assert RecoveryDisturbances(**case["disturbances"]) == RecoveryDisturbances(
+        thrust_scale=thrust,
+        drag_coefficient_scale=1.15,
+        initial_mass_scale=mass,
+        inertia_scale=inertia,
+        sensor_position_error_m=2.0,
+        sensor_velocity_error_m_s=1.0,
+        observation_delay_steps=2,
+        action_delay_steps=1,
+        engine_lag_s=0.05,
     )
-    assert np.max(np.linalg.eigvals(matrix).real) < 0.0
 
 
-def test_apr_alignment_requires_dwell_and_stowed_fins_before_approach():
-    flight = fin_bench()
-    flight.phase = "landing"
-    flight.state[:6] = (0.1, 350.0, 0.02, -0.5, np.deg2rad(0.2), 0.0)
-    flight.state[12] = 0.0
-    flight.update_alignment(flight.state, 350.0)
-    assert flight.phase == "alignment"
-    assert flight.alignment_completed is None
-    flight.time_s = 0.5
-    flight.state[12] = 0.1
-    flight.update_alignment(flight.state, 350.0)
-    assert flight.alignment_ready_since_s is None
-    flight.state[12] = 0.0
-    flight.update_alignment(flight.state, 350.0)
-    flight.time_s = 1.51
-    flight.update_alignment(flight.state, 350.0)
-    assert flight.phase == "approach"
-    assert flight.alignment_completed["foot_height_m"] > 200.0
+@pytest.mark.parametrize("label", ("plus", "minus"))
+@pytest.mark.parametrize(
+    "thermal,temperature,pressure,target",
+    (
+        ("cold-low", 273.15, 95000.0, 0.9),
+        ("cold-high", 273.15, 105000.0, 1.1),
+        ("warm-low", 308.15, 95000.0, 0.9),
+        ("warm-high", 308.15, 105000.0, 1.1),
+    ),
+)
+def test_thermal_corners_respect_the_coupled_final_density_band(
+    label, thermal, temperature, pressure, target
+):
+    from powered_landing_guidance.apr_recovery import _density_ratio_extrema
+
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    case = cases[f"thermal-corner-{thermal}-{label}"]
+    conditions = AprConditions(**case["conditions"])
+    assert conditions.sea_level_temperature_k == temperature
+    assert conditions.sea_level_pressure_pa == pressure
+    assert 0.9 <= conditions.density_scale <= 1.1
+    minimum, maximum = _density_ratio_extrema(
+        AtmosphereSettings(
+            sea_level_temperature_k=temperature,
+            sea_level_pressure_pa=pressure,
+            temperature_profile=conditions.temperature_profile,
+            density_scale=conditions.density_scale,
+        )
+    )
+    assert minimum >= 0.9 - 1e-10
+    assert maximum <= 1.1 + 1e-10
+    assert (minimum if target < 1.0 else maximum) == pytest.approx(target)
+    deviations = RecoveryDisturbances(**case["disturbances"])
+    assert deviations.observation_delay_steps == 2
+    assert deviations.action_delay_steps == 1
+    assert deviations.engine_lag_s == 0.05
 
 
-def test_apr_approach_speed_reference_has_no_post_alignment_jump():
-    flight = fin_bench()
-    flight.phase = "approach"
-    flight.approach_speed_reference = 0.5
-    flight.state[3] = -0.5
-    az = flight.descent_command(flight.state, 350.0)
-    assert flight.approach_speed_reference == pytest.approx(0.52)
-    assert az == pytest.approx(-2.018)
-    assert flight.landing_tilt_limit(200.0) == pytest.approx(np.deg2rad(1.5))
+@pytest.mark.parametrize("label,sign", (("plus", 1.0), ("minus", -1.0)))
+@pytest.mark.parametrize("layer", ("low", "upper"))
+def test_reversal_cases_include_horizontal_and_vertical_shear_boundaries(label, sign, layer):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    conditions = AprConditions(**cases[f"shear-reversal-{layer}-{label}"]["conditions"])
+    horizontal = np.array(conditions.wind_profile)
+    gradients = np.diff(horizontal[:, 1]) / np.diff(horizontal[:, 0]) * 1000
+    assert np.max(abs(gradients)) == pytest.approx(4.0)
+    assert conditions.mean_wind(20000.0) == -sign * 20.0
+    assert conditions.vertical_wind(0.0) == -sign * 3.0
+    assert conditions.vertical_wind(2000.0) == sign * 3.0
+    assert (conditions.vertical_wind(2000.0) - conditions.vertical_wind(0.0)) / 2 == sign * 3.0
 
 
-def test_apr_faster_middle_approach_still_brakes_to_the_terminal_speed():
-    flight = fin_bench()
-    flight.phase = "approach"
-    flight.approach_speed_reference = 20.0
-    flight.state[3] = -20.0
-    assert flight.return_settings.approach_speed_limit_m_s == 20.0
-    assert flight.descent_command(flight.state, 200.0) == pytest.approx(0.0)
-    assert flight.descent_command(flight.state, 50.0) > 0.0
-    assert flight.approach_speed_reference == pytest.approx(19.98)
-    flight.approach_speed_reference = 0.9
-    flight.state[3] = -0.9
-    assert flight.descent_command(flight.state, 2.0) == pytest.approx(0.0)
+def test_manifest_with_valid_hash_but_mismatched_vehicle_identity_is_rejected(tmp_path):
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    path = campaign / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest.pop("manifest_sha256")
+    manifest["vehicle"] = "different conceptual vehicle"
+    manifest["manifest_sha256"] = _sha(manifest)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="incompatible"):
+        _load_manifest(campaign)
 
 
-def test_apr_terminal_profile_keeps_09_speed_and_acceptance_not_relaxed():
-    flight = fin_bench()
-    flight.phase = "approach"
-    flight.approach_speed_reference = 0.9
-    flight.state[3] = -0.9
-    assert flight.descent_command(flight.state, 2.0) == pytest.approx(0.0)
-    flight.state[:6] = (0.0, 300.0, 0.0, -50.0, 0.0, 0.0)
-    assert flight.alignment_ready(flight.state) is False
+def test_evaluator_rejects_contradictory_success_without_running_a_flight(monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    class ContradictoryFlight:
+        def __init__(self, **kwargs):
+            self.rng = None
+
+        def run(self):
+            return {
+                "mission_success": True,
+                "flight_safety": False,
+                "landing_success": True,
+                "simulated_acceptance_passed": True,
+            }
+
+    monkeypatch.setattr(campaign_cli, "AprFlight", ContradictoryFlight)
+    case = make_manifest()["development"][0]
+    with pytest.raises(ValueError, match="contradicts"):
+        campaign_cli._evaluate_case(case)
 
 
-def test_apr_no_horizontal_only_burn_when_vertical_thrust_is_not_needed():
-    flight = fin_bench()
-    flight.phase = "landing"
-    flight.state[0] = -30.0
-    flight.state[3] = 0.0
-    flight.state[12] = 0.0
-    throttle, _, _, _ = flight.guidance()
-    assert throttle == 0.0
+def test_evaluator_cannot_accept_full_flight_without_separation_and_contact(monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    class MissingEvidenceFlight:
+        def __init__(self, **kwargs):
+            self.rng = None
+
+        def run(self):
+            return {
+                "mission_success": True,
+                "flight_safety": True,
+                "landing_success": True,
+                "simulated_acceptance_passed": True,
+                "separation": None,
+                "contact": None,
+            }
+
+    monkeypatch.setattr(campaign_cli, "AprFlight", MissingEvidenceFlight)
+    case = make_manifest()["development"][0]
+    with pytest.raises(ValueError, match="requires recorded"):
+        campaign_cli._evaluate_case(case)
 
 
-def test_apr_strict_touchdown_limits_still_reject_lateral_error_on_static_state():
-    # Only evaluate a contact state; do not integrate a second flight.
-    flight = fin_bench()
-    flight.state[8] = 1.0
-    props = flight.properties(flight.state)
-    flight.state[:6] = (3.0, props.cg_m - PHYSICS.gear.foot_station_m, 0.6, -0.9, 0.0, 0.0)
-    flight.first_contact(flight.state, (0.0, 0.0, 0.0, 0.0))
-    assert flight.contact["criteria"]["position"] is False
-    assert flight.contact["criteria"]["horizontal_speed"] is False
-    assert flight.contact["criteria"]["vertical_speed"] is True
+def test_campaign_adapter_records_a_zero_duration_failure_without_running_a_flight(monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    # Only exercise output construction: the integration loop must not execute.
+    flight = AprFlight()
+    flight.deadline_s = 0.0
+    result = flight.run()
+    monkeypatch.setattr(AprFlight, "run", lambda self: result)
+    case = make_manifest()["development"][0]
+    entry = campaign_cli._evaluate_case(case)
+    assert entry["accepted"] is False
+    assert entry["nominal_launch_mass_kg"] == entry["actual_launch_mass_kg"] == 100_000.0
+    assert entry["flight_time_s"] == 0.0
+    assert entry["separation"] is entry["contact"] is None
+    assert {"separation", "touchdown"}.issubset(entry["failed_criteria"])
+    assert entry["remaining_main_propellant_kg"] == 70_200.0
+    assert entry["remaining_rcs_propellant_kg"] == 300.0
+    assert entry["unconnected_systems"] == list(UNCONNECTED_SYSTEMS)
+    assert entry["landing_assessment"] == "kinematic_touchdown"
+    assert entry["acceptance_version"] == "apr_100t_kinematic_touchdown_v1"
+    assert entry["assessment_scope"]["contact_structural_dynamics"] is False
+    assert json.loads(_encoded(entry))["accepted"] is False
+
+
+def test_campaign_gust_evidence_prefers_integration_endpoints_over_sparse_records(monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    flight = AprFlight()
+    flight.deadline_s = 0.0
+    result = flight.run()
+    result["integration_gust_exposure"] = {
+        "maximum_contribution_m_s": 4.9,
+        "maximum_by_phase_m_s": {"entry": 4.9},
+        "endpoints_above_0_1_m_s": 24,
+        "first_endpoint_above_0_1_m_s": 324.66,
+        "last_endpoint_above_0_1_m_s": 324.9,
+        "gust_encounter_observed": True,
+        "sampling_note": "Synthetic adapter fixture, not a simulated gust encounter",
+    }
+    monkeypatch.setattr(AprFlight, "run", lambda self: result)
+    case = next(
+        case for case in make_manifest()["development"] if case["id"] == "gust-thin-entry-plus"
+    )
+    entry = campaign_cli._evaluate_case(case)
+    assert entry["gust_exposure"]["maximum_sampled_contribution_m_s"] == 0.0
+    assert entry["gust_exposure"]["gust_encounter_observed"] is True
+    assert entry["gust_exposure"]["integration_endpoints"] == result["integration_gust_exposure"]
+    assert entry["accepted"] is False
+
+
+def test_campaign_gust_evidence_retains_sparse_fallback_for_older_fixtures(monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    flight = AprFlight()
+    flight.deadline_s = 0.0
+    result = flight.run()
+    result.pop("integration_gust_exposure", None)
+    monkeypatch.setattr(AprFlight, "run", lambda self: result)
+    entry = campaign_cli._evaluate_case(make_manifest()["development"][0])
+    assert entry["gust_exposure"]["gust_encounter_observed"] is False
+    assert "integration_endpoints" not in entry["gust_exposure"]
+
+
+def test_shared_atmosphere_is_continuous_at_tropopause():
+    sea = atmosphere(0.0, PHYSICS.atmosphere)
+    assert sea[0] == PHYSICS.atmosphere.sea_level_temperature_k
+    assert sea[1] == PHYSICS.atmosphere.sea_level_pressure_pa
+    lower = atmosphere(11000.0 - 1e-3, PHYSICS.atmosphere)
+    upper = atmosphere(11000.0 + 1e-3, PHYSICS.atmosphere)
+    np.testing.assert_allclose(lower, upper, rtol=1e-6)
+    assert upper[2] < sea[2]
+
+
+def test_shared_clockwise_force_and_torque_convention():
+    np.testing.assert_allclose(rotation(np.pi / 2) @ [0.0, 1.0], [1.0, 0.0], atol=1e-12)
+    assert clock_torque(np.array([0.0, 2.0]), np.array([3.0, 0.0])) == 6.0
+    assert clock_torque(np.array([2.0, 0.0]), np.array([0.0, 3.0])) == -6.0
+
+
+def test_rk4_freefall_matches_the_analytic_solution_and_does_not_mutate_input():
+    initial = np.array([100.0, -2.0])
+    final = rk4_step(lambda time, state: [state[1], -G0], 0.0, initial, 0.3)
+    np.testing.assert_allclose(final, [100.0 - 2.0 * 0.3 - 0.5 * G0 * 0.3**2, -2.0 - G0 * 0.3])
+    np.testing.assert_array_equal(initial, [100.0, -2.0])
+
+
+@pytest.mark.parametrize("dt", [0.0, -1.0, np.nan, np.inf])
+def test_rk4_rejects_invalid_time_steps(dt):
+    with pytest.raises(ValueError, match="dt_s"):
+        rk4_step(lambda time, state: state, 0.0, [1.0], dt)
+
+
+@pytest.mark.parametrize("derivative", [[np.nan], [1.0, 2.0], [[1.0]]])
+def test_rk4_rejects_invalid_derivatives(derivative):
+    with pytest.raises(ValueError, match="derivative"):
+        rk4_step(lambda time, state: derivative, 0.0, [1.0], 0.1)
+
+
+def test_operating_cases_have_distinct_deterministic_observation_streams():
+    manifest = make_manifest()
+    cases = manifest["development"] + manifest["holdout"]
+    assert len(cases) == 205
+    seed_words = [tuple(observation_seed_sequence(case).entropy) for case in cases]
+    first_draws = [
+        int(np.random.default_rng(observation_seed_sequence(case)).integers(0, 2**63))
+        for case in cases
+    ]
+    assert len(set(seed_words)) == len(cases)
+    assert len(set(first_draws)) == len(cases)
+    assert seed_words == [tuple(observation_seed_sequence(case).entropy) for case in cases]
+
+
+@pytest.mark.parametrize("label,sign", (("plus", 1.0), ("minus", -1.0)))
+def test_operating_load_corners_cover_light_vehicle_and_strong_engine(label, sign):
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    case = cases[f"corner-load-{label}"]
+    conditions = AprConditions(**case["conditions"])
+    disturbances = RecoveryDisturbances(**case["disturbances"])
+    assert conditions.mean_wind(0.0) == sign * 8.0
+    assert conditions.mean_wind(10_000.0) == sign * 20.0
+    assert conditions.density_scale == 1.1
+    assert disturbances.drag_coefficient_scale == 1.15
+    assert disturbances.initial_mass_scale == 0.99
+    assert disturbances.thrust_scale == 1.03
+    assert disturbances.sensor_position_error_m == 2.0
+    assert disturbances.sensor_velocity_error_m_s == 1.0
+    assert observation_seed_sequence(case).generate_state(4).tolist() != (
+        observation_seed_sequence(cases[f"corner-{label}"]).generate_state(4).tolist()
+    )
+
+
+def test_operating_manifest_retains_exact_hidden_gust_regression_profiles():
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    original = AprConditions(**cases["upper-minus"]["conditions"])
+    for actual_upper, forecast_upper in (
+        (-19.0, -17.0),
+        (-18.0, -16.0),
+        (-14.0, -12.0),
+        (-10.0, -8.0),
+        (-6.0, -4.0),
+        (0.0, 0.0),
+    ):
+        case = cases[f"hidden-gust-upper-{abs(int(actual_upper)):02d}"]
+        conditions = AprConditions(**case["conditions"])
+        assert conditions.wind_profile[:-2] == original.wind_profile[:-2]
+        assert conditions.forecast_wind_profile[:-2] == original.wind_profile[:-2]
+        assert conditions.wind_profile[-2:] == (
+            (10000.0, actual_upper),
+            (PROFILE_TOP_M, actual_upper),
+        )
+        assert conditions.forecast_wind_profile[-2:] == (
+            (10000.0, forecast_upper),
+            (PROFILE_TOP_M, forecast_upper),
+        )
+        assert conditions.gust_amplitude_m_s == 5.0
+        assert conditions.forecast_gust_amplitude_m_s == 0.0
+        assert conditions.gust_phase_rad == original.gust_phase_rad
+        assert conditions.gust_start_s == original.gust_start_s
+        assert conditions.gust_duration_s == original.gust_duration_s
+        assert conditions.gust_altitude_center_m == original.gust_altitude_center_m
+        assert conditions.gust_altitude_half_width_m == original.gust_altitude_half_width_m
+
+
+def test_operating_forecast_rise_regressions_keep_actual_weather_and_distinct_streams():
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    original_case = cases["hidden-gust-upper-06"]
+    original = AprConditions(**original_case["conditions"])
+    for label, rise, middle, upper in (
+        ("00", 0.0, -8.0, -8.0),
+        ("05", 0.5, -8.8333333333, -7.1666666667),
+        ("10", 1.0, -9.6666666667, -6.3333333333),
+        ("15", 1.5, -10.5, -5.5),
+    ):
+        case = cases[f"forecast-rise-{label}"]
+        conditions = AprConditions(**case["conditions"])
+        actual_fields = asdict(conditions)
+        original_fields = asdict(original)
+        actual_fields.pop("forecast_wind_profile")
+        original_fields.pop("forecast_wind_profile")
+        assert actual_fields == original_fields
+        assert conditions.forecast_wind_profile[:3] == original.forecast_wind_profile[:3]
+        assert conditions.forecast_wind_profile[-3:] == (
+            (5000.0, middle),
+            (10000.0, upper),
+            (PROFILE_TOP_M, upper),
+        )
+        assert conditions.mean_wind(10000.0, forecast=True) - conditions.mean_wind(
+            8500.0, forecast=True
+        ) == pytest.approx(rise)
+        assert (
+            observation_seed_sequence(case).entropy
+            != observation_seed_sequence(original_case).entropy
+        )
+
+
+def test_operating_corner_regressions_combine_allowed_environment_and_vehicle_extremes():
+    cases = {case["id"]: case for case in make_manifest()["development"]}
+    for index, (name, sign) in enumerate((("corner-plus", 1.0), ("corner-minus", -1.0))):
+        case = cases[name]
+        conditions = AprConditions(**case["conditions"])
+        disturbances = RecoveryDisturbances(**case["disturbances"])
+        assert case["group"] == "boundary"
+        assert case["stream"] == 0
+        assert case["index"] == 900 + index
+        assert conditions.mean_wind(0.0) == sign * 8.0
+        assert conditions.mean_wind(5000.0) == sign * 14.0
+        assert conditions.mean_wind(10000.0) == sign * 20.0
+        assert conditions.forecast_wind_profile == conditions.wind_profile
+        assert conditions.gust_amplitude_m_s == 5.0
+        assert conditions.forecast_gust_amplitude_m_s == 0.0
+        assert conditions.gust_phase_rad == sign * np.pi / 2
+        assert conditions.gust_start_s == 0.0
+        assert conditions.gust_duration_s == 120.0
+        assert conditions.gust_altitude_center_m == 10000.0
+        assert conditions.gust_altitude_half_width_m == 2500.0
+        assert conditions.vertical_wind_profile == ((0.0, sign * 3.0), (PROFILE_TOP_M, sign * 3.0))
+        assert conditions.density_scale == 1.1
+        assert disturbances == RecoveryDisturbances(
+            thrust_scale=0.97,
+            drag_coefficient_scale=1.15,
+            initial_mass_scale=1.01,
+            inertia_scale=1.03,
+            sensor_position_error_m=2.0,
+            sensor_velocity_error_m_s=1.0,
+            observation_delay_steps=2,
+            action_delay_steps=1,
+            engine_lag_s=0.05,
+        )
+
+
+def test_operating_failure_stage_classification_does_not_call_input_eligibility_success():
+    assert _stage({"separation": None, "contact": None}) == "ascent_or_separation"
+    assert _stage({"separation": {}, "contact": None}) == "return_or_approach"
+    assert (
+        _stage({"separation": {}, "contact": {}, "landing_assessment": "kinematic_touchdown"})
+        == "touchdown"
+    )
+
+
+def test_campaign_json_encodes_numpy_diagnostics_without_nonfinite_values():
+    assert json.loads(_encoded({"passed": np.bool_(True), "speed": np.float64(1.2)})) == {
+        "passed": True,
+        "speed": 1.2,
+    }
+    with pytest.raises(ValueError):
+        _encoded({"speed": float("nan")})
+
+
+def test_operating_campaign_refuses_missing_development_and_tampered_manifest(tmp_path):
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    with pytest.raises(ValueError, match="development summary"):
+        freeze(campaign, "development")
+    manifest_path = campaign / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["development"][0]["conditions"]["gust_amplitude_m_s"] = 1.0
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="manifest has changed"):
+        _load_manifest(campaign)
+
+
+def test_operating_freeze_requires_matching_manifest_and_complete_flight_records(tmp_path):
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    manifest = _load_manifest(campaign)
+    summary_path = campaign / "development-summary.json"
+    flights_path = campaign / "development.jsonl"
+    summary = {
+        "split": "development",
+        "total": len(manifest["development"]),
+        "manifest_sha256": "wrong",
+        "source_hashes": _source_hashes(),
+        "accepted": 0,
+    }
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    flights_path.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="different manifest"):
+        freeze(campaign, "development")
+    summary["manifest_sha256"] = manifest["manifest_sha256"]
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(ValueError, match="flight protocol"):
+        freeze(campaign, "development")
+    header = {
+        "record_type": "protocol",
+        "split": "development",
+        "root_seed": ROOT_SEED,
+        "manifest_sha256": manifest["manifest_sha256"],
+        "source_hashes": _source_hashes(),
+        "case_count": len(manifest["development"]),
+    }
+    records = [
+        {"record_type": "flight", "id": case["id"], "input_sha256": _sha(case), "accepted": False}
+        for case in manifest["development"]
+    ]
+    flights_path.write_text(
+        "\n".join(_encoded(row) for row in (header, *records)), encoding="utf-8"
+    )
+    freeze(campaign, "development")
+    frozen = json.loads((campaign / "freeze.json").read_text(encoding="utf-8"))
+    assert frozen["manifest_sha256"] == manifest["manifest_sha256"]
+    assert frozen["development_report_sha256"]
+
+
+def _test_campaign_records(cases, workers):
+    for case in cases:
+        yield {
+            "record_type": "flight",
+            "id": case["id"],
+            "group": case["group"],
+            "input_sha256": _sha(case),
+            "outcome": "landed",
+            "accepted": True,
+            "failed_criteria": [],
+            "failure_stage": None,
+            "remaining_main_propellant_kg": 10.0,
+        }
+
+
+def test_operating_parallel_records_keep_order_and_remain_freezable(tmp_path, monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    calls = []
+
+    def records(cases, workers):
+        calls.append(workers)
+        yield from _test_campaign_records(cases, workers)
+
+    monkeypatch.setattr(campaign_cli, "_evaluate_cases", records)
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    campaign_cli.evaluate(campaign, "development", "development", workers=3)
+    manifest = _load_manifest(campaign)
+    flights = [
+        json.loads(line) for line in (campaign / "development.jsonl").read_text().splitlines()
+    ]
+    assert [flight["id"] for flight in flights[1:]] == [
+        case["id"] for case in manifest["development"]
+    ]
+    freeze(campaign, "development")
+    campaign_cli.evaluate(campaign, "holdout", "holdout", workers=2)
+    assert calls == [3, 2]
+    summary = json.loads((campaign / "holdout-summary.json").read_text())
+    assert summary["total"] == summary["accepted"] == len(manifest["holdout"]) == 72
+    assert summary["workers"] == 2
+
+
+def test_operating_failed_worker_retains_partial_evidence_without_summary(tmp_path, monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    def interrupted_records(cases, workers):
+        yield next(_test_campaign_records(cases, workers))
+        raise RuntimeError("worker failed")
+
+    monkeypatch.setattr(campaign_cli, "_evaluate_cases", interrupted_records)
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    with pytest.raises(RuntimeError, match="worker failed"):
+        campaign_cli.evaluate(campaign, "development", "development", workers=2)
+    assert len((campaign / "development.jsonl").read_text().splitlines()) == 2
+    assert not (campaign / "development-summary.json").exists()
+    with pytest.raises(ValueError, match="development summary"):
+        freeze(campaign, "development")
+
+
+def test_operating_source_change_during_sweep_refuses_summary(tmp_path, monkeypatch):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    hashes = iter(({"source": "before"}, {"source": "after"}))
+    monkeypatch.setattr(campaign_cli, "_source_hashes", lambda: next(hashes))
+    monkeypatch.setattr(campaign_cli, "_evaluate_cases", _test_campaign_records)
+    campaign = tmp_path / "campaign"
+    prepare(campaign)
+    with pytest.raises(ValueError, match="source changed during"):
+        campaign_cli.evaluate(campaign, "development", "development", workers=2)
+    assert not (campaign / "development-summary.json").exists()
+
+
+def test_operating_process_executor_propagates_invalid_input():
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    invalid_case = {"conditions": {"gust_amplitude_m_s": 6.0}, "disturbances": {}}
+    with pytest.raises(ValueError):
+        list(campaign_cli._evaluate_cases([invalid_case], workers=2))
+
+
+@pytest.mark.parametrize("workers", (0, -1, True, 1.5))
+def test_operating_campaign_requires_positive_integer_workers(tmp_path, workers):
+    from scripts import evaluate_operating_envelope as campaign_cli
+
+    with pytest.raises(ValueError, match="positive integer"):
+        campaign_cli.evaluate(tmp_path, "development", "development", workers=workers)
 
 
 def _synthetic_full_flight_record(base_height=20.0):
-    """Handwritten poses for rendering tests, not an integrated flight."""
-    from types import SimpleNamespace
-
-    from powered_landing_guidance.recovery_physics import (
-        AtmosphereSettings,
-        Geometry,
-        LandingGear,
-        mass_properties,
+    """Handwritten current 100 t poses for rendering, not a simulated mission."""
+    design = Design()
+    booster_mass = design.dry_mass_kg + 20_000.0 + design.rcs_propellant_kg
+    properties = mass_properties(booster_mass, 1.0, PHYSICS)
+    combined = (booster_mass * properties.cg_m + design.upper_mass_kg * PHYSICS.upper_station_m) / (
+        booster_mass + design.upper_mass_kg
     )
-
-    geometry, gear = Geometry(), LandingGear()
-    fixed = ((24.0, 4.65, 13.5),)
-    settings = SimpleNamespace(geometry=geometry, gear=gear, fixed_mass_components=fixed)
-    dry = geometry.engine_mass_kg + geometry.airframe_mass_kg + geometry.gear_mass_kg + 24
-    mass, upper = dry + 110, 1015.0
-    cg = mass_properties(mass, 1, settings).cg_m
-    combined = (mass * cg + upper * 6) / (mass + upper)
-    states = [
-        [0, base_height + position, 0, -1, 0, 0, 100, 10, 1, 0, 0, 0.1, 1]
-        for position in (combined, cg, cg)
-    ]
+    states = []
+    for position in (combined, properties.cg_m, properties.cg_m):
+        state = apr_separation_state()
+        state[:6] = (0, base_height + position, 0, -1, 0, 0)
+        state[8:13] = (1, 0.1, 1, 0, 0)
+        states.append(state.tolist())
     return {
-        "state_names": [
-            "x_m",
-            "z_m",
-            "vx_m_s",
-            "vz_m_s",
-            "theta_rad",
-            "omega_rad_s",
-            "main_propellant_kg",
-            "rcs_propellant_kg",
-            "gear_extension",
-            "left_friction_m",
-            "right_friction_m",
-            "fin_deflection_rad",
-            "fin_extension",
-        ],
+        "environment_version": OPERATING_SCOPE,
+        "systems_model_version": "apr_100t_coupled_systems_v2",
+        "landing_assessment": "kinematic_touchdown",
+        "state_names": list(STATE_NAMES),
         "steps": [
             {"time_s": float(index), "state": state, "control": [1, 0, 0, 0], "phase": phase}
             for index, (state, phase) in enumerate(
-                zip(states, ("ascent", "boostback", "ground_settling"), strict=True)
+                zip(states, ("ascent", "boostback", "touchdown"), strict=True)
             )
         ],
-        "design": asdict(Design()),
-        "physics": {
-            "geometry": asdict(geometry),
-            "gear": asdict(gear),
-            "atmosphere": asdict(AtmosphereSettings()),
-            "fixed_mass_components": fixed,
-        },
+        "design": {**asdict(Design()), "launch_mass_kg": Design().launch_mass_kg},
+        "physics": asdict(PHYSICS),
         "separation": {"time_s": 1.0},
-        "first_contact": {
-            "time_s": 1.5,
+        "contact": {
+            "time_s": 2.0,
             "first_feet": [0],
             "foot_velocities_m_s": [[0.0, -0.9], [0.0, -0.9]],
         },
-        "fin_settings": {"station_m": 4.65},
+        "fin_settings": asdict(FINS),
         "outcome": "unverified",
         "simulated_acceptance_passed": False,
     }
+
+
+def _replay_test_font_family():
+    from matplotlib import font_manager
+
+    fonts = font_manager.get_font_names()
+    return next(
+        (name for name in ("Malgun Gothic", "Noto Sans CJK KR", "NanumGothic") if name in fonts),
+        "DejaVu Sans",
+    )
 
 
 def test_nominal_flight_replay_preserves_body_position_across_separation():
@@ -1246,31 +2245,203 @@ def test_nominal_flight_replay_preserves_body_position_across_separation():
     for time_s in (0, 0.5, 0.999, 1, 1.001, 1.5, 2):
         state, base, mass, *_ = replay.sample(time_s)
         np.testing.assert_allclose(base, [0, 20])
-        assert state[6] == 100 and state[7] == 10
-        assert mass == replay.design["dry_mass_kg"] + 110
+        assert state[6] == 20_000 and state[7] == 300
+        assert mass == replay.design["dry_mass_kg"] + 20_300
 
 
-def test_nominal_flight_replay_stops_plume_at_recorded_contact():
-    replay = _NominalFlightReplay(_synthetic_full_flight_record())
-    assert replay.sample(1.49)[3][0] == 1
-    assert replay.sample(1.5)[4] == "ground_settling"
-    np.testing.assert_array_equal(replay.sample(1.5)[3], np.zeros(4))
+def test_replay_includes_exact_separation_event_without_rewriting_saved_steps():
+    record = _synthetic_full_flight_record()
+    separation_state = deepcopy(record["steps"][1]["state"])
+    separation_state[2:4] = (7.0, -4.0)
+    separation_state[11:13] = (0.012, 0.17)
+    record["separation"] = {"time_s": 1.1, "state": separation_state}
+    record["steps"] = [record["steps"][0], record["steps"][2]]
+    original = deepcopy(record)
+    replay = _NominalFlightReplay(record)
+    state, base, _, control, phase, _ = replay.sample(1.1)
+    np.testing.assert_allclose(state, separation_state, atol=1e-10)
+    np.testing.assert_allclose(base, [0.0, 20.0], atol=1e-10)
+    assert control[:2] == pytest.approx((0.17, 0.012))
+    assert phase != "ascent"
+    assert record == original
+    assert len(record["steps"]) == 2
+
+
+def test_replay_contact_event_preserves_the_exact_grounded_pose_and_raw_throttle():
+    record = _synthetic_full_flight_record(base_height=-PHYSICS.gear.foot_station_m)
+    contact_state = deepcopy(record["steps"][-1]["state"])
+    contact_state[11:13] = (0.01, 0.2)
+    record["contact"]["state"] = contact_state
+    record["steps"][-1]["state"][1] += 0.1
+    original = deepcopy(record)
+    replay = _NominalFlightReplay(record)
+    parts, _, sample = _nominal_flight_geometry(replay, 2.0)
+    np.testing.assert_allclose(sample[0], contact_state, atol=1e-10)
+    assert sample[3][:2] == pytest.approx((0.2, 0.01))
+    assert parts["foot_left"][:, 1].min() == pytest.approx(0.0, abs=1e-10)
+    assert parts["foot_right"][:, 1].min() == pytest.approx(0.0, abs=1e-10)
+    assert record == original
+
+
+@pytest.mark.parametrize("invalid", ("outside_interval", "wrong_size", "nan"))
+def test_replay_rejects_invalid_exact_event_states(invalid):
+    record = _synthetic_full_flight_record()
+    record["separation"]["state"] = deepcopy(record["steps"][1]["state"])
+    if invalid == "outside_interval":
+        record["separation"]["time_s"] = 2.1
+    elif invalid == "wrong_size":
+        record["separation"]["state"].pop()
+    else:
+        record["separation"]["state"][0] = float("nan")
+    with pytest.raises(ValueError, match="replay event"):
+        _NominalFlightReplay(record)
+
+
+def test_nominal_flight_replay_displays_actual_actuator_states_at_touchdown():
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["state"][11:13] = (0.01, 0.2)
+    record["steps"][-1]["control"] = [0, 0, 0, 0]
+    replay = _NominalFlightReplay(record)
+    assert replay.sample(2.0)[4] == "touchdown"
+    assert replay.sample(2.0)[3][:2] == pytest.approx([0.2, 0.01])
+    assert replay.sample(2.0)[0][3] == -1.0
+
+
+def test_kinematic_replay_does_not_claim_post_contact_stability():
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_full_flight_record()
+    record["landing_assessment"] = "kinematic_touchdown"
+    record["simulated_acceptance_passed"] = True
+    scene = _NominalFlightAnimationScene(record)
+    try:
+        scene.update(2.0)
+        assert scene.replay.sample(2.0)[4] == "touchdown"
+        assert "접지 조건 통과" in scene.event.get_text()
+        assert "미평가" in scene.event.get_text()
+        assert "안정화 완료" not in scene.event.get_text()
+        assert "엔진 OFF" in scene.event.get_text()
+        assert "연출" in scene.event.get_text()
+        assert _stage(record) == "touchdown"
+    finally:
+        plt.close(scene.fig)
+
+
+def test_replay_contact_switches_display_engine_off_without_rewriting_telemetry():
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["state"][11:13] = (0.01, 0.2)
+    record["steps"][-1]["control"] = [0, 0, 0, 0]
+    original = deepcopy(record)
+    scene = _NominalFlightAnimationScene(record)
+    try:
+        scene.update(1.999)
+        assert scene.display_engine_on is True
+        assert scene.displayed_thrust_n > 0
+        assert any(plume.get_visible() for plume in scene.plumes)
+
+        for time_s in (2.0, 2.5, 6.0):
+            scene.update(time_s)
+            assert scene.display_engine_on is False
+            assert scene.displayed_thrust_n == 0.0
+            assert not any(plume.get_visible() for plume in scene.plumes)
+            state, _, _, control, phase, _ = scene.replay.sample(time_s)
+            assert phase == "touchdown"
+            assert state[3] == -1.0
+            assert state[11:13] == pytest.approx((0.01, 0.2))
+            assert control[:2] == pytest.approx((0.2, 0.01))
+        assert record == original
+    finally:
+        plt.close(scene.fig)
+
+
+@pytest.mark.parametrize(
+    "torque_nm,expected_kn_m,visible",
+    (
+        (100_000.0, 100.0, True),
+        (-100_000.0, -100.0, True),
+        (25_000.0, 25.0, True),
+        (100.0, 0.1, False),
+        (-100.0, -0.1, False),
+        (2_000.0, 2.0, False),
+        (2_001.0, 2.001, True),
+        (0.0, 0.0, False),
+    ),
+)
+def test_replay_rcs_torque_uses_newton_meters_and_bounded_visual_jet_length(
+    torque_nm, expected_kn_m, visible
+):
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["control"][2] = torque_nm
+        row["state"][4] = np.deg2rad(37.0)
+    original = deepcopy(record)
+    scene = _NominalFlightAnimationScene(record)
+    try:
+        scene.update(1.5)
+        assert scene.rcs_torque_kn_m == pytest.approx(expected_kn_m)
+        assert f"RCS 토크 {expected_kn_m:+.1f} kN·m" in scene.status.get_text()
+        ratio = np.clip(abs(torque_nm) / record["design"]["rcs_torque_limit_nm"], 0, 1)
+        assert scene.rcs_jet_length_m == pytest.approx(2 * np.sqrt(ratio))
+        assert 0.0 <= scene.rcs_jet_length_m <= 2.0
+        state, base, _, control, _, _ = scene.replay.sample(1.5)
+        assert control[2] == torque_nm
+        for jet in scene.rcs_jets:
+            assert bool(jet.get_visible()) is visible
+            local = (jet.get_xy()[:3] - base) @ rotation(state[4])
+            jet_tip_distance = np.linalg.norm(local[2] - (local[0] + local[1]) / 2)
+            assert jet_tip_distance == pytest.approx(scene.rcs_jet_length_m, abs=1e-10)
+            assert jet_tip_distance <= 2.0 + 1e-10
+        for time_s in (2.0, 2.5, 6.0):
+            scene.update(time_s)
+            assert not any(jet.get_visible() for jet in scene.rcs_jets)
+            assert scene.replay.sample(time_s)[3][2] == torque_nm
+        assert record == original
+    finally:
+        plt.close(scene.fig)
+
+
+def test_replay_hides_upper_stage_only_after_recorded_separation():
+    import matplotlib.pyplot as plt
+
+    scene = _NominalFlightAnimationScene(_synthetic_full_flight_record())
+    try:
+        scene.update(0.999)
+        assert scene.parts["upper_stage"].get_visible()
+        assert scene.parts["separation_band"].get_visible()
+        for time_s in (1.0, 1.001, 2.0):
+            scene.update(time_s)
+            assert not scene.parts["upper_stage"].get_visible()
+            assert not scene.parts["separation_band"].get_visible()
+    finally:
+        plt.close(scene.fig)
 
 
 def test_nominal_flight_replay_draws_grounded_feet_without_shifting_hull():
-    replay = _NominalFlightReplay(_synthetic_full_flight_record(base_height=0.80))
-    parts, nozzle, _ = _nominal_flight_geometry(replay, 2)
+    base_height = -PHYSICS.gear.foot_station_m
+    replay = _NominalFlightReplay(_synthetic_full_flight_record(base_height=base_height))
+    parts, nozzle, sample = _nominal_flight_geometry(replay, 2)
+    state, base, mass, *_ = sample
+    vector = np.r_[state[:6], mass, state[6], state[17:19]]
+    points, _ = foot_kinematics(vector, state[8], replay.settings)
+    np.testing.assert_allclose(points[:, 1], 0, atol=1e-10)
+    assert base[1] == pytest.approx(base_height)
     assert parts["foot_left"][:, 1].min() == pytest.approx(0)
     assert parts["foot_right"][:, 1].min() == pytest.approx(0)
-    assert parts["body"][:, 1].min() == pytest.approx(0.80)
-    assert nozzle[1] == pytest.approx(0.80 + replay.settings.geometry.nozzle_station_m)
+    assert parts["body"][:, 1].min() == pytest.approx(base_height)
+    assert nozzle[1] == pytest.approx(base_height + replay.settings.geometry.nozzle_station_m)
 
 
 def test_nominal_flight_replay_uses_recorded_fin_extension():
     deployed = _synthetic_full_flight_record()
     stowed = deepcopy(deployed)
     for row in stowed["steps"]:
-        row["state"][12] = 0
+        row["state"][10] = 0
     extended, _, _ = _nominal_flight_geometry(_NominalFlightReplay(deployed), 1)
     retracted, _, _ = _nominal_flight_geometry(_NominalFlightReplay(stowed), 1)
     assert np.ptp(extended["fin_right"][:, 0]) > np.ptp(retracted["fin_right"][:, 0])
@@ -1298,6 +2469,22 @@ def test_nominal_flight_replay_rejects_invalid_records(invalid):
         _NominalFlightReplay(flight)
 
 
+@pytest.mark.parametrize("invalid", ["systems_version", "environment_version", "state_order"])
+def test_replay_rejects_mismatched_model_contract(invalid):
+    record = _synthetic_full_flight_record()
+    if invalid == "systems_version":
+        record["systems_model_version"] = "obsolete"
+    elif invalid == "environment_version":
+        record["environment_version"] = "different_environment"
+    else:
+        record["state_names"][9], record["state_names"][10] = (
+            record["state_names"][10],
+            record["state_names"][9],
+        )
+    with pytest.raises(ValueError, match="100 t"):
+        _NominalFlightReplay(record)
+
+
 def test_nominal_flight_replay_never_overwrites_output(tmp_path):
     output = tmp_path / "flight.mp4"
     output.write_bytes(b"existing")
@@ -1306,95 +2493,32 @@ def test_nominal_flight_replay_never_overwrites_output(tmp_path):
     assert output.read_bytes() == b"existing"
 
 
-def test_shared_3t_mass_gradients_match_finite_differences():
-    mass, deployment = 800.0, 0.4
-    props = mass_properties(mass, deployment, PHYSICS)
-    cm, cg, im, ig = mass_gradients(mass, deployment, PHYSICS, props)
-    epsilon = 1e-4
-    before = mass_properties(mass - epsilon, deployment, PHYSICS)
-    after = mass_properties(mass + epsilon, deployment, PHYSICS)
-    assert cm == pytest.approx((after.cg_m - before.cg_m) / (2 * epsilon), abs=1e-8)
-    assert im == pytest.approx((after.inertia_kg_m2 - before.inertia_kg_m2) / (2 * epsilon))
-    before = mass_properties(mass, deployment - epsilon, PHYSICS)
-    after = mass_properties(mass, deployment + epsilon, PHYSICS)
-    assert cg == pytest.approx((after.cg_m - before.cg_m) / (2 * epsilon), abs=1e-8)
-    assert ig == pytest.approx((after.inertia_kg_m2 - before.inertia_kg_m2) / (2 * epsilon))
+@pytest.mark.parametrize("fps", (0, 61, -1, True, 1.5, float("nan")))
+def test_nominal_flight_replay_rejects_invalid_fps_before_rendering(tmp_path, fps):
+    with pytest.raises(ValueError, match="fps"):
+        save_nominal_flight_replay({}, tmp_path / "flight.mp4", fps=fps)
+    assert not (tmp_path / "flight.mp4").exists()
 
 
-def test_shared_atmosphere_is_continuous_at_tropopause():
-    sea = atmosphere(0.0, PHYSICS.atmosphere)
-    assert sea[0] == PHYSICS.atmosphere.sea_level_temperature_k
-    assert sea[1] == PHYSICS.atmosphere.sea_level_pressure_pa
-    lower = atmosphere(11000.0 - 1e-3, PHYSICS.atmosphere)
-    upper = atmosphere(11000.0 + 1e-3, PHYSICS.atmosphere)
-    np.testing.assert_allclose(lower, upper, rtol=1e-6)
-    assert upper[2] < sea[2]
+@pytest.mark.parametrize("width", (0, -640, 638, 641, 642, 3842, True, 640.5, float("nan")))
+def test_nominal_flight_replay_rejects_invalid_video_width(tmp_path, width):
+    with pytest.raises(ValueError, match="width"):
+        save_nominal_flight_replay({}, tmp_path / "flight.mp4", width=width)
+    assert not (tmp_path / "flight.mp4").exists()
 
 
-def test_shared_clockwise_force_and_torque_convention():
-    np.testing.assert_allclose(rotation(np.pi / 2) @ [0.0, 1.0], [1.0, 0.0], atol=1e-12)
-    assert clock_torque(np.array([0.0, 2.0]), np.array([3.0, 0.0])) == 6.0
-    assert clock_torque(np.array([2.0, 0.0]), np.array([0.0, 3.0])) == -6.0
-
-
-def test_shared_contact_never_pulls_on_the_pad_or_exceeds_coulomb_friction():
-    mass = 700.0
-    props = mass_properties(mass, 1.0, PHYSICS)
-    state = np.array(
-        [0.0, props.cg_m - PHYSICS.gear.foot_station_m, 2.0, -0.5, 0.0, 0.0, mass, 1.0, 0.0, 0.0]
-    )
-    contact = gear_contacts(state, PHYSICS)
-    assert np.all(contact["normal"] > 0.0)
-    assert np.all(np.abs(contact["tangent"]) <= PHYSICS.gear.static_friction * contact["normal"])
-    assert np.all(contact["tangent"] < 0.0)
-    state[1] += 0.1
-    airborne = gear_contacts(state, PHYSICS)
-    np.testing.assert_array_equal(airborne["forces"], np.zeros((2, 2)))
-
-
-def test_shared_estimator_preserves_propellant_and_actuator_telemetry():
-    raw = apr_separation_state()
-    raw[6:8] = (173.0, 14.7)
-    estimator = RecoverySensorEstimator(0.5)
-    estimator.observe(raw, 0.0, (0.0, 0.0), 0.0)
-    observed = estimator.observe(raw, 0.01, (0.0, 0.0), 0.01)
-    np.testing.assert_array_equal(observed[6:], raw[6:])
-    assert observed[0] == pytest.approx(raw[0] + raw[2] * 0.01, abs=0.1)
-
-
-def test_rk4_freefall_matches_the_analytic_solution_and_does_not_mutate_input():
-    initial = np.array([100.0, -2.0])
-    final = rk4_step(lambda time, state: [state[1], -G0], 0.0, initial, 0.3)
-    np.testing.assert_allclose(final, [100.0 - 2.0 * 0.3 - 0.5 * G0 * 0.3**2, -2.0 - G0 * 0.3])
-    np.testing.assert_array_equal(initial, [100.0, -2.0])
-
-
-@pytest.mark.parametrize("dt", [0.0, -1.0, np.nan, np.inf])
-def test_rk4_rejects_invalid_time_steps(dt):
-    with pytest.raises(ValueError, match="dt_s"):
-        rk4_step(lambda time, state: state, 0.0, [1.0], dt)
-
-
-@pytest.mark.parametrize("derivative", [[np.nan], [1.0, 2.0], [[1.0]]])
-def test_rk4_rejects_invalid_derivatives(derivative):
-    with pytest.raises(ValueError, match="derivative"):
-        rk4_step(lambda time, state: derivative, 0.0, [1.0], 0.1)
-
-
-@pytest.mark.parametrize("method", ["euler", "rk4"])
-def test_integrator_shortens_the_final_step(method):
-    times, states = integrate_fixed_step(
-        lambda time, state: [2.0], [1.0], (0.0, 1.0), 0.3, method=method
-    )
-    np.testing.assert_allclose(times, [0.0, 0.3, 0.6, 0.9, 1.0])
-    np.testing.assert_allclose(states[:, 0], 1.0 + 2.0 * times)
+@pytest.mark.parametrize("duration", (-0.01, 30.01, float("nan"), float("inf"), True))
+def test_nominal_flight_replay_rejects_invalid_end_hold_duration(tmp_path, duration):
+    with pytest.raises(ValueError, match="end_hold"):
+        save_nominal_flight_replay({}, tmp_path / "flight.mp4", end_hold_s=duration)
+    assert not (tmp_path / "flight.mp4").exists()
 
 
 def test_failed_ascent_replay_does_not_fabricate_separation_or_contact():
     import matplotlib.pyplot as plt
 
     record = _synthetic_full_flight_record()
-    record["separation"] = record["first_contact"] = None
+    record["separation"] = record["contact"] = None
     for row in record["steps"]:
         row["phase"] = "ascent"
     scene = _NominalFlightAnimationScene(record)
@@ -1417,7 +2541,10 @@ def test_replay_success_label_matches_saved_acceptance(passed):
     scene = _NominalFlightAnimationScene(record)
     try:
         scene.update(2.0)
-        assert ("착륙 성공" in scene.event.get_text()) is passed
+        assert ("접지 조건 통과" in scene.event.get_text()) is passed
+        if not passed:
+            assert "착륙 성공" not in scene.event.get_text()
+            assert "안정화 완료" not in scene.event.get_text()
     finally:
         plt.close(scene.fig)
 
@@ -1428,6 +2555,277 @@ def test_short_synthetic_mp4_and_preview_can_be_saved_without_a_flight(tmp_path)
     if not _ffmpeg_available():
         pytest.skip("FFmpeg or the optional video extra is unavailable")
     output, preview = tmp_path / "poses.mp4", tmp_path / "poses.png"
-    save_nominal_flight_replay(_synthetic_full_flight_record(), output, fps=1, preview=preview)
+    save_nominal_flight_replay(
+        _synthetic_full_flight_record(),
+        output,
+        fps=1,
+        width=640,
+        end_hold_s=0,
+        preview=preview,
+    )
     assert b"ftyp" in output.read_bytes()[:32]
     assert preview.read_bytes().startswith(b"\x89PNG")
+
+
+@pytest.mark.parametrize("end_hold_s", (0.0, 1.25, 1.3))
+def test_replay_writer_holds_only_the_final_display_without_adding_simulation(
+    tmp_path, monkeypatch, end_hold_s
+):
+    from contextlib import contextmanager
+
+    from powered_landing_guidance import visualization
+
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["state"][12] = 0.2
+    original = deepcopy(record)
+    scene_factory = visualization._NominalFlightAnimationScene
+    scenes, rendered, dimensions = [], [], []
+
+    def make_scene(*args, **kwargs):
+        scene = scene_factory(*args, **kwargs)
+        scenes.append(scene)
+        return scene
+
+    class CaptureWriter:
+        def __init__(self, *, fps, **_kwargs):
+            assert fps == 4
+
+        @contextmanager
+        def saving(self, figure, filename, dpi):
+            dimensions.append(figure.get_size_inches() * dpi)
+            Path(filename).write_bytes(b"synthetic writer, not a flight video")
+            yield
+
+        def grab_frame(self, **_kwargs):
+            scene = scenes[-1]
+            rendered.append(
+                (
+                    scene.parts["body"].get_xy().copy(),
+                    scene.display_engine_on,
+                    scene.displayed_thrust_n,
+                    scene.status.get_text(),
+                )
+            )
+
+    def no_integration(*_args, **_kwargs):
+        pytest.fail("replaying and holding a stored frame must not advance physics")
+
+    monkeypatch.setattr(visualization, "_NominalFlightAnimationScene", make_scene)
+    monkeypatch.setattr(visualization, "FFMpegWriter", CaptureWriter)
+    monkeypatch.setattr(visualization, "_ffmpeg_available", lambda: True)
+    monkeypatch.setattr(AprFlight, "advance", no_integration)
+    output = tmp_path / "captured.mp4"
+    save_nominal_flight_replay(record, output, fps=4, width=640, end_hold_s=end_hold_s)
+    flight_frames = len(_nominal_flight_frame_times(np.asarray([0.0, 2.0]), 4))
+    assert len(rendered) == flight_frames + int(np.ceil(end_hold_s * 4))
+    np.testing.assert_allclose(dimensions, [[640.0, 360.0]])
+    for body, engine_on, thrust, status in rendered[flight_frames - 1 :]:
+        np.testing.assert_array_equal(body, rendered[flight_frames - 1][0])
+        assert engine_on is False
+        assert thrust == 0.0
+        assert status == rendered[flight_frames - 1][3]
+    assert record == original
+    assert output.exists()
+
+
+@pytest.mark.parametrize("width", (640, 1920))
+@pytest.mark.parametrize("time_s", (0.0, 1.25, 2.0))
+def test_cached_replay_frame_matches_full_canvas_at_launch_flip_and_contact(width, time_s):
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_full_flight_record()
+    record["steps"][1]["phase"] = "flip"
+    record["steps"][1]["state"][4] = np.deg2rad(37.0)
+    for row in record["steps"]:
+        row["state"][12] = 0.2
+        row["control"][2] = 100_000.0
+    original = deepcopy(record)
+    with matplotlib.rc_context(
+        {"font.family": _replay_test_font_family(), "axes.unicode_minus": False}
+    ):
+        scene = _NominalFlightAnimationScene(record, width=width)
+        renderer = _NominalFlightFrameRenderer(scene)
+        try:
+            scene.update(time_s)
+            frame = renderer.frame()
+            assert isinstance(frame, memoryview)
+            assert frame.shape == (width * 9 // 16, width, 4)
+            assert frame.nbytes == width * (width * 9 // 16) * 4
+            cached = np.asarray(frame).copy()
+            renderer.close()
+            scene.fig.canvas.draw()
+            np.testing.assert_array_equal(cached, np.asarray(scene.fig.canvas.buffer_rgba()))
+            assert record == original
+        finally:
+            renderer.close()
+            plt.close(scene.fig)
+
+
+def test_cached_replay_renderer_restores_every_original_animated_flag(monkeypatch):
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    monkeypatch.setitem(matplotlib.rcParams, "font.family", [_replay_test_font_family()])
+    monkeypatch.setitem(matplotlib.rcParams, "axes.unicode_minus", False)
+    scene = _NominalFlightAnimationScene(_synthetic_full_flight_record(), width=640)
+    scene.camera.set_animated(True)
+    scene.event.set_animated(True)
+    flags = [(artist, artist.get_animated()) for artist in scene.fig.findobj()]
+    renderer = _NominalFlightFrameRenderer(scene)
+    try:
+        scene.update(2.0)
+        renderer.frame()
+        renderer.close()
+        for artist, flag in flags:
+            assert artist.get_animated() == flag
+        renderer.close()
+        for artist, flag in flags:
+            assert artist.get_animated() == flag
+    finally:
+        renderer.close()
+        plt.close(scene.fig)
+
+
+@pytest.mark.parametrize("width", (640, 1920))
+def test_replay_fast_writer_streams_exact_rgba_frames_without_changing_record(
+    tmp_path, monkeypatch, width
+):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from powered_landing_guidance import visualization
+
+    record = _synthetic_full_flight_record()
+    original = deepcopy(record)
+    shapes, sizes, scenes, original_flags = [], [], [], []
+    scene_factory = visualization._NominalFlightAnimationScene
+
+    def make_scene(*args, **kwargs):
+        scene = scene_factory(*args, **kwargs)
+        scenes.append(scene)
+        original_flags.append([(artist, artist.get_animated()) for artist in scene.fig.findobj()])
+        return scene
+
+    class CapturePipe:
+        def write(self, frame):
+            assert isinstance(frame, memoryview)
+            shapes.append(frame.shape)
+            sizes.append(frame.nbytes)
+            return frame.nbytes
+
+    class FastWriter:
+        frame_format = "rgba"
+
+        def __init__(self, *, fps, **_kwargs):
+            assert fps == 1
+            self._proc = SimpleNamespace(stdin=CapturePipe())
+
+        @contextmanager
+        def saving(self, figure, filename, dpi):
+            self.frame_size = tuple(int(value) for value in figure.get_size_inches() * dpi)
+            Path(filename).write_bytes(b"synthetic writer, not a flight video")
+            yield
+
+        def grab_frame(self, **_kwargs):
+            pytest.fail("an available RGBA process must use the tested fast writer path")
+
+    def no_integration(*_args, **_kwargs):
+        pytest.fail("cached rendering of stored samples must not advance physics")
+
+    monkeypatch.setattr(visualization, "_NominalFlightAnimationScene", make_scene)
+    monkeypatch.setattr(visualization, "FFMpegWriter", FastWriter)
+    monkeypatch.setattr(visualization, "_ffmpeg_available", lambda: True)
+    monkeypatch.setattr(AprFlight, "advance", no_integration)
+    output = tmp_path / "fast.mp4"
+    save_nominal_flight_replay(record, output, fps=1, width=width, end_hold_s=0)
+    assert shapes == [(width * 9 // 16, width, 4)] * 3
+    assert sizes == [width * (width * 9 // 16) * 4] * 3
+    assert len(scenes) == 1
+    for artist, flag in original_flags[0]:
+        assert artist.get_animated() == flag
+    assert record == original
+    assert output.exists()
+
+
+@pytest.mark.parametrize("east_wind_m_s", (-8.0, 8.0))
+def test_windy_ascent_starts_vertical_before_following_air_relative_flow(east_wind_m_s):
+    profile = ((0.0, east_wind_m_s), (PROFILE_TOP_M, east_wind_m_s))
+    flight = AprFlight(
+        conditions=AprConditions(wind_profile=profile, forecast_wind_profile=profile)
+    )
+    departure = flight.state.copy()
+    departure[3] = 25.0
+    flight.time_s = 5.0
+    flow = np.rad2deg(np.arctan2(*flight.air_velocity(departure, predicted=True)))
+    assert flight.loads(departure, predicted=True)[2] > 100.0
+    assert abs(flow) > 10.0
+
+    flight.guidance(departure)
+    assert abs(np.rad2deg(flight.attitude_target)) < 0.1
+
+    departure[3] = 200.0
+    flight.time_s = 30.0
+    flight.guidance(departure)
+    flow = np.rad2deg(np.arctan2(*flight.air_velocity(departure, predicted=True)))
+    assert abs(np.rad2deg(flight.attitude_target) - flow) <= 3.5 + 1e-9
+
+
+@pytest.mark.parametrize("east_wind_m_s", (-8.0, 8.0))
+def test_surface_wind_departure_keeps_climbing_without_early_windward_tip(east_wind_m_s):
+    profile = ((0.0, east_wind_m_s), (PROFILE_TOP_M, east_wind_m_s))
+    flight = AprFlight(
+        conditions=AprConditions(
+            wind_profile=profile,
+            forecast_wind_profile=profile,
+            gust_amplitude_m_s=5.0,
+            gust_phase_rad=np.copysign(np.pi / 2, east_wind_m_s),
+            gust_start_s=-60.0,
+            gust_duration_s=120.0,
+            gust_altitude_center_m=0.0,
+            forecast_gust_amplitude_m_s=5.0,
+        )
+    )
+    while flight.time_s < 10.0 and flight.outcome == "running":
+        flight.advance()
+
+    assert flight.outcome == "running"
+    assert flight.upper_attached
+    assert flight.height(flight.state) > 200.0
+    assert flight.state[3] > 40.0
+    assert abs(flight.state[2]) < 3.0
+    assert abs(np.rad2deg(flight.state[4])) < 3.0
+    assert flight.max_q_alpha < SAFETY.max_q_alpha_kpa_deg
+
+
+def test_ascent_pitch_program_preserves_vertical_climb_until_high_altitude():
+    flight = AprFlight()
+    observed = flight.state.copy()
+    observed[1] = 15_000.0
+    flight.time_s = 50.0
+
+    flight.guidance(observed)
+
+    assert 0.0 < np.rad2deg(flight.attitude_target) < 10.0
+
+
+def test_ascent_shutdown_keeps_main_reserve_through_allowed_command_delays():
+    delayed = AprFlight(
+        disturbances=RecoveryDisturbances(
+            observation_delay_steps=2,
+            action_delay_steps=1,
+            engine_lag_s=0.0,
+        )
+    )
+    observed = delayed.state.copy()
+    observed[6] = delayed.ascent_settings.separation_min_main_propellant_kg + 75.0
+
+    shutdown = delayed.guidance(observed)
+    assert delayed.cutoff_pending
+    assert shutdown[0] == 0.0
+
+    immediate = AprFlight()
+    immediate.guidance(observed)
+    assert not immediate.cutoff_pending
+    assert immediate.ascent_settings.separation_min_main_propellant_kg == 20_000.0

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "powered-landing-guidance"
 version = "0.1.0"
-description = "Planar 3 t rocket ascent, staging and PID first-stage recovery"
+description = "Planar 100 t rocket ascent, staging and first-stage recovery"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

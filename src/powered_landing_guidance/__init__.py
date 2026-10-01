@@ -1,4 +1,4 @@
-"""Planar first-stage flight and recovery for the fixed 3 t APR vehicle."""
+"""Planar first-stage flight and recovery for the fixed 100 t APR vehicle."""
 
 from powered_landing_guidance.apr_recovery import (
     AprConditions,

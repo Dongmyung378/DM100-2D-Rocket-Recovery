@@ -1,119 +1,161 @@
-# 2D Powered Landing Guidance
+# 100 t 2D Powered Landing Guidance
 
-[한국어](README.ko.md)
+[한국어](README.ko.md) · [Model specification](docs/spec.md)
 
-A **3,000 kg planar rocket simulator** for ascent, 10 km separation and PID-guided
-first-stage return to the launch pad. Aero-PID Return (APR) combines variable-mass
-rigid-body dynamics, aerodynamic control fins and compliant landing-leg contact.
+A planar simulator for **launch, cold staging and first-stage return to the
+launch pad**. It combines variable-mass rigid-body dynamics, model-based guidance,
+feedback attitude control, engine gimbal, RCS and aerodynamic fins.
 
-The retained implementation is the current 3 t APR model. Upper-stage flight and
-insertion into the assumed 700 km orbit are **not simulated or verified**.
-This is a provisional software model, not a hardware-qualified launch vehicle.
+The current vehicle launches at **100,000 kg**, with **70,200 kg main propellant**
+and **300 kg RCS propellant** in the first stage. The upper assembly carries a
+**500 kg payload** with a theoretical **700 km circular-orbit** objective.
+Upper-stage orbital insertion is assumed, not simulated or verified.
 
-## Vehicle and mission
+## Vehicle and model
 
 | Item | Current design |
-|---|---|
-| Launch mass | 3,000 kg |
-| First-stage dry mass | 520 kg, including 24 kg control fins |
-| Main / RCS propellant | 1,450 kg / 15 kg |
-| Upper assembly | 1,015 kg, including a 30 kg payload |
-| Main engine | 42 kN sea-level thrust; nominal Isp 260 s |
-| Initial thrust-to-weight | Approximately 1.43 |
-| Throttle / gimbal | Continuous 0-100% / ±6° |
-| Separation gate | 10,000 ±100 m; target tilt 9°; after observed Max-Q |
+|---|---:|
+| Launch / first-stage wet mass | 100,000 / 82,500 kg |
+| First-stage dry mass | 12,000 kg, including fins and landing gear |
+| First-stage main / RCS propellant | 70,200 / 300 kg |
+| Upper dry mass / propellant / payload | 1,500 / 15,500 / 500 kg |
+| First-stage sea-level / vacuum thrust | 1,600 / approximately 1,760 kN |
+| First-stage sea-level / vacuum Isp | 300 / approximately 330 s |
+| Initial thrust-to-weight ratio | Approximately 1.63 |
+| Throttle / gimbal | Ideal continuous 0-100% / ±6° |
+| Separation gate | 37 ±1 km; at least 20,000 kg main propellant |
 | Recovery target | Original launch pad |
 
-The controller coordinates return braking and landing ignition, horizontal
-alignment and descent. Its final descent reference is 0.9 m/s; touchdown must
-also meet position, horizontal speed, attitude, angular-rate and contact limits.
+The 19-state model includes altitude-dependent gravity, a layered atmosphere,
+wind and gusts, aerodynamic forces, changing mass properties, actuator response,
+delayed observations, liquid acquisition/feed, closed helium pressurization,
+nonlinear pendulum slosh, restart readiness and separation impulses.
+Four installed fins are represented by two equivalent planar surfaces.
 
-## Setup
+The project evaluates first-foot touchdown, not post-contact settling. Legs are
+assumed to withstand foot vertical speed ≤1.5 m/s; contact loads and material
+strength are not assessed. Components and coefficients are theoretical design
+assumptions, not calibrated hardware data. See the [model contract](docs/spec.md)
+for supported inputs, physics and limitations.
 
-Python 3.12.x is required; the project target is 3.12.7. The existing 3.12.14
-fallback is also used for implementation checks.
+## Setup and a single flight
+
+Python 3.12.x is required; the working environment uses Python 3.12.7.
 
 ~~~powershell
 python -m pip install -e ".[dev,video]"
-~~~
 
-Core dependencies are NumPy, SciPy, PyYAML and Matplotlib. The optional `video`
-extra supplies FFmpeg for MP4 export; `dev` supplies pytest and Ruff.
-There is no Gymnasium, CasADi or reinforcement-learning dependency in the current
-model. An existing environment can be reused.
-
-## Run a flight
-
-Run these commands from the repository root. Every output directory must be new.
-
-~~~powershell
-# Check eligible inputs without simulating a flight.
+# Validate the operating input without flying.
 python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --check-inputs
 
-# Calm air, standard atmosphere, no equipment uncertainty.
-python -m scripts.run_nominal_flight --output-dir artifacts/apr-calm
+# Calm wind, standard atmosphere and no vehicle/sensor deviations.
+python -m scripts.run_nominal_flight --output-dir artifacts/apr100t/nominal-current --progress
 
-# Altitude wind, gusts and healthy vehicle/sensor deviations.
-python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --output-dir artifacts/apr-weather
-
-# Start at the recorded first-stage separation state.
-python -m scripts.run_nominal_flight --separation-record artifacts/apr-calm/result.json --output-dir artifacts/apr-return
+# Full flight with the configured weather and healthy deviations.
+python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --output-dir artifacts/apr100t/configured-current --progress
 ~~~
 
-Each flight saves `result.json` and `trajectory.png`. Results include the state
-history, event and acceptance checks, separate fuel inventories and source/input
-hashes. Failed flights remain failures; the runner returns a nonzero exit code.
+Use a new output directory for each flight. The runner saves `result.json` and
+`trajectory.png`, including true states, events, acceptance, fuel ledgers and
+source/input hashes. Failed acceptance returns a nonzero exit code.
+The fixed root seed is **378**. Input eligibility is not flight success.
 
-Recovery-only runs preserve the supplied position, velocity, fuel and actual
-throttle, but initialize controller memory. They do not revalidate upstream
-ascent or unchanged separation feasibility under a new weather profile.
+## Verified results
 
-## Replay a saved flight
+The current design passed the following fixed-input full-flight checks, requiring
+mission completion, flight safety, landing and fuel conservation together:
 
-Rendering uses saved states and does **not** run another simulation. Playback is
-at normal speed, with altitude-dependent sky colors, visible fins and legs, and
-a thrust plume. Contact uses the feet rather than the rocket center.
+| Test set | Passed / tested |
+|---|---:|
+| Known development conditions | 205 / 205 |
+| Previously observed evaluation conditions, tested as regression | 72 / 72 |
+| Supplementary actual-exposure and half-step checks | 9 / 9 |
+
+The 277 primary checks and nine supplementary checks have separate denominators.
+**All 286 checks passed**, without changing controller or acceptance limits to
+obtain a pass. These are known-condition regression results, not a new independent
+holdout or a proof for every continuous input combination.
+
+| Quantity across all 286 checks | Worst observed value | Limit |
+|---|---:|---:|
+| Touchdown COM position error | 0.839 m | 2 m |
+| Foot vertical / horizontal speed | 1.2551 / 0.202 m/s | 1.5 / 0.5 m/s |
+| Touchdown tilt / angular rate | 0.0212° / 0.0226°/s | 3° / 0.5°/s |
+| Maximum dynamic pressure | 28.949 kPa | 30 kPa |
+| Maximum pre-contact angular acceleration | 3.780°/s² | 5°/s² |
+| Minimum main / RCS propellant remaining | 2,958 / 95.875 kg | >0 / ≥0 kg |
+
+Maxima are rounded upward and remaining propellant downward. The largest RCS use
+was 204.124806 kg, leaving 95.875194 kg, or 31.96% of its initial inventory.
+The calm check also passed, with approximately 1.005 m/s foot vertical speed and
+5,796 kg main / 262.546 kg RCS remaining. Execution used eight CPU processes with
+the NumPy/SciPy float64 backend; GPU acceleration was not implemented or benchmarked.
+
+Raw current results are saved locally under `artifacts/apr100t/rcs300-v1`.
+Generated reports, media and private notes are Git-ignored; they are not bundled
+with a fresh clone. The tracked regression input manifest supports rerunning the
+same declared conditions without needing local historical records.
+
+## Repeat the regression suite
+
+The tracked `configs/apr-regression-v1.json` declares the same 286 known inputs,
+observation seed modes and integration steps. Preparation validates and hashes
+them without flying; execution retains every failed case and does not overwrite
+existing results.
 
 ~~~powershell
-python -m powered_landing_guidance.visualization --replay artifacts/apr-calm/result.json --animation artifacts/apr-calm/flight.mp4 --preview artifacts/apr-calm/preview.png --fps 20
+python -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/apr100t/regression-v1
+python -m scripts.evaluate_regression_suite --run all --workers 8 --output-dir artifacts/apr100t/regression-v1
 ~~~
 
-Existing MP4 and preview files are never overwritten.
+These commands need no private evidence bundle. Use a new output directory for
+another campaign. Running all conditions is substantially slower than input
+validation; `--workers` controls independent CPU flight processes. Repeating a
+known condition does not make it an independent evaluation.
 
-## Conditions, acceptance and evidence
+## Results reports
 
-Inputs use root seed **378** and a fixed vehicle design. The YAML validator
-rejects known faults, failed weather/health reviews and inputs outside the
-provisional normal operating envelope. These bounds are project assumptions,
-**not certified launch limits**. The example YAML is eligible input, not evidence
-that the corresponding weather flight succeeds.
+The report tool reads completed current-design results without executing flights.
+English is the default; `--language ko` selects Korean and `--language both`
+generates linked English/Korean versions.
 
-Touchdown requires COM position error ≤2 m, foot vertical speed ≤1 m/s, foot
-horizontal speed ≤0.5 m/s, tilt ≤3° and angular rate ≤0.5°/s. Gear must be locked
-and feet on the pad. Main propellant must remain positive and RCS nonnegative;
-no extra residual-fuel reserve is required. Success also requires engine-off
-standing, contact/load limits and the applicable ascent and recovery checks.
+~~~powershell
+# Requires the completed current results saved locally.
+python -m scripts.present_validation_results --language both
 
-Retained flight evidence covers a calm full-flight development case. Success
-throughout the operating envelope and independent success rates have **not**
-been established. Supply/pressurization, coupled slosh, engine ignition/restart,
-elastic structure, physical separation shock, upper-stage ignition/plume,
-detailed thermal/ground-damage analysis and material-level leg/pad strength are
-not connected to APR. See the [technical specification](docs/spec.md).
+# After the single flight and regression commands above, including on a fresh clone.
+python -m scripts.present_validation_results --campaign-dir artifacts/apr100t/regression-v1 --nominal-result artifacts/apr100t/nominal-current/result.json --out-dir artifacts/apr100t/presentation-current --language both
+~~~
 
-## Project layout and checks
+Default output is `artifacts/apr100t/presentation-current`, with
+`validation-report.html`, `validation-report.ko.html`, overview/telemetry graphs
+and `presentation-data.json`. A fresh clone has no generated results: run the
+flights first and point `--campaign-dir` and `--nominal-result` at those outputs.
+Use `--out-dir` for a new report directory. Reports and graphs do not create
+an independent test or a new flight result.
+
+## Animation
+
+Render a completed current-design flight without running another simulation:
+
+~~~powershell
+python -m powered_landing_guidance.visualization --replay artifacts/apr100t/nominal-current/result.json --animation artifacts/apr100t/nominal-current/flight.mp4 --preview artifacts/apr100t/nominal-current/preview.png --fps 24 --width 1920 --end-hold 4
+~~~
+
+The replay has an altitude-dependent sky, rocket and ground facilities, engine/RCS
+plumes and a telemetry dashboard. Playback is normal-speed Full HD at 24 fps.
+At first contact, exhaust is hidden and the recorded pose is held for four seconds.
+This is a presentation effect, not simulated engine shutdown or stable standing.
+MP4 generation is a separate command; running a flight alone does not create a video.
+
+## Structure and checks
 
 ~~~text
-configs/apr-operating-v1.yaml             Eligible synthetic operating inputs
-docs/spec.md, docs/spec.ko.md             English and Korean model contracts
-scripts/run_nominal_flight.py            Flight runner and diagnostic plots
-src/powered_landing_guidance/
-  apr_recovery.py                        Current vehicle, environment and PID
-  recovery_physics.py                    Shared physical laws and foot contact
-  integrators.py                        Fixed-step integration
-  visualization.py                      Saved-flight MP4 replay
-  __init__.py                           Public package exports
-tests/test_recovery_physics.py           Model, input, event and replay checks
+configs/                         Operating input and fixed regression manifest
+docs/                            English/Korean model specification
+scripts/                         Flight, regression and results-report tools
+src/powered_landing_guidance/     Dynamics, control, systems and visualization
+tests/                           Physics, conservation, navigation and protocol checks
 ~~~
 
 ~~~powershell
@@ -122,7 +164,4 @@ python -m ruff check --no-cache .
 python -m ruff format --check --no-cache .
 ~~~
 
-Generated results live in Git-ignored `artifacts/`. Private notes and schedules
-remain local under `.local/experiment_logs/`; neither belongs in the public
-portfolio. Obsolete vehicle models and their learning pipelines are not part
-of this implementation.
+Software checks and finite synthetic flights do not certify real-vehicle safety.

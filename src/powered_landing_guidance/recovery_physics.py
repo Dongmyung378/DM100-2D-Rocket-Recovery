@@ -1,4 +1,4 @@
-"""Physical laws and contact geometry for the 3 t APR vehicle.
+"""Physical laws and contact geometry for the 100 t APR vehicle.
 
 Positions use the instantaneous COM; body stations run upwards from the hull
 base, and theta is clockwise from vertical. Parameters are provisional, not
@@ -8,8 +8,8 @@ measured hardware or certification limits.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, cos, exp, hypot, pi, sin, sqrt
-from typing import Any, Protocol
+from math import cos, exp, hypot, log, pi, sin, sqrt
+from typing import Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,70 +21,64 @@ EARTH_RADIUS_M = 6_371_000.0
 
 @dataclass(frozen=True, slots=True)
 class Geometry:
-    body_length_m: float = 5.0
-    body_radius_m: float = 0.45
-    engine_mass_kg: float = 110.0
-    engine_station_m: float = 0.45
-    airframe_mass_kg: float = 326.0
-    airframe_station_m: float = 2.85
-    gear_mass_kg: float = 60.0
-    tank_bottom_m: float = 1.8
-    tank_length_m: float = 2.7
-    propellant_density_kg_m3: float = 900.0
-    nozzle_station_m: float = -0.15
-    nozzle_radius_m: float = 0.18
-    rcs_station_m: float = 2.2
-    rcs_arm_m: float = 2.0
+    body_length_m: float = 20.0
+    body_radius_m: float = 1.5
+    engine_mass_kg: float = 1200.0
+    engine_station_m: float = 0.8
+    airframe_mass_kg: float = 8700.0
+    airframe_station_m: float = 10.0
+    gear_mass_kg: float = 1500.0
+    gear_retracted_station_m: float = 2.0
+    gear_deployed_station_m: float = 0.3
+    tank_bottom_m: float = 3.0
+    tank_length_m: float = 13.0
+    propellant_density_kg_m3: float = 826.0
+    nozzle_station_m: float = -0.2
+    nozzle_radius_m: float = 0.71
+    rcs_station_m: float = 18.5
+    rcs_arm_m: float = 9.0
 
 
 @dataclass(frozen=True, slots=True)
 class Aerodynamics:
-    axial_cd: float = 0.95
-    normal_cd: float = 0.6
-    pressure_center_m: float = 2.5
+    axial_cd: float = 0.4
+    normal_cd: float = 0.8
+    pressure_center_m: float = 10.0
     rotation_damping: float = 0.3
     transonic_drag_rise: float = 0.2
-    max_dynamic_pressure_pa: float = 30_000.0
-    max_bending_moment_nm: float = 60_000.0
-    max_lateral_force_n: float = 30_000.0
 
 
 @dataclass(frozen=True, slots=True)
 class Propulsion:
-    nozzle_exit_area_m2: float = 0.02
-    shutdown_time_constant_s: float = 0.04
-    ignition_propellant_flow_kg_s: float = 0.04
-    unusable_propellant_kg: float = 5.0
-    rcs_specific_impulse_s: float = 220.0
-    max_rcs_torque_nm: float = 6000.0
+    # Vacuum thrust 1.76 MN at the unchanged sea-level mass flow (Isp 330 s).
+    nozzle_exit_area_m2: float = 160_000.0 / 101_325.0
 
 
 @dataclass(frozen=True, slots=True)
 class LandingGear:
-    half_span_m: float = 1.6
-    foot_station_m: float = -0.85
-    anchor_station_m: float = 0.6
-    deployment_height_m: float = 200.0
+    """Four conceptual legs represented by two planar foot locations.
+
+    The 2D acceptance assumes adequate leg capacity within the 1.5 m/s
+    vertical touchdown limit and stops at first contact.
+    """
+
+    half_span_m: float = 4.0
+    foot_station_m: float = -1.0
+    anchor_station_m: float = 1.2
     deployment_time_s: float = 2.0
-    stiffness_n_m: float = 90_000.0
-    damping_n_s_m: float = 6500.0
-    max_stroke_m: float = 0.30
-    max_normal_force_n: float = 18_000.0
-    max_tangential_force_n: float = 9000.0
-    tangential_stiffness_n_m: float = 200_000.0
-    tangential_damping_n_s_m: float = 1200.0
-    static_friction: float = 0.8
-    kinetic_friction: float = 0.6
     pad_half_width_m: float = 10.0
-    foot_area_m2: float = 0.12
-    max_pad_pressure_pa: float = 200_000.0
-    tube_outer_diameter_m: float = 0.06
-    tube_wall_m: float = 0.004
-    strut_length_m: float = 2.0
-    bending_arm_m: float = 0.15
-    young_modulus_pa: float = 70e9
-    yield_stress_pa: float = 250e6
-    safety_factor: float = 1.5
+
+    def __post_init__(self) -> None:
+        for name in (
+            "half_span_m",
+            "deployment_time_s",
+            "pad_half_width_m",
+        ):
+            value = getattr(self, name)
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"landing-gear {name} must be finite and positive")
+        if not np.isfinite(self.foot_station_m) or not np.isfinite(self.anchor_station_m):
+            raise ValueError("landing-gear attachment stations must be finite")
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,26 +87,24 @@ class AtmosphereSettings:
     sea_level_pressure_pa: float = 101_325.0
     latitude_deg: float = 37.0
     coriolis_enabled: bool = True
+    temperature_profile: tuple[tuple[float, float], ...] = ()
+    pressure_profile: tuple[tuple[float, float], ...] = ()
+    density_scale: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
 class LandingAcceptance:
     max_position_error_m: float = 2.0
     max_horizontal_contact_speed_m_s: float = 0.5
-    max_vertical_foot_speed_m_s: float = 1.0
+    max_vertical_foot_speed_m_s: float = 1.5
     max_contact_tilt_deg: float = 3.0
     max_contact_rate_deg_s: float = 0.5
-    fuel_reserve_kg: float = 0.0
-    observation_after_contact_s: float = 3.0
-    settled_dwell_s: float = 1.0
-    settled_speed_m_s: float = 0.05
-    settled_rate_deg_s: float = 0.25
-    max_post_contact_s: float = 8.0
-    max_body_load_g: float = 5.0
 
 
 class WindField(Protocol):
     def at(self, altitude_m: float) -> float: ...
+
+    def vertical_at(self, altitude_m: float) -> float: ...
 
 
 class PhysicsSettings(Protocol):
@@ -133,6 +125,8 @@ class MassProperties:
 def mass_properties(mass_kg: float, deployment: float, settings: PhysicsSettings) -> MassProperties:
     """Settled liquid in one equivalent cylindrical tank, with parallel-axis inertia.
 
+    Main and RCS inventories occupy one equivalent liquid column in this lumped
+    inertia model; their real tank allocation and slosh are not resolved.
     The liquid is constrained to follow the body; this is not a slosh solver.
     Gear mass moves symmetrically as the massless actuator deploys the struts.
     """
@@ -144,10 +138,19 @@ def mass_properties(mass_kg: float, deployment: float, settings: PhysicsSettings
     fuel = max(0.0, mass_kg - dry_mass)
     fuel_height = fuel / (g.propellant_density_kg_m3 * pi * g.body_radius_m**2)
     fuel_station = g.tank_bottom_m + fuel_height / 2.0
-    gear_station = (1.0 - deployment) * 1.3 + deployment * 0.15
+    gear_station = (
+        1.0 - deployment
+    ) * g.gear_retracted_station_m + deployment * g.gear_deployed_station_m
     gear_radius = (1.0 - deployment) * g.body_radius_m + deployment * gear.half_span_m / 2.0
     components = (
-        (g.engine_mass_kg, g.engine_station_m, 20.0),
+        # Equivalent engine cylinder, length twice its body station and radius
+        # equal to the nozzle radius; keeps local inertia dimensionally scaled.
+        (
+            g.engine_mass_kg,
+            g.engine_station_m,
+            g.engine_mass_kg
+            * ((2.0 * g.engine_station_m) ** 2 / 12.0 + g.nozzle_radius_m**2 / 4.0),
+        ),
         (
             g.airframe_mass_kg,
             g.airframe_station_m,
@@ -169,29 +172,108 @@ def mass_gradients(
     g, gear = settings.geometry, settings.gear
     tank_top = g.tank_bottom_m + properties.fuel_height_m
     cg_mass = (tank_top - properties.cg_m) / mass_kg
-    cg_gear = -1.15 * g.gear_mass_kg / mass_kg
+    station_gradient = g.gear_deployed_station_m - g.gear_retracted_station_m
+    cg_gear = station_gradient * g.gear_mass_kg / mass_kg
     inertia_mass = g.body_radius_m**2 / 4.0 + (tank_top - properties.cg_m) ** 2
-    gear_station = 1.3 - 1.15 * deployment
+    gear_station = g.gear_retracted_station_m + station_gradient * deployment
     gear_radius = g.body_radius_m + deployment * (gear.half_span_m / 2.0 - g.body_radius_m)
     inertia_gear = (
         2.0
         * g.gear_mass_kg
         * (
-            (gear_station - properties.cg_m) * -1.15
+            (gear_station - properties.cg_m) * station_gradient
             + gear_radius * (gear.half_span_m / 2.0 - g.body_radius_m)
         )
     )
     return cg_mass, cg_gear, inertia_mass, inertia_gear
 
 
+def standard_temperature_profile(
+    sea_level_temperature_k: float = 288.15,
+) -> tuple[tuple[float, float], ...]:
+    """ISA lapse-rate layers, applied to local altitude as an engineering model.
+
+    Layer values follow NASA/TM-2005-213659. Geopotential conversion, molecular
+    composition changes and thermospheric heating are not resolved. The last
+    layer is held isothermal above 84.852 km; this is not a 700 km atmosphere.
+    """
+    offset = sea_level_temperature_k - 288.15
+    return tuple(
+        (height, temperature + offset)
+        for height, temperature in (
+            (0.0, 288.15),
+            (11_000.0, 216.65),
+            (20_000.0, 216.65),
+            (32_000.0, 228.65),
+            (47_000.0, 270.65),
+            (51_000.0, 270.65),
+            (71_000.0, 214.65),
+            (84_852.0, 186.946),
+            (100_000.0, 186.946),
+        )
+    )
+
+
+def _extended_temperature_profile(settings: AtmosphereSettings):
+    standard = standard_temperature_profile(settings.sea_level_temperature_k)
+    if not settings.temperature_profile:
+        return standard
+    supplied = settings.temperature_profile
+    top_height, top_temperature = supplied[-1]
+    offset = top_temperature - _profile_value(standard, top_height)
+    return supplied + tuple(
+        (height, temperature + offset) for height, temperature in standard if height > top_height
+    )
+
+
 def atmosphere(altitude_m: float, settings: AtmosphereSettings) -> tuple[float, float, float]:
     height = max(0.0, altitude_m)
-    t0, p0 = settings.sea_level_temperature_k, settings.sea_level_pressure_pa
-    temperature = t0 - 0.0065 * min(height, 11_000.0)
-    pressure = p0 * (temperature / t0) ** (G0 / (R_AIR * 0.0065))
-    if height > 11_000.0:
-        pressure *= exp(-G0 * (height - 11_000.0) / (R_AIR * temperature))
-    return temperature, pressure, pressure / (R_AIR * temperature)
+    p0 = settings.sea_level_pressure_pa
+    temperatures = _extended_temperature_profile(settings)
+    temperature = _profile_value(temperatures, height)
+    pressure = _hydrostatic_pressure(height, temperatures, p0)
+    if settings.pressure_profile:
+        # Preserve the hydrostatic shape between observations. Interpolate only
+        # each observation's multiplicative correction to that reference.
+        log_corrections = tuple(
+            (z, log(observed / _hydrostatic_pressure(z, temperatures, p0)))
+            for z, observed in settings.pressure_profile
+        )
+        pressure *= exp(_profile_value(log_corrections, height))
+    return temperature, pressure, settings.density_scale * pressure / (R_AIR * temperature)
+
+
+def _profile_value(profile, height: float) -> float:
+    if height <= profile[0][0]:
+        return profile[0][1]
+    if height >= profile[-1][0]:
+        return profile[-1][1]
+    for (z0, v0), (z1, v1) in zip(profile, profile[1:], strict=False):
+        if height <= z1:
+            fraction = (height - z0) / (z1 - z0)
+            return v0 + fraction * (v1 - v0)
+    raise AssertionError("profile must cover the queried altitude")
+
+
+def _hydrostatic_pressure(height, temperatures, sea_level_pressure):
+    pressure = sea_level_pressure
+    for (z0, t_start), (z1, t_end) in zip(temperatures, temperatures[1:], strict=False):
+        if height <= z0:
+            break
+        end = min(height, z1)
+        slope = (t_end - t_start) / (z1 - z0)
+        pressure *= exp(-G0 / R_AIR * _inverse_temperature_integral(t_start, slope, end - z0))
+        if height <= z1:
+            break
+    if height > temperatures[-1][0]:
+        pressure *= exp(-G0 * (height - temperatures[-1][0]) / (R_AIR * temperatures[-1][1]))
+    return pressure
+
+
+def _inverse_temperature_integral(start_k: float, slope_k_m: float, distance_m: float) -> float:
+    if abs(slope_k_m) < 1e-12:
+        return distance_m / start_k
+    return log((start_k + slope_k_m * distance_m) / start_k) / slope_k_m
 
 
 def gravity(altitude_m: float) -> float:
@@ -222,7 +304,8 @@ def aerodynamic_loads(
     g, a = settings.geometry, settings.aerodynamics
     properties = properties or mass_properties(vector[6], deployment, settings)
     temperature, _, density = atmosphere(vector[1], settings.atmosphere)
-    relative_x, relative_z = vector[2] - wind_at(wind, vector[1]), vector[3]
+    relative_x = vector[2] - wind_at(wind, vector[1])
+    relative_z = vector[3] - wind.vertical_at(vector[1])
     speed = hypot(relative_x, relative_z)
     cosine, sine = cos(vector[4]), sin(vector[4])
     normal_velocity = cosine * relative_x - sine * relative_z
@@ -258,8 +341,8 @@ def engine_performance(
     settings: PhysicsSettings,
     thrust_scale: float = 1.0,
     *,
-    sea_level_thrust_n: float = 42_000.0,
-    sea_level_isp_s: float = 260.0,
+    sea_level_thrust_n: float = 1_600_000.0,
+    sea_level_isp_s: float = 300.0,
 ) -> tuple[float, float]:
     """Versioned sea-level design values; pressure thrust is added exactly once."""
     _, pressure, _ = atmosphere(height, settings.atmosphere)
@@ -284,11 +367,15 @@ def foot_kinematics(
     properties = mass_properties(vector[6], deployment, settings)
     span = g.body_radius_m + deployment * (gear.half_span_m - g.body_radius_m)
     station = gear.anchor_station_m + deployment * (gear.foot_station_m - gear.anchor_station_m)
-    offset = offset_rate = 0.0
-    if hasattr(settings, "lateral_body_offset"):
-        offset, offset_rate = settings.lateral_body_offset(vector, mass_rate)
+    offset = np.zeros(2)
+    offset_rate = np.zeros(2)
+    if hasattr(settings, "body_frame_offset"):
+        offset, offset_rate = settings.body_frame_offset(vector, mass_rate)
     body_arms = np.asarray(
-        ((-span + offset, station - properties.cg_m), (span + offset, station - properties.cg_m))
+        (
+            (-span + offset[0], station - properties.cg_m + offset[1]),
+            (span + offset[0], station - properties.cg_m + offset[1]),
+        )
     )
     arms = body_arms @ rotation(vector[4]).T
     points = vector[:2] + arms
@@ -298,12 +385,16 @@ def foot_kinematics(
     relative_rates = np.asarray(
         (
             (
-                -(gear.half_span_m - g.body_radius_m) * deployment_rate + offset_rate,
-                (gear.foot_station_m - gear.anchor_station_m) * deployment_rate - cg_rate,
+                -(gear.half_span_m - g.body_radius_m) * deployment_rate + offset_rate[0],
+                (gear.foot_station_m - gear.anchor_station_m) * deployment_rate
+                - cg_rate
+                + offset_rate[1],
             ),
             (
-                (gear.half_span_m - g.body_radius_m) * deployment_rate + offset_rate,
-                (gear.foot_station_m - gear.anchor_station_m) * deployment_rate - cg_rate,
+                (gear.half_span_m - g.body_radius_m) * deployment_rate + offset_rate[0],
+                (gear.foot_station_m - gear.anchor_station_m) * deployment_rate
+                - cg_rate
+                + offset_rate[1],
             ),
         )
     )
@@ -311,100 +402,115 @@ def foot_kinematics(
     return points, velocities
 
 
-def gear_contacts(
-    vector: NDArray[np.float64],
-    settings: PhysicsSettings,
-    *,
-    mass_rate: float = 0.0,
-    deployment_rate: float = 0.0,
-) -> dict[str, Any]:
-    """Unilateral vertical compliance and elastic stick / Coulomb slip per foot.
+class PlanarNavigationEstimator:
+    """Causal position/velocity estimate with a slowly varying acceleration bias.
 
-    Penetration of the UNCOMPRESSED foot is equivalent gear stroke, not ground
-    penetration of the actual foot. The physical pad remains at ground level.
-    """
-    deployment = float(vector[7])
-    points, velocities = foot_kinematics(
-        vector, deployment, settings, mass_rate=mass_rate, deployment_rate=deployment_rate
-    )
-    gear = settings.gear
-    stroke = np.maximum(0.0, -points[:, 1])
-    active = points[:, 1] <= 0.0
-    normal = np.where(
-        active,
-        np.maximum(0.0, gear.stiffness_n_m * stroke - gear.damping_n_s_m * velocities[:, 1]),
-        0.0,
-    )
-    trial = (
-        -gear.tangential_stiffness_n_m * vector[8:10]
-        - gear.tangential_damping_n_s_m * velocities[:, 0]
-    )
-    slipping = np.abs(trial) > gear.static_friction * normal
-    direction = np.where(
-        np.abs(velocities[:, 0]) > 1e-9, np.sign(velocities[:, 0]), -np.sign(trial)
-    )
-    tangent = np.where(slipping, -gear.kinetic_friction * normal * direction, trial)
-    tangent = np.where(active & (normal > 0.0), tangent, 0.0)
-    force = np.column_stack((tangent, normal))
-    arms = points - vector[:2]
-    torque = float(np.sum(arms[:, 1] * tangent - arms[:, 0] * normal))
-    return dict(
-        points=points,
-        velocities=velocities,
-        stroke=stroke,
-        active=active,
-        normal=normal,
-        tangent=tangent,
-        forces=force,
-        torque=torque,
-        slipping=slipping,
-    )
+    Each planar axis uses [position, velocity, acceleration bias]. The axes
+    share a covariance because their measurement radii and dynamics match.
+    Uniform-disk measurement errors have component variance radius**2 / 4;
+    a Kalman update uses these second moments without claiming Gaussian noise.
 
+    ``acceleration_xy`` is a nominal inertial acceleration, held over the
+    prediction interval. The caller must obtain it from previous estimates,
+    known actuator commands and forecast conditions, not hidden plant state.
+    ``time_s - delay_s`` is the measurement timestamp. Only the returned copy
+    is extrapolated to current time; the posterior remains at measurement time.
+    Attitude, actuator telemetry and all other raw components are untouched.
 
-class RecoverySensorEstimator:
-    """Causal linear Kalman estimate of x/vx and theta/omega on the control clock.
-
-    Prediction uses only previous estimates, actuator telemetry and FORECAST
-    wind. The actual plant state and actual wind are never estimator inputs.
+    Process noise is a conceptual tuning assumption, not measured IMU data.
+    Bounded raw sensor errors do not imply a hard bound on filtered errors.
     """
 
-    def __init__(self, noise_scale: float) -> None:
-        self.noise_scale = noise_scale
-        deviations = noise_scale * np.asarray((0.5, 0.1, np.deg2rad(0.25), np.deg2rad(0.25)))
-        self.measurement_covariance = np.diag(np.maximum(deviations**2, 1e-12))
-        self.covariance = self.measurement_covariance.copy()
+    def __init__(self, position_error_m: float, velocity_error_m_s: float) -> None:
+        for value in (position_error_m, velocity_error_m_s):
+            if not np.isfinite(value) or value < 0:
+                raise ValueError("navigation measurement radii must be finite and nonnegative")
+        self.position_error_m = float(position_error_m)
+        self.velocity_error_m_s = float(velocity_error_m_s)
+        self.measurement_covariance = np.diag(
+            [(position_error_m / 2.0) ** 2, (velocity_error_m_s / 2.0) ** 2]
+        )
+        self.covariance = np.diag(
+            [self.measurement_covariance[0, 0], self.measurement_covariance[1, 1], 2.0**2]
+        )
+        self.current_covariance = self.covariance.copy()
         self.estimate: NDArray[np.float64] | None = None
+        self.measurement_time_s: float | None = None
         self.time_s: float | None = None
+        # White acceleration intensity [m²/s³] and bias random walk [m²/s⁵].
+        self.acceleration_noise_intensity = 0.3**2
+        self.bias_walk_intensity = 0.5**2
+
+    def _prediction_matrices(
+        self, dt: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        transition = np.array(((1.0, dt, dt**2 / 2), (0.0, 1.0, dt), (0.0, 0.0, 1.0)))
+        acceleration_input = np.array((dt**2 / 2, dt, 0.0))
+        process = self.acceleration_noise_intensity * np.array(
+            ((dt**3 / 3, dt**2 / 2, 0), (dt**2 / 2, dt, 0), (0, 0, 0))
+        ) + self.bias_walk_intensity * np.array(
+            (
+                (dt**5 / 20, dt**4 / 8, dt**3 / 6),
+                (dt**4 / 8, dt**3 / 3, dt**2 / 2),
+                (dt**3 / 6, dt**2 / 2, dt),
+            )
+        )
+        return transition, acceleration_input, process
 
     def observe(
         self,
         raw: NDArray[np.float64],
         time_s: float,
-        acceleration: tuple[float, float],
-        delay_s: float,
+        acceleration_xy: tuple[float, float] | NDArray[np.float64],
+        delay_s: float = 0.0,
     ) -> NDArray[np.float64]:
-        measured = raw[[0, 2, 4, 5]]
-        if self.estimate is None or self.noise_scale == 0.0:
-            self.estimate = measured.copy()
-        else:
-            dt = time_s - self.time_s
-            transition = np.eye(4)
-            transition[0, 1] = transition[2, 3] = dt
-            input_matrix = np.asarray(((dt**2 / 2, 0), (dt, 0), (0, dt**2 / 2), (0, dt)))
-            predicted = transition @ self.estimate + input_matrix @ acceleration
-            process = input_matrix @ np.diag((0.8**2, 0.5**2)) @ input_matrix.T
+        """Assimilate a new measurement once, then extrapolate to current time.
+
+        Repeated/older measurement timestamps are ignored, which also handles
+        startup delay queues. The supplied delay must be the actual sample age,
+        not the configured maximum age while that queue is still filling.
+        """
+        result = np.asarray(raw, dtype=float).copy()
+        acceleration = np.asarray(acceleration_xy, dtype=float)
+        if result.ndim != 1 or len(result) < 6 or not np.all(np.isfinite(result)):
+            raise ValueError("navigation input must be a finite one-dimensional state")
+        if acceleration.shape != (2,) or not np.all(np.isfinite(acceleration)):
+            raise ValueError("navigation acceleration must contain two finite components")
+        if not np.isfinite(time_s) or not np.isfinite(delay_s) or delay_s < 0.0:
+            raise ValueError("navigation time and nonnegative delay must be finite")
+        if self.time_s is not None and time_s < self.time_s - 1e-12:
+            raise ValueError("navigation control time cannot move backwards")
+        measured = result[[[0, 2], [1, 3]]]
+        measured_time = float(time_s - delay_s)
+        if self.estimate is None:
+            self.estimate = np.column_stack((measured, np.zeros(2)))
+            self.measurement_time_s = measured_time
+        elif measured_time > self.measurement_time_s + 1e-12:
+            dt = measured_time - self.measurement_time_s
+            transition, acceleration_input, process = self._prediction_matrices(dt)
+            predicted = self.estimate @ transition.T + np.outer(acceleration, acceleration_input)
             covariance = transition @ self.covariance @ transition.T + process
-            gain = np.linalg.solve(covariance + self.measurement_covariance, covariance.T).T
-            innovation = measured - predicted
-            innovation[2] = atan2(sin(innovation[2]), cos(innovation[2]))
-            self.estimate = predicted + gain @ innovation
-            residual = np.eye(4) - gain
+            innovation_covariance = covariance[:2, :2] + self.measurement_covariance
+            gain = np.linalg.solve(innovation_covariance, covariance[:, :2].T).T
+            self.estimate = predicted + (measured - predicted[:, :2]) @ gain.T
+            residual = np.eye(3)
+            residual[:, :2] -= gain
+            # Joseph form preserves positive semidefiniteness through rounding.
             self.covariance = (
                 residual @ covariance @ residual.T + gain @ self.measurement_covariance @ gain.T
             )
-        self.time_s = time_s
-        result = raw.copy()
-        result[[0, 2, 4, 5]] = self.estimate
-        result[0] += delay_s * result[2]
-        result[4] += delay_s * result[5]
+            self.covariance = (self.covariance + self.covariance.T) / 2
+            # An exact channel needs no numerical approximation to its reading.
+            if self.position_error_m == 0:
+                self.estimate[:, 0] = measured[:, 0]
+            if self.velocity_error_m_s == 0:
+                self.estimate[:, 1] = measured[:, 1]
+            self.measurement_time_s = measured_time
+        age = max(0.0, float(time_s - self.measurement_time_s))
+        transition, acceleration_input, process = self._prediction_matrices(age)
+        current = self.estimate @ transition.T + np.outer(acceleration, acceleration_input)
+        self.current_covariance = transition @ self.covariance @ transition.T + process
+        result[:2] = current[:, 0]
+        result[2:4] = current[:, 1]
+        self.time_s = float(time_s)
         return result

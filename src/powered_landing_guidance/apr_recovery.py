@@ -1,14 +1,15 @@
-"""Versioned 3 t APR recovery environment using the shared rigid-body laws.
+"""100 t APR ascent, separation and rigid-body recovery.
 
 The ideal engine admits continuous 0-100% throttle. Main and RCS inventories
-are separate. Shared aerodynamic and compliant-foot laws are retained, but
-feed, slosh, second-stage ignition and separation impulses are not modelled.
+are separate. Feed, closed pressurization, reduced slosh and staging impulses
+are coupled concept models, not calibrated hardware or a certification model.
 """
 
 from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict, dataclass, fields, replace
+from functools import lru_cache
 from math import atan2, cos, exp, hypot, pi, sin, sqrt
 from pathlib import Path
 
@@ -25,19 +26,33 @@ from powered_landing_guidance.recovery_physics import (
     Geometry,
     LandingAcceptance,
     LandingGear,
-    MassProperties,
+    PlanarNavigationEstimator,
     Propulsion,
-    RecoverySensorEstimator,
     aerodynamic_loads,
     atmosphere,
     clock_torque,
     engine_performance,
     foot_kinematics,
-    gear_contacts,
     gravity,
     mass_gradients,
     mass_properties,
     rotation,
+    standard_temperature_profile,
+)
+from powered_landing_guidance.vehicle_systems import (
+    FeedSettings,
+    FeedState,
+    IgnitionSettings,
+    SeparationSettings,
+    SloshSettings,
+    SloshState,
+    design_budget_check,
+    feed_rates,
+    ignition_ready,
+    initial_feed_state,
+    separation_event,
+    slosh_displacement,
+    slosh_response,
 )
 
 RETURN_METHOD = "Aero-PID Return (APR)"
@@ -49,17 +64,23 @@ class RecoveryDisturbances:
     """Small healthy-model uncertainties, not user-selectable equipment faults."""
 
     thrust_scale: float = 1.0
+    drag_coefficient_scale: float = 1.0
+    initial_mass_scale: float = 1.0
     inertia_scale: float = 1.0
-    sensor_noise_scale: float = 0.0
+    sensor_position_error_m: float = 0.0
+    sensor_velocity_error_m_s: float = 0.0
     observation_delay_steps: int = 0
     action_delay_steps: int = 0
     engine_lag_s: float = 0.0
 
     def __post_init__(self) -> None:
         for key, value, low, high in (
-            ("thrust_scale", self.thrust_scale, 0.98, 1.02),
+            ("thrust_scale", self.thrust_scale, 0.97, 1.03),
+            ("drag_coefficient_scale", self.drag_coefficient_scale, 0.85, 1.15),
+            ("initial_mass_scale", self.initial_mass_scale, 0.99, 1.01),
             ("inertia_scale", self.inertia_scale, 0.97, 1.03),
-            ("sensor_noise_scale", self.sensor_noise_scale, 0.0, 1.0),
+            ("sensor_position_error_m", self.sensor_position_error_m, 0.0, 2.0),
+            ("sensor_velocity_error_m_s", self.sensor_velocity_error_m_s, 0.0, 1.0),
             ("engine_lag_s", self.engine_lag_s, 0.0, 0.05),
         ):
             if isinstance(value, bool) or not np.isfinite(value) or not low <= value <= high:
@@ -76,14 +97,14 @@ class RecoveryDisturbances:
 class FinSettings:
     """Assumed equivalent control surfaces, not a measured Falcon 9 grid-fin map."""
 
-    surface_mass_kg: float = 12.0
-    actuator_mass_kg: float = 8.0
-    deployment_mass_kg: float = 3.0
-    electrical_mass_kg: float = 1.0
-    station_m: float = 4.65
-    mean_mass_radius_m: float = 0.75
-    installed_area_m2: float = 0.8
-    planar_effective_area_m2: float = 0.4
+    surface_mass_kg: float = 360.0
+    actuator_mass_kg: float = 160.0
+    deployment_mass_kg: float = 60.0
+    electrical_mass_kg: float = 20.0
+    station_m: float = 18.6
+    mean_mass_radius_m: float = 1.5
+    installed_area_m2: float = 6.0
+    planar_effective_area_m2: float = 3.0
     lift_slope_rad_inv: float = 2.4
     max_lift_coefficient: float = 0.8
     base_drag_coefficient: float = 0.08
@@ -95,9 +116,9 @@ class FinSettings:
     retraction_time_s: float = 2.0
     control_min_q_pa: float = 100.0
     control_max_alpha_deg: float = 25.0
-    model_max_mach: float = 0.8
-    hinge_arm_m: float = 0.08
-    per_fin_hinge_limit_nm: float = 400.0
+    model_max_mach: float = 8.0
+    hinge_arm_m: float = 0.12
+    per_fin_hinge_limit_nm: float = 5000.0
 
     @property
     def mass_kg(self):
@@ -114,19 +135,19 @@ FINS = FinSettings()
 
 @dataclass(frozen=True)
 class Design:
-    dry_mass_kg: float = 520.0
-    main_propellant_kg: float = 1450.0
-    rcs_propellant_kg: float = 15.0
-    upper_mass_kg: float = 1015.0
-    sea_level_thrust_n: float = 42_000.0
-    sea_level_isp_s: float = 260.0
-    nozzle_exit_area_m2: float = 0.02
+    dry_mass_kg: float = 12_000.0
+    main_propellant_kg: float = 70_200.0
+    rcs_propellant_kg: float = 300.0
+    upper_mass_kg: float = 17_500.0
+    sea_level_thrust_n: float = 1_600_000.0
+    sea_level_isp_s: float = 300.0
+    nozzle_exit_area_m2: float = 160_000.0 / 101_325.0
     gimbal_limit_deg: float = 6.0
     rcs_isp_s: float = 220.0
-    rcs_torque_limit_nm: float = 6000.0
+    rcs_torque_limit_nm: float = 100_000.0
     high_q_threshold_pa: float = 10_000.0
-    descent_reference_m_s: float = 0.9
-    payload_mass_kg: float = 30.0  # Included in upper_mass_kg, not added to it.
+    descent_reference_m_s: float = 1.0
+    payload_mass_kg: float = 500.0  # Included in upper_mass_kg, not added to it.
 
     def __post_init__(self):
         if (
@@ -150,53 +171,79 @@ class Design:
 @dataclass(frozen=True)
 class AprPhysics:
     # Provisional lumped mass allocation, not a selected component bill of materials.
-    geometry: Geometry = Geometry(
-        engine_mass_kg=110.0,
-        airframe_mass_kg=326.0,
-        gear_mass_kg=60.0,
-        tank_bottom_m=1.8,
-        tank_length_m=2.7,
-    )
-    aerodynamics: Aerodynamics = Aerodynamics(max_dynamic_pressure_pa=30_000.0)
+    geometry: Geometry = Geometry()
+    aerodynamics: Aerodynamics = Aerodynamics()
     atmosphere: AtmosphereSettings = AtmosphereSettings()
     gear: LandingGear = LandingGear()
-    propulsion: Propulsion = Propulsion(
-        unusable_propellant_kg=0.0,
-        ignition_propellant_flow_kg_s=0.0,
-    )
+    propulsion: Propulsion = Propulsion()
     acceptance: LandingAcceptance = LandingAcceptance(
         max_position_error_m=2.0,
         max_horizontal_contact_speed_m_s=0.5,
-        max_vertical_foot_speed_m_s=1.0,
+        max_vertical_foot_speed_m_s=1.5,
         max_contact_tilt_deg=3.0,
         max_contact_rate_deg_s=0.5,
-        fuel_reserve_kg=0.0,
-        max_body_load_g=5.0,
     )
+    upper_station_m: float = 24.0
+    upper_length_m: float = 8.0
+    slosh_mass_fraction: float = 0.03
+    slosh_settings: SloshSettings = SloshSettings()
     fixed_mass_components: tuple[tuple[float, float, float], ...] = (
         (FINS.mass_kg, FINS.station_m, FINS.mass_kg * FINS.mean_mass_radius_m**2),
     )
+
+    def body_frame_offset(self, vector, mass_rate=0.0):
+        if len(vector) < 10:
+            return np.zeros(2), np.zeros(2)
+        main, q, qd = vector[7:10]
+        mass = vector[6]
+        ratio = self.slosh_mass_fraction * max(main, 0.0) / mass
+        # Full mass rate approximates modal outflow in this single-liquid model.
+        ratio_rate = self.slosh_mass_fraction * mass_rate * (mass - main) / mass**2
+        displacement, direction = slosh_displacement(SloshState(q, qd), self.slosh_settings)
+        return -ratio * displacement, -ratio * direction * qd - ratio_rate * displacement
 
 
 PHYSICS = AprPhysics()
 
 
-PROFILE_TOP_M = 20_000.0
-MAX_PAD_WIND_M_S = 13.4
-MAX_ALOFT_WIND_M_S = 28.0
+PROFILE_TOP_M = 100_000.0
+MAX_PAD_WIND_M_S = 8.0
+MAX_ALOFT_WIND_M_S = 20.0
+MAX_GUST_M_S = 5.0
+MAX_VERTICAL_WIND_M_S = 3.0
+MAX_DENSITY_SCALE_DEVIATION = 0.1
 MAX_WIND_SHEAR_M_S_PER_KM = 4.0
+MAX_VERTICAL_WIND_SHEAR_M_S_PER_KM = 3.0
 MAX_FORECAST_ERROR_M_S = 2.0
-OPERATING_SCOPE = "apr_3t_operating_v1"
+OPERATING_SCOPE = "apr_100t_operating_v1"
 UNCONNECTED_SYSTEMS = (
-    "liquid_acquisition_and_retention",
-    "tank_pressurization_and_feed",
-    "engine_ignition_and_restart_dynamics",
-    "coupled_liquid_slosh",
     "elastic_structure",
-    "physical_staging_impulse",
     "upper_stage_ignition_and_plume",
     "detailed_heating_and_ground_damage",
     "leg_material_strength_and_pad_bearing",
+)
+
+SYSTEMS_MODEL_VERSION = "apr_100t_coupled_systems_v2"
+STATE_NAMES = (
+    "x_m",
+    "z_m",
+    "vx_m_s",
+    "vz_m_s",
+    "theta_rad",
+    "omega_rad_s",
+    "main_propellant_kg",
+    "rcs_propellant_kg",
+    "gear_extension",
+    "fin_deflection_rad",
+    "fin_extension",
+    "gimbal_rad",
+    "engine_throttle",
+    "feed_buffer_kg",
+    "liquid_acquisition",
+    "ullage_helium_kg",
+    "bottle_helium_kg",
+    "slosh_displacement_m",
+    "slosh_velocity_m_s",
 )
 
 
@@ -215,7 +262,7 @@ def _wind_profile(value, name):
             raise ValueError(f"{name}: [고도_m, 동쪽바람_m_s] 쌍이 필요합니다.")
         levels.append((_finite(pair[0], name), _finite(pair[1], name)))
     if levels[0][0] != 0.0 or levels[-1][0] != PROFILE_TOP_M:
-        raise ValueError(f"{name}: 0~20000 m 전체 고도 구간이 필요합니다.")
+        raise ValueError(f"{name}: 0~100000 m 전체 고도 구간이 필요합니다.")
     for left, right in zip(levels, levels[1:], strict=False):
         if right[0] <= left[0]:
             raise ValueError(f"{name}: 고도는 중복 없이 증가해야 합니다.")
@@ -225,12 +272,115 @@ def _wind_profile(value, name):
         ):
             raise ValueError(f"{name}: 잠정 윈드시어 한계 4 m/s/km를 초과했습니다.")
     if any(abs(w) > MAX_ALOFT_WIND_M_S for _, w in levels):
-        raise ValueError(f"{name}: 잠정 상층풍 한계 ±28 m/s를 초과했습니다.")
+        raise ValueError(f"{name}: 상층 기본풍 한계 ±20 m/s를 초과했습니다.")
     pad = [w for z, w in levels if z <= 50.0]
     pad.append(float(np.interp(50.0, [p[0] for p in levels], [p[1] for p in levels])))
     if max(abs(w) for w in pad) > MAX_PAD_WIND_M_S:
-        raise ValueError(f"{name}: 지상풍 입력 상한 13.4 m/s를 초과했습니다.")
+        raise ValueError(f"{name}: 지상 지속풍 입력 상한 8 m/s를 초과했습니다.")
     return tuple(levels)
+
+
+def _vertical_wind_profile(value):
+    if not isinstance(value, list | tuple) or not 2 <= len(value) <= 100:
+        raise ValueError("vertical_wind_profile: 고도·수직풍 쌍을 2~100개 입력해야 합니다.")
+    levels = []
+    for pair in value:
+        if not isinstance(pair, list | tuple) or len(pair) != 2:
+            raise ValueError("vertical_wind_profile: [고도_m, 상승풍_m_s] 쌍이 필요합니다.")
+        levels.append(
+            (_finite(pair[0], "vertical_wind_profile"), _finite(pair[1], "vertical_wind_profile"))
+        )
+    if levels[0][0] != 0.0 or levels[-1][0] != PROFILE_TOP_M:
+        raise ValueError("vertical_wind_profile: 0~100000 m 전체 고도 구간이 필요합니다.")
+    for left, right in zip(levels, levels[1:], strict=False):
+        if right[0] <= left[0]:
+            raise ValueError("vertical_wind_profile: 고도는 중복 없이 증가해야 합니다.")
+        if (
+            1000.0 * abs(right[1] - left[1]) / (right[0] - left[0])
+            > MAX_VERTICAL_WIND_SHEAR_M_S_PER_KM + 1e-9
+        ):
+            raise ValueError("vertical_wind_profile: 수직풍 기울기 3 m/s/km를 초과했습니다.")
+    if any(abs(w) > MAX_VERTICAL_WIND_M_S for _, w in levels):
+        raise ValueError("vertical_wind_profile: 수직풍 ±3 m/s를 초과했습니다.")
+    return tuple(levels)
+
+
+def _atmosphere_profile(value, name, sea_level_value):
+    if not isinstance(value, list | tuple):
+        raise ValueError(f"{name}: 고도·값 쌍이 필요합니다.")
+    if not value:
+        return ()
+    if not 2 <= len(value) <= 100:
+        raise ValueError(f"{name}: 고도·값 쌍을 2~100개 입력해야 합니다.")
+    levels = []
+    for pair in value:
+        if not isinstance(pair, list | tuple) or len(pair) != 2:
+            raise ValueError(f"{name}: [고도_m, 값] 쌍이 필요합니다.")
+        levels.append((_finite(pair[0], name), _finite(pair[1], name)))
+    if levels[0][0] != 0.0 or levels[-1][0] != PROFILE_TOP_M:
+        raise ValueError(f"{name}: 0~100000 m 전체 고도 구간이 필요합니다.")
+    if not np.isclose(levels[0][1], sea_level_value, rtol=0.0, atol=1e-6):
+        raise ValueError(f"{name}: 지상값은 sea_level 입력과 일치해야 합니다.")
+    if any(right[0] <= left[0] for left, right in zip(levels, levels[1:], strict=False)):
+        raise ValueError(f"{name}: 고도는 중복 없이 증가해야 합니다.")
+    return tuple(levels)
+
+
+def _smoothstep(unit):
+    """C1 taper for one deterministic, compact gust event."""
+    unit = min(max(unit, 0.0), 1.0)
+    return unit * unit * (3.0 - 2.0 * unit)
+
+
+def _density_ratio_extrema(settings: AtmosphereSettings) -> tuple[float, float]:
+    """Find final density extrema relative to the fixed nominal atmosphere.
+
+    Both temperatures are linear on each knot interval and the pressure-profile
+    correction is log-linear. The derivative of log(density ratio) therefore has
+    a quadratic numerator, so checking knots and its real roots covers the
+    entire supported 0-100 km domain, including extrema between supplied knots.
+    """
+    nominal = AtmosphereSettings()
+    hydrostatic = replace(settings, pressure_profile=(), density_scale=1.0)
+    knots = sorted(
+        {z for z, _ in standard_temperature_profile()}
+        | {0.0, PROFILE_TOP_M}
+        | {z for z, _ in settings.temperature_profile}
+        | {z for z, _ in settings.pressure_profile}
+    )
+
+    def ratio(height):
+        return atmosphere(height, settings)[2] / atmosphere(height, nominal)[2]
+
+    ratios = [ratio(z) for z in knots]
+    for z0, z1 in zip(knots, knots[1:], strict=False):
+        length = z1 - z0
+        t0 = atmosphere(z0, settings)[0]
+        tn0 = atmosphere(z0, nominal)[0]
+        t_slope = (atmosphere(z1, settings)[0] - t0) / length
+        tn_slope = (atmosphere(z1, nominal)[0] - tn0) / length
+        correction0 = atmosphere(z0, settings)[1] / atmosphere(z0, hydrostatic)[1]
+        correction1 = atmosphere(z1, settings)[1] / atmosphere(z1, hydrostatic)[1]
+        log_correction_slope = np.log(correction1 / correction0) / length
+        actual_factor = -G0 / R_AIR - t_slope
+        nominal_factor = G0 / R_AIR + tn_slope
+        coefficients = (
+            log_correction_slope * t_slope * tn_slope,
+            actual_factor * tn_slope
+            + nominal_factor * t_slope
+            + log_correction_slope * (t0 * tn_slope + t_slope * tn0),
+            actual_factor * tn0 + nominal_factor * t0 + log_correction_slope * t0 * tn0,
+        )
+        if abs(coefficients[0]) > 1e-24:
+            roots = np.roots(coefficients)
+        elif abs(coefficients[1]) > 1e-18:
+            roots = (-coefficients[2] / coefficients[1],)
+        else:
+            roots = ()
+        for root in roots:
+            if abs(np.imag(root)) < 1e-9 and 0.0 < float(np.real(root)) < length:
+                ratios.append(ratio(z0 + float(np.real(root))))
+    return min(ratios), max(ratios)
 
 
 @dataclass(frozen=True)
@@ -239,11 +389,18 @@ class AprConditions:
 
     wind_profile: tuple[tuple[float, float], ...] = ((0.0, 0.0), (PROFILE_TOP_M, 0.0))
     forecast_wind_profile: tuple[tuple[float, float], ...] = ((0.0, 0.0), (PROFILE_TOP_M, 0.0))
+    vertical_wind_profile: tuple[tuple[float, float], ...] = ((0.0, 0.0), (PROFILE_TOP_M, 0.0))
     gust_amplitude_m_s: float = 0.0
     gust_period_s: float = 12.0
     gust_phase_rad: float = 0.0
+    gust_start_s: float = 0.0
+    gust_duration_s: float = 60.0
+    gust_altitude_center_m: float = 10_000.0
+    gust_altitude_half_width_m: float = 2_500.0
+    forecast_gust_amplitude_m_s: float = 0.0
     sea_level_temperature_k: float = 288.15
     sea_level_pressure_pa: float = 101325.0
+    density_scale: float = 1.0
     health_checks_passed: bool = True
     known_fault: bool = False
     lightning_cloud_review_passed: bool = True
@@ -251,6 +408,9 @@ class AprConditions:
     recovery_weather_review_passed: bool = True
     precipitation_mm_h: float = 0.0
     thunderstorm_or_hail_present: bool = False
+    temperature_profile: tuple[tuple[float, float], ...] = ()
+    pressure_profile: tuple[tuple[float, float], ...] = ()
+    latitude_deg: float = 37.0
 
     def __post_init__(self):
         for name in (
@@ -264,30 +424,100 @@ class AprConditions:
         if self.known_fault is not False or self.thunderstorm_or_hail_present is not False:
             raise ValueError("알려진 고장·뇌우·우박 입력은 정상 운용 실험에서 제외합니다.")
         limits = {
-            "gust_amplitude_m_s": (0.0, 2.0),
+            "gust_amplitude_m_s": (0.0, MAX_GUST_M_S),
             "gust_period_s": (8.0, 60.0),
             "gust_phase_rad": (-pi, pi),
+            "gust_start_s": (-120.0, 600.0),
+            "gust_duration_s": (8.0, 120.0),
+            "gust_altitude_center_m": (0.0, PROFILE_TOP_M),
+            "gust_altitude_half_width_m": (100.0, 5_000.0),
+            "forecast_gust_amplitude_m_s": (0.0, MAX_GUST_M_S),
             "sea_level_temperature_k": (273.15, 308.15),
             "sea_level_pressure_pa": (95000.0, 105000.0),
+            "density_scale": (1.0 - MAX_DENSITY_SCALE_DEVIATION, 1.0 + MAX_DENSITY_SCALE_DEVIATION),
+            "latitude_deg": (-90.0, 90.0),
             "precipitation_mm_h": (0.0, 0.0),
         }
         for name, (low, high) in limits.items():
             value = _finite(getattr(self, name), name)
             if not low <= value <= high:
                 raise ValueError(f"{name}: 잠정 정상 운용 범위 [{low}, {high}]를 벗어났습니다.")
+        if self.gust_amplitude_m_s > 0.0 and not (
+            self.gust_start_s < 600.0 and self.gust_start_s + self.gust_duration_s > 0.0
+        ):
+            raise ValueError("gust window: 돌풍은 0~600 s 비행 시간과 겹쳐야 합니다.")
+        temperatures = _atmosphere_profile(
+            self.temperature_profile, "temperature_profile", self.sea_level_temperature_k
+        )
+        pressures = _atmosphere_profile(
+            self.pressure_profile, "pressure_profile", self.sea_level_pressure_pa
+        )
+        temperature_checks = {z for z, _ in temperatures} | ({11_000.0} if temperatures else set())
+        for z in temperature_checks:
+            temperature = float(
+                np.interp(z, [p[0] for p in temperatures], [p[1] for p in temperatures])
+            )
+            standard = atmosphere(
+                z, AtmosphereSettings(sea_level_temperature_k=self.sea_level_temperature_k)
+            )[0]
+            if not 150.0 <= temperature <= 330.0 or abs(temperature - standard) > 25.0:
+                raise ValueError("temperature_profile: 고도별 정상 대기 범위를 벗어났습니다.")
+        for (z0, t0), (z1, t1) in zip(temperatures, temperatures[1:], strict=False):
+            if abs(t1 - t0) / (z1 - z0) > 0.02:
+                raise ValueError("temperature_profile: 고도별 온도 기울기가 너무 큽니다.")
+        reference = AtmosphereSettings(
+            sea_level_temperature_k=self.sea_level_temperature_k,
+            sea_level_pressure_pa=self.sea_level_pressure_pa,
+            temperature_profile=temperatures,
+        )
+        for z, pressure in pressures:
+            reference_pressure = atmosphere(z, reference)[1]
+            if not 0.9 <= pressure / reference_pressure <= 1.1:
+                raise ValueError("pressure_profile: 고도별 기압이 정역학 기준에서 벗어났습니다.")
+        for (z0, p0), (z1, p1) in zip(pressures, pressures[1:], strict=False):
+            if not 0.0 < p0 <= 105000.0 or not 0.0 < p1 < p0:
+                raise ValueError("pressure_profile: 기압은 양수이고 고도에 따라 감소해야 합니다.")
+            expected = atmosphere(z1, reference)[1] / atmosphere(z0, reference)[1]
+            measured_log_drop = np.log(p0 / p1)
+            expected_log_drop = -np.log(expected)
+            if not 0.9 <= measured_log_drop / expected_log_drop <= 1.1:
+                raise ValueError("pressure_profile: 온도와 맞지 않는 비정상 기압 기울기입니다.")
+        object.__setattr__(self, "temperature_profile", temperatures)
+        object.__setattr__(self, "pressure_profile", pressures)
+        physical_atmosphere = AtmosphereSettings(
+            sea_level_temperature_k=self.sea_level_temperature_k,
+            sea_level_pressure_pa=self.sea_level_pressure_pa,
+            temperature_profile=temperatures,
+            pressure_profile=pressures,
+            density_scale=self.density_scale,
+        )
+        lowest_ratio, highest_ratio = _density_ratio_extrema(physical_atmosphere)
+        if (
+            lowest_ratio < 1.0 - MAX_DENSITY_SCALE_DEVIATION - 1e-9
+            or highest_ratio > 1.0 + MAX_DENSITY_SCALE_DEVIATION + 1e-9
+        ):
+            raise ValueError(
+                "최종 대기밀도가 고정 기준 대기모델 대비 ±10%를 초과했습니다. "
+                f"전 고도 비율 범위: {lowest_ratio:.4f}~{highest_ratio:.4f}"
+            )
         actual = _wind_profile(self.wind_profile, "wind_profile")
         forecast = _wind_profile(self.forecast_wind_profile, "forecast_wind_profile")
+        vertical = _vertical_wind_profile(self.vertical_wind_profile)
         object.__setattr__(self, "wind_profile", actual)
         object.__setattr__(self, "forecast_wind_profile", forecast)
+        object.__setattr__(self, "vertical_wind_profile", vertical)
         altitudes = {z for z, _ in actual} | {z for z, _ in forecast} | {50.0}
         for z in altitudes:
             aw, fw = self.mean_wind(z), self.mean_wind(z, forecast=True)
-            if abs(aw) + self.gust_amplitude_m_s > MAX_ALOFT_WIND_M_S + 1e-9:
-                raise ValueError("지속풍과 돌풍을 합친 상층풍이 잠정 한계를 초과했습니다.")
-            if z <= 50.0 and abs(aw) + self.gust_amplitude_m_s > MAX_PAD_WIND_M_S + 1e-9:
-                raise ValueError("지상 지속풍과 돌풍을 합친 입력이 13.4 m/s를 초과했습니다.")
-            if abs(aw - fw) + self.gust_amplitude_m_s > MAX_FORECAST_ERROR_M_S + 1e-9:
-                raise ValueError("돌풍을 포함한 예보 오차가 잠정 ±2 m/s 범위를 초과했습니다.")
+            if abs(aw) + self.gust_amplitude_m_s > MAX_ALOFT_WIND_M_S + MAX_GUST_M_S + 1e-9:
+                raise ValueError("상층 순간풍이 잠정 한계를 초과했습니다.")
+            if (
+                z <= 50.0
+                and abs(aw) + self.gust_amplitude_m_s > MAX_PAD_WIND_M_S + MAX_GUST_M_S + 1e-9
+            ):
+                raise ValueError("지상 순간풍이 잠정 13 m/s 한계를 초과했습니다.")
+            if abs(aw - fw) > MAX_FORECAST_ERROR_M_S + 1e-9:
+                raise ValueError("기본풍 예보 오차가 잠정 ±2 m/s 범위를 초과했습니다.")
 
     def mean_wind(self, altitude_m, *, forecast=False):
         levels = self.forecast_wind_profile if forecast else self.wind_profile
@@ -295,11 +525,30 @@ class AprConditions:
 
     def wind(self, altitude_m, time_s, *, forecast=False):
         wind = self.mean_wind(altitude_m, forecast=forecast)
-        if not forecast:
-            wind += self.gust_amplitude_m_s * sin(
-                2.0 * pi * time_s / self.gust_period_s + self.gust_phase_rad
-            )
+        if not forecast and self.gust_amplitude_m_s > 0.0:
+            elapsed = time_s - self.gust_start_s
+            offset = abs(altitude_m - self.gust_altitude_center_m)
+            if 0.0 < elapsed < self.gust_duration_s and offset < self.gust_altitude_half_width_m:
+                # A single finite event, with smooth 2 s onset/recovery and a
+                # compact altitude layer. No random draws occur during calls.
+                ramp_s = min(2.0, self.gust_duration_s / 4.0)
+                time_envelope = _smoothstep(elapsed / ramp_s) * _smoothstep(
+                    (self.gust_duration_s - elapsed) / ramp_s
+                )
+                altitude_envelope = cos(0.5 * pi * offset / self.gust_altitude_half_width_m) ** 2
+                wind += (
+                    self.gust_amplitude_m_s
+                    * time_envelope
+                    * altitude_envelope
+                    * sin(2.0 * pi * time_s / self.gust_period_s + self.gust_phase_rad)
+                )
         return wind
+
+    def vertical_wind(self, altitude_m, *, forecast=False):
+        if forecast:
+            return 0.0  # The tested updraft/downdraft is not supplied to the controller.
+        levels = self.vertical_wind_profile
+        return float(np.interp(altitude_m, [p[0] for p in levels], [p[1] for p in levels]))
 
 
 @dataclass(frozen=True)
@@ -310,6 +559,9 @@ class AprWindField:
 
     def at(self, altitude_m):
         return self.conditions.wind(altitude_m, self.time_s, forecast=self.forecast)
+
+    def vertical_at(self, altitude_m):
+        return self.conditions.vertical_wind(altitude_m, forecast=self.forecast)
 
 
 def load_apr_operating(path):
@@ -331,405 +583,201 @@ def load_apr_operating(path):
         raise ValueError("root_seed는 378로 고정합니다.")
     design = asdict(Design())
     if not isinstance(value["vehicle"], dict) or set(value["vehicle"]) != set(design):
-        raise ValueError("vehicle에는 현재 3톤 기체의 모든 제원만 입력할 수 있습니다.")
+        raise ValueError("vehicle에는 현재 100톤 기체의 모든 제원만 입력할 수 있습니다.")
     for name, expected in design.items():
         if _finite(value["vehicle"][name], name) != expected:
             raise ValueError(f"vehicle.{name}: 현재 기준값 {expected}으로 고정됩니다.")
     for name, group in (("environment", AprConditions), ("disturbances", RecoveryDisturbances)):
         section = value[name]
-        if not isinstance(section, dict) or set(section) != {f.name for f in fields(group)}:
+        permitted = {f.name for f in fields(group)}
+        optional = (
+            {
+                "temperature_profile",
+                "pressure_profile",
+                "latitude_deg",
+                "vertical_wind_profile",
+                "density_scale",
+                "gust_start_s",
+                "gust_duration_s",
+                "gust_altitude_center_m",
+                "gust_altitude_half_width_m",
+                "forecast_gust_amplitude_m_s",
+            }
+            if name == "environment"
+            else {
+                "drag_coefficient_scale",
+                "initial_mass_scale",
+                "sensor_position_error_m",
+                "sensor_velocity_error_m_s",
+            }
+        )
+        if not isinstance(section, dict) or not permitted - optional <= set(section) <= permitted:
             raise ValueError(f"{name}: 누락 또는 알 수 없는 설정 항목입니다.")
     return AprConditions(**value["environment"]), RecoveryDisturbances(**value["disturbances"])
 
 
 @dataclass(frozen=True)
+class FlightSafety:
+    """100톤 개념 구조의 계산 한계와 보수적인 운용 요구값."""
+
+    shell_wall_m: float = 0.004
+    shell_yield_pa: float = 250_000_000.0
+    material_safety_factor: float = 1.5
+    max_q_pa: float = 30_000.0
+    max_q_alpha_kpa_deg: float = 150.0
+    max_high_q_alpha_deg: float = 5.0
+    max_angular_rate_deg_s: float = 15.0
+    max_angular_acceleration_deg_s2: float = 5.0
+    max_ascent_axial_g: float = 3.0
+    max_recovery_flight_g: float = 5.0
+    absolute_g: float = 6.0
+
+    def derivation(self):
+        radius = PHYSICS.geometry.body_radius_m
+        stress = self.shell_yield_pa / self.material_safety_factor
+        axial = 2 * pi * radius * self.shell_wall_m * stress
+        bending = pi * radius**2 * self.shell_wall_m * stress
+        area = 2 * radius * PHYSICS.geometry.body_length_m
+        fin_q = FINS.per_fin_hinge_limit_nm / (
+            FINS.planar_effective_area_m2 / 2 * FINS.max_lift_coefficient * FINS.hinge_arm_m
+        )
+        return dict(
+            shell_axial_allowable_n=axial,
+            shell_bending_allowable_nm=bending,
+            full_deflection_fin_q_allowable_pa=fin_q,
+            conservative_body_q_alpha_allowable_kpa_deg=(
+                bending / (area * 0.8 * PHYSICS.geometry.body_length_m / 2) * 180 / pi / 1000
+            ),
+            buckling_fatigue_thermal_and_real_hardware_verified=False,
+            operational_limits_are_design_requirements=True,
+        )
+
+
+SAFETY = FlightSafety()
+
+
+@dataclass(frozen=True)
 class AscentGuidanceSettings:
-    steering_start_height_m: float = 500.0
-    steering_ramp_height_m: float = 1000.0
-    separation_altitude_m: float = 10_000.0
-    separation_attitude_deg: float = 9.0
-    separation_attitude_tolerance_deg: float = 0.5
-    separation_vertical_speed_m_s: float = 120.0
-    vertical_profile_deceleration_m_s2: float = 2.0
-    vertical_speed_limit_m_s: float = 300.0
-    horizontal_speed_budget_m_s: float = 25.0
-    horizontal_distance_budget_m: float = 600.0
-    horizontal_velocity_gain_deg_s_m: float = 2.0
-    horizontal_position_gain_s_inv: float = 0.02
-    alpha_reference_limit_deg: float = 2.0
-    preparation_alpha_reference_limit_deg: float = 1.5
-    preparation_start_altitude_m: float = 8500.0
-    preparation_full_altitude_m: float = 9000.0
-    preparation_rate_limit_deg_s: float = 2.0
-    separation_alpha_target_deg: float = 2.0
-    separation_rate_target_deg_s: float = 2.0
-    separation_dwell_s: float = 0.3
-    max_q_fall_dwell_s: float = 0.5
-    max_q_fall_fraction: float = 0.99
-    max_q_min_observed_peak_pa: float = 1000.0
+    separation_altitude_m: float = 37_000.0
+    separation_tolerance_m: float = 1_000.0
+    separation_min_main_propellant_kg: float = 20_000.0
+    separation_max_q_pa: float = 25_000.0
+    separation_max_rate_deg_s: float = 5.0
+    separation_max_alpha_deg: float = 5.0
+    pitch_start_s: float = 15.0
+    pitch_duration_s: float = 30.0
+    final_pitch_deg: float = 80.0
+    separation_alignment_preview_s: float = 8.0
+    separation_alignment_blend_s: float = 4.0
 
 
 @dataclass(frozen=True)
 class ReturnGuidanceSettings:
-    """Conservative controller design; acceptance limits are unchanged."""
-
-    version: str = "apr-fuel-joint-v1"
-    synchronized_alignment: bool = True
-    joint_return_planning: bool = True
-    control_dt_s: float = 0.01
-    boostback_throttle: float = 0.15
-    boostback_velocity_gain_s_inv: float = 0.8
-    boostback_acceleration_limit_m_s2: float = 2.0
-    boostback_tilt_limit_deg: float = 20.0
-    boostback_min_burn_tilt_deg: float = 8.0
-    return_plan_interval_s: float = 0.5
-    ignition_range_candidates_m: tuple[float, ...] = (0.0, 75.0, 150.0)
-    horizontal_kp_s2: float = 0.0256
-    horizontal_kd_s_inv: float = 0.32
-    horizontal_acceleration_limit_m_s2: float = 1.0
-    horizontal_transfer_acceleration_m_s2: float = 0.8
-    horizontal_transfer_jerk_m_s3: float = 0.2
-    horizontal_transfer_min_duration_s: float = 10.0
-    attitude_reference_tau_s: float = 0.5
-    attitude_reference_slew_deg_s: float = 2.0
-    attitude_position_gain_s_inv: float = 1.2
-    attitude_rate_gain_s_inv: float = 3.0
-    attitude_rate_limit_deg_s: float = 4.0
-    attitude_acceleration_limit_deg_s2: float = 3.5
-    fin_share_tau_s: float = 0.5
-    gimbal_capacity_fraction: float = 0.8
-    fin_deploy_min_downspeed_m_s: float = 30.0
-    fin_deploy_max_alpha_deg: float = 10.0
-    fin_deploy_max_rate_deg_s: float = 1.0
-    fin_retract_height_m: float = 1800.0
-    load_governor_g: float = 4.75
-    ignition_deceleration_m_s2: float = 14.0
-    ignition_margin_m: float = 120.0
-    descent_deceleration_m_s2: float = 2.0
-    vertical_velocity_gain_s_inv: float = 0.9
-    terminal_flare_height_m: float = 3.0
-    alignment_trigger_height_m: float = 600.0
-    alignment_hold_height_m: float = 350.0
-    alignment_min_height_m: float = 250.0
-    alignment_reference_deceleration_m_s2: float = 8.0
-    alignment_end_speed_m_s: float = 1.0
-    alignment_vertical_kp_s2: float = 0.12
-    alignment_vertical_kd_s_inv: float = 0.8
-    alignment_position_gate_m: float = 0.35
-    alignment_horizontal_speed_gate_m_s: float = 0.15
-    alignment_tilt_gate_deg: float = 1.5
-    alignment_rate_gate_deg_s: float = 0.15
-    alignment_vertical_speed_gate_m_s: float = 1.5
-    alignment_dwell_s: float = 1.0
-    approach_speed_limit_m_s: float = 20.0
-    approach_reference_acceleration_m_s2: float = 2.0
-
-    @classmethod
-    def for_stage(cls, stage):
-        if stage == "joint":
-            return cls()
-        if stage not in ("approach", "sync"):
-            raise ValueError("guidance stage must be approach, sync or joint")
-        return replace(
-            cls(),
-            version=f"apr-fuel-{stage}-v1",
-            synchronized_alignment=stage == "sync",
-            joint_return_planning=False,
-            ignition_deceleration_m_s2=10.0,
-            ignition_margin_m=600.0,
-        )
+    control_dt_s: float = 0.02
+    attitude_rate_limit_deg_s: float = 8.0
+    attitude_acceleration_limit_deg_s2: float = 2.5
+    landing_entry_height_m: float = 2_000.0
+    gear_deployment_height_m: float = 300.0
+    forecast_step_s: float = 0.5
+    main_reserve_requirement_kg: float = 0.0
+    flip_max_q_pa: float = 250.0
+    boost_acceleration_m_s2: float = 3.0 * G0
+    boost_replan_period_s: float = 1.0
+    predicted_miss_limit_m: float = 75.0
+    entry_q_fraction: float = 0.60
+    entry_braking_m_s2: float = 20.0
+    terminal_braking_m_s2: float = 8.0
+    terminal_speed_plateau_height_m: float = 3.0
+    acceleration_bias_start_height_m: float = 500.0
+    acceleration_bias_full_height_m: float = 100.0
+    acceleration_bias_limit_m_s2: float = 2.0
+    horizontal_alignment_height_m: float = 3_000.0
+    # Finish the finite-time upright turn before strong low-altitude braking.
+    vertical_body_height_m: float = 3_000.0
+    # A two-second retraction must precede the rapid flow rotation during braking.
+    fin_min_descent_speed_m_s: float = 200.0
+    entry_attitude_cone_deg: float = 8.0
+    entry_attitude_cone_min_q_pa: float = 5_000.0
 
 
-@dataclass(frozen=True)
-class CoastEstimate:
-    """Closed-form constant-density, flow-aligned quadratic-drag surrogate.
+@lru_cache(maxsize=16)
+def build_descent_reference(atmosphere_settings, q_budget, entry_braking, terminal_braking):
+    """접지에서 거꾸로 적분한 속도 한계. v²(h+dh) ≤ v²(h)+2*a*dh.
 
-    The vertical drag law is solved analytically. Horizontal velocity follows
-    dvx/dt = -k*abs(vz)*vx, ignoring cross-flow, fin lift and Earth rotation.
-    No vehicle trajectory is integrated during planning.
+    현재 동압이 한계에 도달하기 전에, 더 낮은 고도의 밀도와 남은 제동
+    거리를 반영한다. 속도·동압 여유는 유도 참조이며 실제 성공 기준은 별도다.
     """
-
-    duration_s: float
-    horizontal_gain_s: float
-    horizontal_velocity_ratio: float
-    downspeed_m_s: float
-    mean_density_kg_m3: float
-
-    @classmethod
-    def between(
-        cls,
-        height_m,
-        vz_m_s,
-        ignition_height_m,
-        mass_kg,
-        drag_area_m2,
-        *,
-        atmosphere_settings=PHYSICS.atmosphere,
-    ):
-        if (
-            not all(
-                np.isfinite(v) for v in (height_m, vz_m_s, ignition_height_m, mass_kg, drag_area_m2)
-            )
-            or mass_kg <= 0.0
-            or drag_area_m2 <= 0.0
-            or ignition_height_m < 0.0
-        ):
-            raise ValueError("coast estimate requires finite heights and positive mass and drag")
-        if height_m <= ignition_height_m and vz_m_s <= 0.0:
-            return cls(0.0, 0.0, 1.0, -vz_m_s, atmosphere(height_m, atmosphere_settings)[2])
-        densities = [
-            atmosphere(z, atmosphere_settings)[2]
-            for z in (height_m, (height_m + ignition_height_m) / 2.0, ignition_height_m)
+    heights = np.unique(
+        np.r_[
+            np.linspace(0, 500, 251),
+            np.linspace(500, 10_000, 381),
+            np.linspace(10_000, PROFILE_TOP_M, 901),
         ]
-        density = (densities[0] + 4.0 * densities[1] + densities[2]) / 6.0
-        k = 0.5 * density * drag_area_m2 / mass_kg
-        g = gravity(height_m)
-        terminal = sqrt(g / k)
-        frequency = sqrt(g * k)
-        if vz_m_s >= 0.0:
-            beta = float(np.arctan(vz_m_s / terminal))
-            rise = float(np.log1p((vz_m_s / terminal) ** 2)) / (2.0 * k)
-            distance = max(0.0, height_m + rise - ignition_height_m)
-            u = float(np.arccosh(np.exp(k * distance)))
-            duration = (beta + u) / frequency
-            gain = (
-                cos(beta)
-                * (float(np.arcsinh(np.tan(beta))) + float(np.arctan(np.sinh(u))))
-                / frequency
-            )
-            ratio = cos(beta) / float(np.cosh(u))
-            downspeed = terminal * float(np.tanh(u))
-        else:
-            distance = height_m - ignition_height_m
-            speed = -vz_m_s
-            if abs(speed / terminal - 1.0) < 1e-7:
-                duration = distance / terminal
-                gain = float(-np.expm1(-k * distance)) / frequency
-                ratio = float(np.exp(-k * distance))
-                downspeed = terminal
-            elif speed < terminal:
-                start = float(np.arctanh(speed / terminal))
-                end = float(np.arccosh(np.cosh(start) * np.exp(k * distance)))
-                duration = (end - start) / frequency
-                gain = (
-                    float(np.cosh(start))
-                    * (float(np.arctan(np.sinh(end))) - float(np.arctan(np.sinh(start))))
-                    / frequency
-                )
-                ratio = float(np.cosh(start) / np.cosh(end))
-                downspeed = terminal * float(np.tanh(end))
-            else:
-                start = float(np.arctanh(terminal / speed))
-                end = float(np.arcsinh(np.sinh(start) * np.exp(k * distance)))
-                duration = (end - start) / frequency
-                gain = (
-                    float(np.sinh(start))
-                    * float(np.log(np.tanh(end / 2.0) / np.tanh(start / 2.0)))
-                    / frequency
-                )
-                ratio = float(np.sinh(start) / np.sinh(end))
-                downspeed = terminal / float(np.tanh(end))
-        return cls(duration, gain, ratio, downspeed, density)
-
-
-@dataclass(frozen=True)
-class HorizontalTransfer:
-    """Quintic reference from measured position/velocity to a stationary origin."""
-
-    started_s: float
-    duration_s: float
-    coefficients_m: tuple[float, ...]
-    peak_reference_acceleration_m_s2: float
-    peak_reference_jerk_m_s3: float
-    attitude_lag_compensation_s: float
-    peak_compensated_acceleration_m_s2: float
-
-    @classmethod
-    def plan(cls, started_s, x_m, vx_m_s, settings):
-        acceleration = settings.horizontal_transfer_acceleration_m_s2
-        jerk = settings.horizontal_transfer_jerk_m_s3
-        position_gain = settings.attitude_position_gain_s_inv
-        filter_tau = settings.attitude_reference_tau_s
-        if (
-            not all(
-                np.isfinite(value)
-                for value in (started_s, x_m, vx_m_s, acceleration, jerk, position_gain, filter_tau)
-            )
-            or acceleration <= 0.0
-            or jerk <= 0.0
-            or position_gain <= 0.0
-            or filter_tau < 0.0
-            or not np.isfinite(settings.horizontal_transfer_min_duration_s)
-            or settings.horizontal_transfer_min_duration_s <= 0.0
-            or acceleration >= settings.horizontal_acceleration_limit_m_s2
-        ):
-            raise ValueError("horizontal transfer requires finite inputs and positive margins")
-        # Low-frequency delay of the reference filter and cascaded attitude PD.
-        # This is a bounded first-order lead, not an exact actuator inverse.
-        lag = filter_tau + 1.0 / position_gain
-        duration = max(
-            settings.horizontal_transfer_min_duration_s,
-            sqrt(6.0 * abs(x_m) / acceleration),
-            float(np.cbrt(60.0 * abs(x_m) / jerk)),
-            4.0 * abs(vx_m_s) / acceleration,
+    )
+    density = np.array([atmosphere(h, atmosphere_settings)[2] for h in heights])
+    q_speed_squared = 2.0 * q_budget / density
+    blending = np.clip((heights - 1500) / 2000, 0, 1)
+    blending = blending**2 * (3 - 2 * blending)
+    braking = terminal_braking + (entry_braking - terminal_braking) * blending
+    squared = np.empty_like(heights)
+    squared[0] = Design().descent_reference_m_s ** 2
+    for index in range(1, len(heights)):
+        reachable = squared[index - 1] + (braking[index - 1] + braking[index]) * (
+            heights[index] - heights[index - 1]
         )
-        for _ in range(12):
-            velocity = vx_m_s * duration
-            coefficients = (
-                x_m,
-                velocity,
-                0.0,
-                -10.0 * x_m - 6.0 * velocity,
-                15.0 * x_m + 8.0 * velocity,
-                -6.0 * x_m - 3.0 * velocity,
-            )
-            acceleration_poly = np.polynomial.polynomial.polyder(coefficients, 2) / duration**2
-            jerk_poly = np.polynomial.polynomial.polyder(coefficients, 3) / duration**3
-            compensated_poly = np.polynomial.polynomial.polyadd(acceleration_poly, lag * jerk_poly)
-            peaks = []
-            for derivative in (acceleration_poly, jerk_poly, compensated_poly):
-                roots = np.polynomial.polynomial.polyroots(
-                    np.polynomial.polynomial.polyder(derivative)
-                )
-                points = [0.0, 1.0]
-                points.extend(
-                    float(root.real)
-                    for root in roots
-                    if abs(root.imag) < 1e-9 and 0.0 < root.real < 1.0
-                )
-                peaks.append(
-                    max(
-                        abs(np.polynomial.polynomial.polyval(point, derivative)) for point in points
-                    )
-                )
-            if peaks[0] <= acceleration and peaks[1] <= jerk and peaks[2] <= acceleration:
-                return cls(
-                    started_s,
-                    duration,
-                    coefficients,
-                    float(peaks[0]),
-                    float(peaks[1]),
-                    lag,
-                    float(peaks[2]),
-                )
-            # Widen one reference's horizon, not a search over simulated flights.
-            duration *= 1.25
-        raise ValueError("could not construct a bounded horizontal transfer")
-
-    def reference(self, time_s):
-        elapsed = time_s - self.started_s
-        if elapsed >= self.duration_s:
-            return 0.0, 0.0, 0.0
-        fraction = max(0.0, elapsed) / self.duration_s
-        return tuple(
-            float(
-                np.polynomial.polynomial.polyval(
-                    fraction, np.polynomial.polynomial.polyder(self.coefficients_m, order)
-                )
-                / self.duration_s**order
-            )
-            for order in (0, 1, 2)
-        )
-
-    def jerk(self, time_s):
-        elapsed = time_s - self.started_s
-        if elapsed < 0.0 or elapsed >= self.duration_s:
-            return 0.0
-        return float(
-            np.polynomial.polynomial.polyval(
-                elapsed / self.duration_s,
-                np.polynomial.polynomial.polyder(self.coefficients_m, 3),
-            )
-            / self.duration_s**3
-        )
-
-
-@dataclass(frozen=True)
-class AlignmentDescent:
-    """Monotone descent ending at the horizontal reference's deadline.
-
-    A power-law speed reference has analytic height and acceleration. Planning
-    it does not propagate the vehicle or alter its measured state.
-    """
-
-    started_s: float
-    duration_s: float
-    started_height_m: float
-    started_downspeed_m_s: float
-    end_downspeed_m_s: float
-    speed_power: float
-    end_height_m: float
-    min_height_m: float
-    peak_deceleration_m_s2: float
-
-    @classmethod
-    def plan(cls, time_s, height_m, vz_m_s, duration_s, settings):
-        final_speed = settings.alignment_end_speed_m_s
-        floor = settings.alignment_min_height_m
-        limit = settings.alignment_reference_deceleration_m_s2
-        if (
-            not all(
-                np.isfinite(value)
-                for value in (time_s, height_m, vz_m_s, duration_s, final_speed, floor, limit)
-            )
-            or final_speed <= 0.0
-            or final_speed >= settings.alignment_vertical_speed_gate_m_s
-            or floor <= 200.0
-            or limit <= 0.0
-        ):
-            raise ValueError("alignment descent requires finite inputs and positive safety margins")
-        downspeed = -vz_m_s
-        available_distance = height_m - floor - final_speed * duration_s
-        if duration_s < 2.0 or downspeed <= final_speed or available_distance <= 0.0:
-            return None
-        power = max(2.0, (downspeed - final_speed) * duration_s / available_distance - 1.0)
-        peak = (downspeed - final_speed) * power / duration_s
-        if peak > limit:
-            return None  # Use the existing altitude hold when timing is infeasible.
-        distance = duration_s * (final_speed + (downspeed - final_speed) / (power + 1.0))
-        return cls(
-            time_s,
-            duration_s,
-            height_m,
-            downspeed,
-            final_speed,
-            power,
-            height_m - distance,
-            floor,
-            peak,
-        )
-
-    def reference(self, time_s):
-        elapsed = max(0.0, time_s - self.started_s)
-        if elapsed >= self.duration_s:
-            height = self.end_height_m - self.end_downspeed_m_s * (elapsed - self.duration_s)
-            if height <= self.min_height_m:
-                return self.min_height_m, 0.0, 0.0
-            return height, -self.end_downspeed_m_s, 0.0
-        remaining = 1.0 - elapsed / self.duration_s
-        difference = self.started_downspeed_m_s - self.end_downspeed_m_s
-        distance = self.end_downspeed_m_s * elapsed
-        distance += (
-            difference
-            * self.duration_s
-            * (1.0 - remaining ** (self.speed_power + 1.0))
-            / (self.speed_power + 1.0)
-        )
-        speed = self.end_downspeed_m_s + difference * remaining**self.speed_power
-        acceleration = self.peak_deceleration_m_s2 * remaining ** (self.speed_power - 1.0)
-        return self.started_height_m - distance, -speed, acceleration
+        squared[index] = min(q_speed_squared[index], reachable)
+    speed = np.sqrt(squared)
+    time_to_ground = np.r_[0, np.cumsum(2 * np.diff(heights) / (speed[1:] + speed[:-1]))]
+    for array in (heights, squared, time_to_ground):
+        array.flags.writeable = False
+    return heights, squared, time_to_ground
 
 
 class AprFlight:
-    """Cascaded position/velocity and attitude PD with nominal force feed-forward."""
+    """실제 유한 자세·짐벌·핀·엔진 응답과 별도 추진제 장부를 적분한다.
+
+    예측기는 참조 궤적용 근사이며, 판정은 예측값이 아닌 적분된 강체·발 접지
+    상태만 사용한다. 기본 평가는 첫 접지에서 끝내고 다리 내구성은 설계 가정으로
+    둔다. 2단은 전체 질량에 포함하되 분리 후 비행을 적분하지 않는다.
+    """
 
     def __init__(
-        self, *, fin_mode="active", guidance_stage="joint", conditions=None, disturbances=None
+        self,
+        *,
+        fin_mode="active",
+        conditions=None,
+        disturbances=None,
+        integration_dt_s=0.01,
+        feed_settings=None,
+        slosh_settings=None,
+        separation_settings=None,
+        ignition_settings=None,
+        landing_gear=None,
     ):
         if fin_mode not in ("stowed", "active"):
             raise ValueError("fin_mode must be stowed or active")
-        self.fin_mode = fin_mode
-        self.design = Design()
+        self.landing_assessment = "kinematic_touchdown"
+        if not np.isfinite(integration_dt_s) or not 0 < integration_dt_s <= 0.02:
+            raise ValueError("integration_dt_s must be within (0, 0.02]")
+        self.nominal_design = Design()
+        self.feed_settings = FeedSettings() if feed_settings is None else feed_settings
+        self.slosh_settings = SloshSettings() if slosh_settings is None else slosh_settings
+        self.separation_settings = (
+            SeparationSettings() if separation_settings is None else separation_settings
+        )
+        self.ignition_settings = (
+            IgnitionSettings() if ignition_settings is None else ignition_settings
+        )
+        for value, expected in (
+            (self.feed_settings, FeedSettings),
+            (self.slosh_settings, SloshSettings),
+            (self.separation_settings, SeparationSettings),
+            (self.ignition_settings, IgnitionSettings),
+        ):
+            if not isinstance(value, expected):
+                raise TypeError(f"Expected {expected.__name__}")
+        if landing_gear is not None and not isinstance(landing_gear, LandingGear):
+            raise TypeError("landing_gear must be LandingGear")
         self.conditions = (
             AprConditions() if conditions is None else AprConditions(**asdict(conditions))
         )
@@ -738,1799 +786,2087 @@ class AprFlight:
             if disturbances is None
             else RecoveryDisturbances(**asdict(disturbances))
         )
+        extra = self.nominal_design.launch_mass_kg * (self.disturbances.initial_mass_scale - 1)
+        self.design = replace(
+            self.nominal_design, dry_mass_kg=self.nominal_design.dry_mass_kg + extra
+        )
         self.physics = replace(
             PHYSICS,
+            slosh_mass_fraction=self.slosh_settings.modal_mass_fraction,
+            slosh_settings=self.slosh_settings,
+            gear=PHYSICS.gear if landing_gear is None else landing_gear,
+            geometry=replace(
+                PHYSICS.geometry, airframe_mass_kg=PHYSICS.geometry.airframe_mass_kg + extra
+            ),
             atmosphere=replace(
                 PHYSICS.atmosphere,
                 sea_level_temperature_k=self.conditions.sea_level_temperature_k,
                 sea_level_pressure_pa=self.conditions.sea_level_pressure_pa,
+                density_scale=self.conditions.density_scale,
+                temperature_profile=self.conditions.temperature_profile,
+                pressure_profile=self.conditions.pressure_profile,
+                latitude_deg=self.conditions.latitude_deg,
+            ),
+            propulsion=replace(
+                PHYSICS.propulsion, nozzle_exit_area_m2=self.design.nozzle_exit_area_m2
             ),
         )
-        self.ascent_settings = AscentGuidanceSettings()
-        self.return_settings = ReturnGuidanceSettings.for_stage(guidance_stage)
+        budget = (
+            self.physics.geometry.engine_mass_kg
+            + self.physics.geometry.airframe_mass_kg
+            + self.physics.geometry.gear_mass_kg
+            + FINS.mass_kg
+        )
+        if not np.isclose(budget, self.design.dry_mass_kg, atol=1e-8):
+            raise ValueError("100톤 건조질량과 부품 배분이 일치하지 않습니다.")
         g = self.physics.geometry
-        dry_mass = g.engine_mass_kg + g.airframe_mass_kg + g.gear_mass_kg + FINS.mass_kg
-        if not np.isclose(dry_mass, self.design.dry_mass_kg):
-            raise ValueError("dry mass allocation must sum to 520 kg")
-        capacity = pi * g.body_radius_m**2 * g.tank_length_m * g.propellant_density_kg_m3
-        if capacity <= self.design.main_propellant_kg + self.design.rcs_propellant_kg:
-            raise ValueError("equivalent liquid volume must leave positive ullage")
+        if pi * g.body_radius_m**2 * g.tank_length_m * g.propellant_density_kg_m3 <= (
+            self.design.main_propellant_kg + self.design.rcs_propellant_kg
+        ):
+            raise ValueError("추진제 탱크에 양의 기상 공간이 필요합니다.")
+        self.fin_mode = fin_mode
+        self.fin_selection_reason = "installed_control_surfaces"
+        self.ascent_settings = AscentGuidanceSettings()
+        self.return_settings = ReturnGuidanceSettings()
+        self.integration_dt_s = integration_dt_s
         self.upper_attached = True
         self.phase = "ascent"
-        # Append actual fin deflection and deployment to the original flight state.
-        self.state = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1450.0, 15.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.scope = "launch_to_separation_to_touchdown"
+        self.state = np.zeros(len(STATE_NAMES))
+        self.state[6:8] = (self.design.main_propellant_kg, self.design.rcs_propellant_kg)
+        feed = initial_feed_state(self.design.main_propellant_kg, self.feed_settings)
+        self.state[13:17] = (feed.buffer_kg, feed.acquisition, feed.tank_gas_kg, feed.bottle_gas_kg)
+        self.ignition_requested = False
+        self.ignition_ready_s = float("inf")
+        self.ignition_events = []
+        self.minimum_feed_buffer_kg = float(feed.buffer_kg)
+        self.minimum_tank_pressure_pa = float("inf")
+        self.max_feed_shortage_kg_s = 0.0
+        self.max_helium_balance_error_kg = 0.0
+        self.max_slosh_displacement_m = 0.0
+        self.max_slosh_mode_force_n = 0.0
+        self.slosh_model_valid = True
+        self.first_subsystem_failure = None
+        self.feed_inventory_valid = True
+        self.feed_supply_valid = True
         self.state[1] = self.properties(self.state).cg_m - self.physics.gear.foot_station_m
+        self.on_pad = True
         self.time_s = 0.0
         self.started_s = 0.0
-        self.deadline_s = 300.0
+        self.deadline_s = 600.0
         self.next_control_s = 0.0
         self.next_record_s = 0.0
-        self.scope = "launch_to_separation_to_settled_landing"
-        self.initial_propellant = (self.design.main_propellant_kg, self.design.rcs_propellant_kg)
-        self.rng = np.random.default_rng(378)
-        self.sensor_estimator = RecoverySensorEstimator(self.disturbances.sensor_noise_scale)
-        self.observations = deque(maxlen=self.disturbances.observation_delay_steps + 1)
-        self.action_queue = deque(
-            ((0.0, 0.0, 0.0, 0.0) for _ in range(self.disturbances.action_delay_steps)),
-            maxlen=self.disturbances.action_delay_steps + 1,
-        )
-        self.observed_state = self.state.copy()
-        self.vertical_estimate = None
-        self.observation_time_s = None
+        self.control = (0.0, 0.0, 0.0, 0.0)
+        self.requested_control = self.control
         self.engine_throttle = 0.0
-        self.requested_control = (0.0, 0.0, 0.0, 0.0)
-        self.contact = None
+        self.attitude_target = 0.0
         self.separation = None
-        self.boostback_completed = None
-        self.return_plan = None
-        self.next_return_plan_s = 0.0
-        self.landing_ignition = None
-        self.settled_since = None
+        self.contact = None
         self.outcome = "running"
         self.failures = []
         self.steps = []
+        self.cutoff_pending = False
+        self.separation_alignment_started_s = None
+        self.ascent_max_q_passed = False
+        self.max_ascent_q = 0.0
         self.max_q = 0.0
-        self.max_q_before_separation = 0.0
+        self.max_return_q = 0.0
         self.max_q_alpha = 0.0
         self.max_ascent_alpha = 0.0
-        self.max_ascent_rate = 0.0
-        self.max_ascent_acceleration = 0.0
-        self.max_axial_g = 0.0
-        self.max_recovery_g = 0.0
-        self.max_recovery_rate = 0.0
-        self.max_recovery_acceleration = 0.0
-        self.max_approach_tilt = 0.0
-        self.max_mass_balance_error = 0.0
-        self.peak_leg_force = np.zeros(2)
-        self.peak_leg_stroke = np.zeros(2)
-        self.main_consumed = self.rcs_consumed = 0.0
-        self.max_x = 0.0
+        self.max_ascent_axial_g = 0.0
+        self.max_flight_g = 0.0
+        self.max_rate = 0.0
+        self.max_acceleration = 0.0
+        self.peak_angular_acceleration = None
+        self.max_gimbal = 0.0
+        self.max_fin_hinge = 0.0
+        self.max_fin_mach = 0.0
+        self.max_fin_alpha = 0.0
         self.max_altitude = 0.0
-        self.control = (1.0, 0.0, 0.0, 0.0)
-        self.approach_started_s = None
-        self.ascent_preparation_started_s = None
-        self.max_q_fall_since_s = None
-        self.max_q_passed = False
-        self.previous_ascent_q_pa = 0.0
-        self.separation_ready_since_s = None
-        self.last_separation_checks = None
-        self.last_separation_check_state = None
-        self.ascent_command = None
-        self.attitude_target = 0.0
-        self.max_fin_force_n = 0.0
-        self.max_fin_torque_nm = 0.0
-        self.max_fin_hinge_nm = 0.0
-        self.max_deployed_fin_mach = 0.0
-        self.max_deployed_fin_alpha_deg = 0.0
-        self.fin_deployment_started = False
-        self.fin_retraction_started = False
-        self.fin_deployment_started_s = None
-        self.fin_retraction_started_s = None
-        self.fin_share = 0.0
-        self.filtered_attitude_target = 0.0
-        self.alignment_started_s = None
-        self.alignment_started_main_propellant_kg = None
-        self.alignment_ready_since_s = None
-        self.alignment_actual_ready_since_s = None
-        self.alignment_completed = None
-        self.alignment_descent = None
-        self.vertical_command = None
-        self.approach_speed_reference = None
-        self.horizontal_transfer = None
-        self.horizontal_command = None
-        self.load_governor_activations = 0
-        self.last_allocation = {}
+        self.max_mass_balance_error = 0.0
+        self.integration_gust_exposure = dict(
+            maximum_contribution_m_s=0.0,
+            maximum_by_phase_m_s={},
+            endpoints_above_0_1_m_s=0,
+            first_endpoint_above_0_1_m_s=None,
+            last_endpoint_above_0_1_m_s=None,
+            gust_encounter_observed=False,
+            closest_descending_altitude_sample=None,
+            sampling_note="Accepted integration endpoints, not every RK intermediate stage",
+        )
+        self.main_consumed = 0.0
+        self.rcs_consumed = 0.0
+        self.boost_target_vx = None
+        self.boostback_completed = None
+        self.return_plan = None
+        self.return_plan_history = []
+        self.boost_direction = -1.0
+        self.boost_end_s = None
+        self.next_plan_s = 0.0
+        self.flip_started_s = None
+        self.entry_started_s = None
+        self.minimum_control_torque_margin_nm = 1e12
+        self.rng = np.random.default_rng(378)
+        self.observations = deque(maxlen=self.disturbances.observation_delay_steps + 1)
+        self.observation_times = deque(maxlen=self.observations.maxlen)
+        self.navigation_command_history = deque(maxlen=self.observations.maxlen + 1)
+        self.action_queue = deque(
+            [self.control] * (self.disturbances.action_delay_steps + 1),
+            maxlen=self.disturbances.action_delay_steps + 1,
+        )
+        self.navigation_estimator = PlanarNavigationEstimator(
+            self.disturbances.sensor_position_error_m,
+            self.disturbances.sensor_velocity_error_m_s,
+        )
+        self.observed_state = self.state.copy()
+        self.angular_observation = None
+        self.angular_torque_bias_nm = 0.0
 
     @classmethod
-    def from_separation(
-        cls, state, *, time_s, after_max_q, gate_altitude_m=None, engine_throttle=0.0, **kwargs
-    ):
-        """Start at the first-stage COM without resetting separation momentum.
-
-        ``after_max_q`` is an explicit upstream assertion, not an ascent result
-        verified by this recovery-only episode. The state has the same 13 entries
-        as a full-flight record; fins and gear must be stowed at separation.
-        """
-        initial = np.asarray(state, dtype=float)
-        if initial.shape != (13,) or not np.all(np.isfinite(initial)):
-            raise ValueError("분리 상태는 유한한 숫자 13개여야 합니다.")
-        started = _finite(time_s, "time_s")
-        throttle = _finite(engine_throttle, "engine_throttle")
-        if started < 0.0 or not 0.0 <= throttle <= 1.0 or after_max_q is not True:
-            raise ValueError("분리 시간과 Max-Q 통과 확인이 필요합니다.")
+    def from_separation(cls, state, *, time_s, **kwargs):
         flight = cls(**kwargs)
-        design = flight.design
-        if not (
-            abs(initial[0]) <= 1000.0
-            and 9890.0 <= initial[1] <= 10100.0
-            and abs(initial[2]) <= 60.0
-            and 0.0 < initial[3] <= 300.0
-            and 0.0 < initial[6] <= design.main_propellant_kg
-            and 0.0 <= initial[7] <= design.rcs_propellant_kg
-            and np.all(initial[8:] == 0.0)
+        value = np.asarray(state, dtype=float)
+        if value.ndim != 1 or len(value) != len(STATE_NAMES) or not np.isfinite(value).all():
+            raise ValueError("현재 100톤 모델의 19개 유한 상태값이 필요합니다.")
+        if not 0 < value[6] <= flight.design.main_propellant_kg or not (
+            0 <= value[7] <= flight.design.rcs_propellant_kg
         ):
-            raise ValueError("분리 상태가 현재 3톤 기체의 잠정 진입 범위를 벗어났습니다.")
+            raise ValueError("분리 추진제 장부가 제원을 벗어났습니다.")
         flight.upper_attached = False
-        flight.state = initial.copy()
-        flight.observed_state = initial.copy()
-        flight.time_s = flight.started_s = started
-        flight.deadline_s = started + 300.0
-        flight.next_control_s = flight.next_record_s = started
-        flight.scope = "10km_separation_to_settled_landing"
-        flight.initial_propellant = (float(initial[6]), float(initial[7]))
-        flight.engine_throttle = throttle
-        flight.max_q_passed = True
-        gate_height = (
-            initial[1] if gate_altitude_m is None else _finite(gate_altitude_m, "gate_altitude_m")
-        )
-        checks = flight.separation_checks(initial)
-        checks["altitude"] = abs(gate_height - 10000.0) <= 100.0
-        if not all(checks.values()):
-            failed = ", ".join(name for name, passed in checks.items() if not passed)
-            raise ValueError(f"분리 진입 조건 미통과: {failed}")
+        flight.on_pad = False
+        flight.state[:] = value
+        flight.time_s = flight.started_s = float(time_s)
+        flight.next_control_s = flight.next_record_s = flight.time_s
+        flight.deadline_s = flight.time_s + 500
+        flight.phase = "flip"
+        flight.scope = "37km_separation_to_touchdown"
+        flight.main_consumed = flight.design.main_propellant_kg - value[6]
+        flight.rcs_consumed = flight.design.rcs_propellant_kg - value[7]
         flight.separation = dict(
-            time_s=started,
-            state=initial.tolist(),
-            altitude_m=float(initial[1]),
-            x_m=float(initial[0]),
-            vx_m_s=float(initial[2]),
-            vz_m_s=float(initial[3]),
-            main_propellant_kg=float(initial[6]),
-            rcs_propellant_kg=float(initial[7]),
-            first_stage_mass_kg=flight.mass(initial),
-            gate_altitude_before_cg_change_m=gate_height,
-            gate_altitude_reference="upstream_separation_record",
-            checks_before_separation=checks,
-            after_observed_max_q=True,
-            upstream_max_q_assertion=True,
-            ascent_simulated=False,
-            engine_throttle=throttle,
-            controller_memory_initialized=True,
+            time_s=time_s, state=flight.state.tolist(), checks_before_separation={}
         )
-        flight.phase = "boostback" if abs(initial[0]) > 2.0 else "coast"
-        flight.filtered_attitude_target = float(initial[4])
         return flight
 
-    def wind_field(self, *, predicted=False, time_s=None):
-        return AprWindField(self.conditions, self.time_s if time_s is None else time_s, predicted)
-
-    def observe_control_state(self):
-        """Measured states and actuator telemetry only; no true wind or thrust error."""
-        self.observations.append((self.time_s, self.state.copy()))
-        sample_time, raw = self.observations[0]
-        raw = raw.copy()
-        scale = self.disturbances.sensor_noise_scale
-        delay = self.time_s - sample_time
-        if scale == 0.0 and delay == 0.0:
-            self.observed_state = raw
-            return raw
-        if scale:
-            deviations = scale * np.asarray(
-                (0.5, 0.5, 0.1, 0.1, np.deg2rad(0.25), np.deg2rad(0.25))
-            )
-            raw[:6] += self.rng.normal(0.0, deviations)
-        prediction = self.observed_state.copy()
-        force, aero_torque, _, _ = self.loads(prediction, predicted=True)
-        thrust, _ = self.engine(self.engine_throttle, prediction[1])
-        ax = (force[0] + thrust * sin(prediction[4] + self.control[1])) / self.mass(prediction)
-        properties = self.properties(prediction)
-        torque = (
-            aero_torque
-            + self.control[2]
-            - (properties.cg_m - self.physics.geometry.nozzle_station_m)
-            * thrust
-            * sin(self.control[1])
+    def mass(self, state, *, predicted=False):
+        return (
+            (self.nominal_design.dry_mass_kg if predicted else self.design.dry_mass_kg)
+            + state[6]
+            + state[7]
+            + (self.design.upper_mass_kg if self.upper_attached else 0)
         )
-        raw = self.sensor_estimator.observe(
-            raw,
-            self.time_s,
-            (ax, torque / properties.inertia_kg_m2),
-            delay,
-        )
-        if self.vertical_estimate is None:
-            self.vertical_estimate = np.asarray((raw[1], raw[3]))
-        else:
-            dt = self.time_s - self.observation_time_s
-            if dt > 0.0:
-                self.vertical_estimate[0] += dt * self.vertical_estimate[1]
-                self.vertical_estimate[0] += dt / (0.5 + dt) * (raw[1] - self.vertical_estimate[0])
-                self.vertical_estimate[1] += dt / (0.15 + dt) * (raw[3] - self.vertical_estimate[1])
-        raw[1] = self.vertical_estimate[0] + delay * self.vertical_estimate[1]
-        raw[3] = self.vertical_estimate[1]
-        self.observation_time_s = self.time_s
-        self.observed_state = raw
-        return raw
 
-    def applied_control(self, time_s, command, started_s, initial_throttle):
-        lag = self.disturbances.engine_lag_s
-        throttle = (
-            command[0]
-            if lag == 0.0
-            else (command[0] + (initial_throttle - command[0]) * exp(-(time_s - started_s) / lag))
-        )
-        return (throttle, *command[1:])
-
-    def vector(self, y):
-        return np.r_[y[:6], self.design.dry_mass_kg + y[6] + y[7], y[8:11]]
-
-    def properties(self, y):
-        first = mass_properties(self.design.dry_mass_kg + y[6] + y[7], y[8], self.physics)
-        if not self.upper_attached:
-            return first
-        mass = self.design.dry_mass_kg + y[6] + y[7]
+    def settings(self, *, attached=None, predicted=False):
+        attached = self.upper_attached if attached is None else attached
+        # 설정은 불변이다. 기체·제원이 교체되면 이전 캐시를 버린다.
         upper = self.design.upper_mass_kg
-        upper_station = 6.0
-        cg = (mass * first.cg_m + upper * upper_station) / (mass + upper)
-        inertia = first.inertia_kg_m2 + mass * (first.cg_m - cg) ** 2
-        inertia += upper * ((upper_station - cg) ** 2 + 2.0**2 / 12.0 + 0.45**2 / 4.0)
-        return MassProperties(cg, inertia, first.fuel_height_m)
-
-    def body_loads(self, y, *, predicted=False, time_s=None):
-        vector = self.vector(y)
+        cache = getattr(self, "_settings_cache", None)
+        if (
+            cache is None
+            or cache[0] is not self.physics
+            or cache[1] != upper
+            or cache[2] is not PHYSICS.geometry
+        ):
+            cache = (self.physics, upper, PHYSICS.geometry, {})
+            self._settings_cache = cache
+        key = (attached, predicted)
+        cached = cache[3].get(key)
+        if cached is not None:
+            return cached
         settings = self.physics
-        if self.upper_attached:
-            vector[6] += self.design.upper_mass_kg
+        if predicted:
             settings = replace(
-                self.physics,
-                geometry=replace(self.physics.geometry, body_length_m=7.0),
-                aerodynamics=replace(self.physics.aerodynamics, pressure_center_m=3.5),
+                settings,
+                atmosphere=replace(settings.atmosphere, density_scale=1.0),
+                geometry=PHYSICS.geometry,
             )
-        return aerodynamic_loads(
-            vector,
-            y[8],
-            self.wind_field(predicted=predicted, time_s=time_s),
+        if attached:
+            settings = replace(
+                settings,
+                fixed_mass_components=settings.fixed_mass_components
+                + (
+                    (
+                        upper,
+                        settings.upper_station_m,
+                        upper
+                        * (
+                            settings.upper_length_m**2 / 12 + settings.geometry.body_radius_m**2 / 4
+                        ),
+                    ),
+                ),
+            )
+        cache[3][key] = settings
+        return settings
+
+    def properties(self, state, *, predicted=False):
+        properties = mass_properties(
+            self.mass(state, predicted=predicted), state[8], self.settings(predicted=predicted)
+        )
+        if predicted or self.disturbances.inertia_scale == 1.0:
+            return properties
+        # Uncertainty belongs to the first-stage central inertia, not the
+        # exactly known stage-to-stage parallel-axis terms. This allocation
+        # remains the same on both sides of the separation event.
+        booster = (
+            mass_properties(
+                self.mass(state) - self.design.upper_mass_kg,
+                state[8],
+                self.settings(attached=False),
+            )
+            if self.upper_attached
+            else properties
+        )
+        return replace(
+            properties,
+            inertia_kg_m2=properties.inertia_kg_m2
+            + (self.disturbances.inertia_scale - 1.0) * booster.inertia_kg_m2,
+        )
+
+    def inertia_rate(self, state, mass_rate, deployment_rate, properties=None):
+        properties = self.properties(state) if properties is None else properties
+        mass = self.mass(state)
+        _, _, im, idp = mass_gradients(mass, state[8], self.settings(), properties)
+        nominal_rate = im * mass_rate + idp * deployment_rate
+        scale = self.disturbances.inertia_scale
+        if scale == 1.0:
+            return nominal_rate
+        if not self.upper_attached:
+            return scale * nominal_rate
+        booster_mass = mass - self.design.upper_mass_kg
+        booster_settings = self.settings(attached=False)
+        booster = mass_properties(booster_mass, state[8], booster_settings)
+        _, _, bm, bg = mass_gradients(booster_mass, state[8], booster_settings, booster)
+        return nominal_rate + (scale - 1.0) * (bm * mass_rate + bg * deployment_rate)
+
+    def vector(self, state, *, predicted=False):
+        vector = np.empty(10)
+        vector[:6] = state[:6]
+        vector[6] = self.mass(state, predicted=predicted)
+        vector[7] = state[6]
+        vector[8:] = state[17:19]
+        return vector
+
+    def height(self, state, *, predicted=False, properties=None):
+        vector = self.vector(state, predicted=predicted)
+        settings = self.settings(predicted=predicted)
+        g, gear = settings.geometry, settings.gear
+        if properties is None:
+            properties = mass_properties(vector[6], state[8], settings)
+        span = g.body_radius_m + state[8] * (gear.half_span_m - g.body_radius_m)
+        station = gear.anchor_station_m + state[8] * (gear.foot_station_m - gear.anchor_station_m)
+        offset = settings.body_frame_offset(vector)[0]
+        body_arms = np.asarray(
+            (
+                (-span + offset[0], station - properties.cg_m + offset[1]),
+                (span + offset[0], station - properties.cg_m + offset[1]),
+            )
+        )
+        points = vector[:2] + body_arms @ rotation(vector[4]).T
+        return float(points[:, 1].min())
+
+    def wind_field(self, *, forecast=False, time_s=None):
+        return AprWindField(self.conditions, self.time_s if time_s is None else time_s, forecast)
+
+    def engine(self, throttle, altitude, *, actual=False):
+        thrust, flow = engine_performance(
+            throttle,
+            altitude,
+            self.physics,
+            sea_level_thrust_n=self.design.sea_level_thrust_n,
+            sea_level_isp_s=self.design.sea_level_isp_s,
+        )
+        if actual:
+            # 추력 편차는 같은 유량에서의 성능 편차로 처리한다.
+            thrust *= self.disturbances.thrust_scale
+        return thrust, flow
+
+    def air_velocity(self, state, *, predicted=False, time_s=None):
+        field = self.wind_field(forecast=predicted, time_s=time_s)
+        return np.array([state[2] - field.at(state[1]), state[3] - field.vertical_at(state[1])])
+
+    def feed_status(self, state, demand=0.0, axial_acceleration=0.0):
+        return feed_rates(
+            state[6], demand, axial_acceleration, FeedState(*state[13:17]), self.feed_settings
+        )
+
+    def actual_engine(self, state):
+        thrust, flow = self.engine(float(np.clip(state[12], 0, 1)), state[1], actual=True)
+        feed = self.feed_status(state, flow)
+        if flow > 0:
+            thrust *= feed.delivered_flow_kg_s / flow
+            flow = feed.delivered_flow_kg_s
+        return (thrust, flow) if state[6] > 0 else (0.0, 0.0)
+
+    def ignition_control(self, command):
+        throttle, *other = command
+        if throttle <= 1e-8:
+            self.ignition_requested = False
+            self.ignition_ready_s = float("inf")
+            return command
+        if not self.ignition_requested:
+            self.ignition_requested = True
+            self.ignition_ready_s = self.time_s if self.state[12] > 1e-3 else float("inf")
+        if not np.isfinite(self.ignition_ready_s):
+            feed = self.feed_status(self.state)
+            ready = ignition_ready(
+                FeedState(*self.state[13:17]), feed.tank_pressure_pa, self.ignition_settings
+            )
+            if ready:
+                self.ignition_ready_s = self.time_s + self.ignition_settings.delay_s
+                self.ignition_events.append(
+                    dict(
+                        requested_s=self.time_s,
+                        ready_s=self.ignition_ready_s,
+                        phase=self.phase,
+                        buffer_kg=float(self.state[13]),
+                        tank_pressure_pa=feed.tank_pressure_pa,
+                    )
+                )
+        if self.time_s < self.ignition_ready_s - 1e-9:
+            return (0.0, *other)
+        return command
+
+    def alpha_deg(self, state, *, predicted=False):
+        vx, vz = self.air_velocity(state, predicted=predicted)
+        angle = atan2(vx, vz) if hypot(vx, vz) > 1e-6 else state[4]
+        # 재진입은 엔진 쪽이 선두인 축방향 유동이다. 축의 양방향을 구분한다.
+        error = atan2(sin(state[4] - angle), cos(state[4] - angle))
+        if error > pi / 2:
+            error -= pi
+        elif error < -pi / 2:
+            error += pi
+        return float(np.rad2deg(error))
+
+    def body_loads(self, state, *, predicted=False, time_s=None):
+        settings = self.settings(predicted=predicted)
+        if self.upper_attached:
+            length = self.physics.geometry.body_length_m + self.physics.upper_length_m
+            settings = replace(
+                settings,
+                geometry=replace(settings.geometry, body_length_m=length),
+                aerodynamics=replace(settings.aerodynamics, pressure_center_m=length / 2),
+            )
+        if not predicted:
+            scale = self.disturbances.drag_coefficient_scale
+            settings = replace(
+                settings,
+                aerodynamics=replace(
+                    settings.aerodynamics,
+                    axial_cd=settings.aerodynamics.axial_cd * scale,
+                    normal_cd=settings.aerodynamics.normal_cd * scale,
+                ),
+            )
+        force, moment, q, mach = aerodynamic_loads(
+            self.vector(state, predicted=predicted),
+            state[8],
+            self.wind_field(forecast=predicted, time_s=time_s),
             settings,
-            self.properties(y),
+            self.properties(state, predicted=predicted),
         )
+        offset = settings.body_frame_offset(self.vector(state, predicted=predicted))[0]
+        moment += clock_torque(rotation(state[4]) @ offset, force)
+        return force, moment, q, mach
 
-    def fin_loads(self, y, deflection=None, *, predicted=False, time_s=None):
-        """Lift is perpendicular to flow; drag opposes it, with a finite lever arm.
-
-        Four installed surfaces are represented by one effective in-plane pair.
-        Saturated lift at large AoA is only a screening approximation. Every run
-        reports excursions outside the declared subsonic/small-AoA envelope.
-        """
-        if self.upper_attached or y[12] <= 0.0:
+    def fin_loads(self, state, deflection=None, *, predicted=False, time_s=None):
+        if self.upper_attached or self.fin_mode == "stowed":
             return np.zeros(2), 0.0, 0.0
-        velocity = np.array(
-            [y[2] - self.wind_field(predicted=predicted, time_s=time_s).at(y[1]), y[3]]
-        )
+        velocity = self.air_velocity(state, predicted=predicted, time_s=time_s)
         speed = hypot(*velocity)
-        if speed < 1e-8:
+        if speed < 1e-6:
             return np.zeros(2), 0.0, 0.0
-        density = atmosphere(y[1], self.physics.atmosphere)[2]
-        q = 0.5 * density * speed**2
-        normal_axis = rotation(y[4])[:, 0]
-        lift_direction = np.array([-velocity[1], velocity[0]]) / speed
-        if float(lift_direction @ normal_axis) < 0.0:
-            lift_direction *= -1.0
-        angle = y[11] if deflection is None else deflection
+        rho = atmosphere(state[1], self.settings(predicted=predicted).atmosphere)[2]
+        q = 0.5 * rho * speed**2
+        angle = state[9] if deflection is None else deflection
         cl = float(
             np.clip(
-                FINS.lift_slope_rad_inv
-                * (angle - np.deg2rad(self.alpha_deg(y, predicted=predicted, time_s=time_s))),
+                FINS.lift_slope_rad_inv * angle,
                 -FINS.max_lift_coefficient,
                 FINS.max_lift_coefficient,
             )
         )
-        lift = q * y[12] * FINS.planar_effective_area_m2 * cl
-        drag_area = (
-            FINS.installed_area_m2 * FINS.base_drag_coefficient
-            + FINS.planar_effective_area_m2 * FINS.induced_drag_factor * cl**2
+        extension = state[10]
+        lift = q * FINS.planar_effective_area_m2 * cl * extension
+        drag = (
+            q
+            * FINS.planar_effective_area_m2
+            * (FINS.base_drag_coefficient + FINS.induced_drag_factor * cl**2)
+            * extension
         )
-        force = lift * lift_direction - q * y[12] * drag_area * velocity / speed
-        arm = rotation(y[4]) @ np.array([0.0, FINS.station_m - self.properties(y).cg_m])
-        torque = clock_torque(arm, force)
-        # The planar lift pair shares the aerodynamic hinge load equally.
-        hinge = abs(lift) * FINS.hinge_arm_m / 2.0
-        return force, torque, hinge
+        normal = np.array([-velocity[1], velocity[0]]) / speed
+        force = lift * normal - drag * velocity / speed
+        offset = self.settings(predicted=predicted).body_frame_offset(
+            self.vector(state, predicted=predicted)
+        )[0]
+        arm = rotation(state[4]) @ np.array(
+            [
+                offset[0],
+                FINS.station_m - self.properties(state, predicted=predicted).cg_m + offset[1],
+            ]
+        )
+        hinge = abs(lift) / 2 * FINS.hinge_arm_m
+        return force, clock_torque(arm, force), hinge
 
-    def loads(self, y, *, predicted=False, time_s=None):
-        force, torque, q, mach = self.body_loads(y, predicted=predicted, time_s=time_s)
-        fin_force, fin_torque, _ = self.fin_loads(y, predicted=predicted, time_s=time_s)
-        return force + fin_force, torque + fin_torque, q, mach
+    def loads(self, state, *, predicted=False, time_s=None):
+        body, torque, q, alpha = self.body_loads(state, predicted=predicted, time_s=time_s)
+        fin, moment, _ = self.fin_loads(state, predicted=predicted, time_s=time_s)
+        return body + fin, torque + moment, q, alpha
 
-    def fin_command(self, y, requested_torque):
-        if (
-            self.fin_mode != "active"
-            or self.upper_attached
-            or y[12] <= 0.0
-            or self.contact is not None
-            or abs(self.alpha_deg(y, predicted=True)) > FINS.control_max_alpha_deg
-        ):
+    def fin_command(self, state, requested_torque):
+        if self.upper_attached or self.fin_mode == "stowed" or state[10] < 0.5:
             return 0.0
-        if self.body_loads(y, predicted=True)[2] < FINS.control_min_q_pa:
-            # Feather rather than snap to body-neutral at the low-q transition.
-            return float(
-                np.deg2rad(
-                    np.clip(
-                        self.alpha_deg(y, predicted=True),
-                        -FINS.deflection_limit_deg,
-                        FINS.deflection_limit_deg,
-                    )
-                )
-            )
-        limit = np.deg2rad(FINS.deflection_limit_deg)
-        low = self.fin_loads(y, -limit, predicted=True)[1]
-        high = self.fin_loads(y, limit, predicted=True)[1]
-        if requested_torque <= low:
-            return -limit
-        if requested_torque >= high:
-            return limit
-        return float(
-            brentq(
-                lambda angle: self.fin_loads(y, angle, predicted=True)[1] - requested_torque,
-                -limit,
-                limit,
-                xtol=1e-9,
-            )
-        )
-
-    def mass(self, y):
-        return (
-            self.design.dry_mass_kg
-            + y[6]
-            + y[7]
-            + (self.design.upper_mass_kg if self.upper_attached else 0.0)
-        )
-
-    def height(self, y):
-        if self.upper_attached:
-            return y[1] - self.properties(y).cg_m + self.physics.gear.foot_station_m
-        return float(foot_kinematics(self.vector(y), y[8], self.physics)[0][:, 1].min())
-
-    def engine(self, throttle, height, *, actual=False):
-        return engine_performance(
-            throttle,
-            height,
-            self.physics,
-            self.disturbances.thrust_scale if actual else 1.0,
-            sea_level_thrust_n=self.design.sea_level_thrust_n,
-            sea_level_isp_s=self.design.sea_level_isp_s,
-        )
-
-    def alpha_deg(self, y, *, predicted=False, time_s=None):
-        relative_velocity = np.array(
-            [y[2] - self.wind_field(predicted=predicted, time_s=time_s).at(y[1]), y[3]]
-        )
-        speed = hypot(*relative_velocity)
-        if speed < 1e-5:
+        unit = np.deg2rad(1.0)
+        slope = (
+            self.fin_loads(state, unit, predicted=True)[1]
+            - self.fin_loads(state, -unit, predicted=True)[1]
+        ) / (2 * unit)
+        if abs(slope) < 1:
             return 0.0
-        # AoA describes flow relative to the nearest direction of the body axis.
-        normal, axial = rotation(y[4]).T @ relative_velocity
-        return float(np.rad2deg(atan2(normal, abs(axial))))
-
-    def preparation_fraction(self, y):
-        settings = self.ascent_settings
+        target = float(np.clip(requested_torque / slope, -np.deg2rad(20), np.deg2rad(20)))
+        q = self.loads(state, predicted=True)[2]
+        cl_limit = min(
+            FINS.max_lift_coefficient,
+            FINS.per_fin_hinge_limit_nm
+            / max(q * FINS.planar_effective_area_m2 / 2 * FINS.hinge_arm_m, 1),
+        )
         return float(
-            np.clip(
-                (y[1] - settings.preparation_start_altitude_m)
-                / (settings.preparation_full_altitude_m - settings.preparation_start_altitude_m),
-                0.0,
-                1.0,
-            )
+            np.clip(target, -cl_limit / FINS.lift_slope_rad_inv, cl_limit / FINS.lift_slope_rad_inv)
         )
 
-    def ascent_attitude_target(self, y, height):
-        """Air-relative flight-path tracking with bounded lateral steering bias."""
-        settings = self.ascent_settings
-        blend = self.preparation_fraction(y)
-        steering = float(
-            np.clip(
-                (height - settings.steering_start_height_m) / settings.steering_ramp_height_m,
-                0.0,
-                1.0,
-            )
+    def derivative(
+        self,
+        state,
+        control,
+        *,
+        time_s=None,
+        available_propellant=None,
+        systems_diagnostics=None,
+    ):
+        time_s = self.time_s if time_s is None else time_s
+        throttle, gimbal, rcs, fin_target = control
+        main_available, rcs_available = (
+            (state[6] > 0, state[7] > 0) if available_propellant is None else available_propellant
         )
-        # Small-angle gravity-turn schedule for the existing vertical speed
-        # profile: d(log(tan(gamma)))/dz ~ g/vz**2. Feedback handles departures
-        # from that reference; neither velocity nor attitude state is overwritten.
-        vertical_reference = self.ascent_vertical_speed_reference(height)
-        speed_ratio = settings.separation_vertical_speed_m_s / vertical_reference
-        flight_path_reference = atan2(
-            np.tan(np.deg2rad(settings.separation_attitude_deg))
-            * speed_ratio ** (G0 / settings.vertical_profile_deceleration_m_s2),
-            1.0,
-        )
-        reference = steering * max(y[3], 1.0) * np.tan(flight_path_reference)
-        # These are guidance budgets, not new acceptance limits or state clamps.
-        overshoot = max(abs(y[0]) - settings.horizontal_distance_budget_m, 0.0)
-        reference -= np.sign(y[0]) * settings.horizontal_position_gain_s_inv * overshoot
-        reference = float(
-            np.clip(
-                reference,
-                -settings.horizontal_speed_budget_m_s,
-                settings.horizontal_speed_budget_m_s,
-            )
-        )
-        velocity_x = y[2] - self.wind_field(predicted=True).at(y[1])
-        flight_path = atan2(velocity_x, max(y[3], 1.0))
-        alpha_limit = (
-            (1.0 - blend) * settings.alpha_reference_limit_deg
-            + blend * settings.preparation_alpha_reference_limit_deg
-        )
-        bias_deg = float(
-            np.clip(
-                settings.horizontal_velocity_gain_deg_s_m * (reference - velocity_x),
-                -alpha_limit,
-                alpha_limit,
-            )
-        )
-        target = steering * (flight_path + np.deg2rad(bias_deg))
-        self.ascent_command = dict(
-            flight_path_angle_deg=float(np.rad2deg(flight_path)),
-            flight_path_reference_deg=float(np.rad2deg(flight_path_reference)),
-            target_attitude_deg=float(np.rad2deg(target)),
-            target_alpha_deg=float(np.rad2deg(flight_path - target)),
-            horizontal_speed_reference_m_s=reference,
-            preparation_fraction=blend,
-        )
-        return target
-
-    def ascent_vertical_speed_reference(self, height):
-        settings = self.ascent_settings
-        return min(
-            settings.vertical_speed_limit_m_s,
-            sqrt(
-                settings.separation_vertical_speed_m_s**2
-                + 2.0
-                * settings.vertical_profile_deceleration_m_s2
-                * max(settings.separation_altitude_m - height, 0.0)
-            ),
-        )
-
-    def update_max_q_passed(self, q):
-        """Causal descending-q evidence, not advance knowledge of a future maximum."""
-        settings = self.ascent_settings
-        descending = (
-            self.max_q_before_separation >= settings.max_q_min_observed_peak_pa
-            and q < settings.max_q_fall_fraction * self.max_q_before_separation
-            and q < self.previous_ascent_q_pa
-        )
-        if not descending:
-            self.max_q_fall_since_s = None
-            self.max_q_passed = False
-        else:
-            if self.max_q_fall_since_s is None:
-                self.max_q_fall_since_s = self.time_s
-            self.max_q_passed = self.time_s - self.max_q_fall_since_s >= settings.max_q_fall_dwell_s
-        self.previous_ascent_q_pa = q
-
-    def separation_checks(self, y, *, predicted=False):
-        settings = self.ascent_settings
-        return dict(
-            altitude=abs(y[1] - settings.separation_altitude_m) <= 100.0,
-            mission_attitude=abs(np.rad2deg(y[4]) - settings.separation_attitude_deg)
-            <= settings.separation_attitude_tolerance_deg,
-            dynamic_pressure=self.loads(y, predicted=predicted)[2] <= 25_000.0,
-            after_observed_max_q=self.max_q_passed,
-            alpha=abs(self.alpha_deg(y, predicted=predicted)) <= 5.0,
-            angular_rate=abs(np.rad2deg(y[5])) <= 5.0,
-            preparation_alpha=abs(self.alpha_deg(y, predicted=predicted))
-            <= self.ascent_settings.separation_alpha_target_deg,
-            preparation_rate=abs(np.rad2deg(y[5]))
-            <= self.ascent_settings.separation_rate_target_deg_s,
-            ascending=y[3] > 0.0,
-        )
-
-    def consider_separation(self, y, *, predicted=False):
-        if y[1] < self.ascent_settings.preparation_start_altitude_m:
-            return
-        checks = self.separation_checks(y, predicted=predicted)
-        self.last_separation_checks = checks
-        self.last_separation_check_state = dict(
-            time_s=self.time_s,
-            altitude_m=y[1],
-            dynamic_pressure_pa=self.loads(y, predicted=predicted)[2],
-            alpha_deg=self.alpha_deg(y, predicted=predicted),
-            attitude_deg=float(np.rad2deg(y[4])),
-            angular_rate_deg_s=float(np.rad2deg(y[5])),
-        )
-        if all(checks.values()):
-            if self.separation_ready_since_s is None:
-                self.separation_ready_since_s = self.time_s
-            if (
-                self.time_s - self.separation_ready_since_s
-                >= self.ascent_settings.separation_dwell_s
-            ):
-                self.separate()
-                return
-        else:
-            self.separation_ready_since_s = None
-        if y[1] > self.ascent_settings.separation_altitude_m + 100.0:
-            self.outcome = "separation_gate_failed"
-            self.failures.append(self.outcome)
-            self.failures.extend(
-                f"separation_{name}" for name, passed in checks.items() if not passed
-            )
-
-    def inertia_rate(self, y, mass_rate, deploy_rate):
-        properties = self.properties(y)
-        if not self.upper_attached:
-            _, _, dm, dd = mass_gradients(self.mass(y), y[8], self.physics, properties)
-            return dm * mass_rate + dd * deploy_rate
-        # Analytic tank-top derivative including the passive upper-stage point mass.
-        top = self.physics.geometry.tank_bottom_m + properties.fuel_height_m
-        return mass_rate * (
-            self.physics.geometry.body_radius_m**2 / 4.0 + (top - properties.cg_m) ** 2
-        )
-
-    def update_fin_plan(self, y, height):
-        if self.fin_mode != "active" or self.upper_attached:
-            return
-        s = self.return_settings
-        if self.contact is not None or (
-            self.phase in ("landing", "alignment", "approach") and height <= s.fin_retract_height_m
-        ):
-            if not self.fin_retraction_started:
-                self.fin_retraction_started_s = self.time_s
-            self.fin_retraction_started = True
-        if (
-            not self.fin_deployment_started
-            and not self.fin_retraction_started
-            and self.phase == "coast"
-            and -y[3] >= s.fin_deploy_min_downspeed_m_s
-            and abs(self.alpha_deg(y, predicted=True)) <= s.fin_deploy_max_alpha_deg
-            and abs(np.rad2deg(y[5])) <= s.fin_deploy_max_rate_deg_s
-        ):
-            self.fin_deployment_started = True
-            self.fin_deployment_started_s = self.time_s
-
-    def fin_extension_rate(self, y):
-        if self.fin_retraction_started:
-            return -1.0 / FINS.retraction_time_s if y[12] > 0.0 else 0.0
-        if self.fin_deployment_started and y[12] < 1.0:
-            return 1.0 / FINS.deployment_time_s
-        return 0.0
-
-    def derivative(self, y, control, *, contact_enabled=True, time_s=None):
-        throttle, gimbal, torque, fin_target = control
-        if y[6] <= 0.0:
-            throttle = 0.0
-        if y[7] <= 0.0:
-            torque = 0.0
-        thrust, main_flow = self.engine(throttle, y[1], actual=True)
-        rcs_flow = abs(torque) / (self.physics.geometry.rcs_arm_m * self.design.rcs_isp_s * G0)
+        throttle = throttle if main_available else 0
+        rcs = rcs if rcs_available else 0
+        actual_throttle = float(np.clip(state[12], 0, 1)) if main_available else 0
+        thrust, demanded_flow = self.engine(actual_throttle, state[1], actual=True)
+        feed = self.feed_status(state, demanded_flow)
+        main_flow = demanded_flow
+        if demanded_flow > 0:
+            main_flow = feed.delivered_flow_kg_s
+            thrust *= main_flow / demanded_flow
+        rcs_flow = abs(rcs) / (self.physics.geometry.rcs_arm_m * self.design.rcs_isp_s * G0)
         mass_rate = -main_flow - rcs_flow
+        props = self.properties(state)
+        height = self.height(state, properties=props) if not self.upper_attached else None
         deployment_rate = (
-            1.0 / self.physics.gear.deployment_time_s
+            1 / self.physics.gear.deployment_time_s
             if not self.upper_attached
-            and y[1] < self.physics.gear.deployment_height_m
-            and y[8] < 1.0
-            else 0.0
+            and height < self.return_settings.gear_deployment_height_m
+            and state[8] < 1
+            else 0
         )
-        force, aero_torque, _, _ = self.loads(y, time_s=time_s)
-        force += thrust * np.array([sin(y[4] + gimbal), cos(y[4] + gimbal)])
-        contacts = None
-        if not self.upper_attached and contact_enabled and self.height(y) < 2.0:
-            contacts = gear_contacts(
-                self.vector(y), self.physics, mass_rate=mass_rate, deployment_rate=deployment_rate
-            )
-            force += contacts["forces"].sum(axis=0)
-        mass = self.mass(y)
-        acceleration = force / mass - np.array([0.0, gravity(y[1])])
-        omega_n = 7.292115e-5 * cos(np.deg2rad(self.physics.atmosphere.latitude_deg))
-        acceleration += 2.0 * omega_n * np.array([-y[3], y[2]])
-        properties = self.properties(y)
-        arm = properties.cg_m - self.physics.geometry.nozzle_station_m
-        angular_flux = -main_flow * arm**2 * y[5]
+        force, aero_torque, _, _ = self.loads(state, time_s=time_s)
+        force += thrust * np.array([sin(state[4] + state[11]), cos(state[4] + state[11])])
+        mass = self.mass(state)
+        acceleration = force / mass - np.array([0.0, gravity(state[1])])
+        if self.physics.atmosphere.coriolis_enabled:
+            omega = 7.292115e-5 * cos(np.deg2rad(self.conditions.latitude_deg))
+            acceleration += 2 * omega * np.array([-state[3], state[2]])
+        inertia_rate = self.inertia_rate(state, mass_rate, deployment_rate, props)
+        lever = props.cg_m - self.physics.geometry.nozzle_station_m
+        angular_flux = -main_flow * lever**2 * state[5]
         angular_flux -= (
             rcs_flow
             * (
                 self.physics.geometry.rcs_arm_m**2
-                + (self.physics.geometry.rcs_station_m - properties.cg_m) ** 2
+                + (self.physics.geometry.rcs_station_m - props.cg_m) ** 2
             )
-            * y[5]
+            * state[5]
         )
-        net_torque = -arm * thrust * sin(gimbal) + torque + aero_torque
-        if contacts is not None:
-            net_torque += contacts["torque"]
-        scale = self.disturbances.inertia_scale
+        offset = self.settings().body_frame_offset(self.vector(state))[0]
+        torque = (-lever + offset[1]) * thrust * sin(state[11]) - offset[0] * thrust * cos(
+            state[11]
+        )
+        torque += rcs + aero_torque
         angular_acceleration = (
-            net_torque
-            + angular_flux
-            - scale * self.inertia_rate(y, mass_rate, deployment_rate) * y[5]
-        ) / (scale * properties.inertia_kg_m2)
-        friction_rate = (
-            np.where(contacts["normal"] > 0.0, contacts["velocities"][:, 0], 0.0)
-            if contacts is not None
-            else np.zeros(2)
+            torque + angular_flux - inertia_rate * state[5]
+        ) / props.inertia_kg_m2
+        proper_body = rotation(state[4]).T @ (force / mass)
+        supported_on_pad = (
+            self.on_pad and self.upper_attached and force[1] < mass * gravity(state[1])
         )
-        return np.r_[
-            y[2:4],
-            acceleration,
-            y[5],
-            angular_acceleration,
-            -main_flow,
-            -rcs_flow,
-            deployment_rate,
-            friction_rate,
+        if supported_on_pad:
+            proper_body = rotation(state[4]).T @ np.array([0.0, gravity(state[1])])
+        feed = self.feed_status(state, demanded_flow, float(proper_body[1]))
+        station = self.physics.geometry.tank_bottom_m + props.fuel_height_m / 2.0
+        slosh = slosh_response(
+            mass,
+            props.inertia_kg_m2,
+            max(state[6], 0.0),
+            station - props.cg_m,
+            float(proper_body[1]),
+            float(proper_body[0]),
+            torque + angular_flux - inertia_rate * state[5],
+            state[5],
+            SloshState(*state[17:19]),
+            self.slosh_settings,
+        )
+        angular_acceleration = slosh.angular_acceleration_rad_s2
+        if supported_on_pad:
+            acceleration[:] = 0
+            angular_acceleration = 0
+        fin_rate = np.clip(
+            (fin_target - state[9]) / FINS.actuator_time_constant_s,
+            -np.deg2rad(FINS.deflection_rate_deg_s),
+            np.deg2rad(FINS.deflection_rate_deg_s),
+        )
+        fin_allowed = (
+            not self.upper_attached
+            and self.fin_mode == "active"
+            and self.phase in ("coast", "entry", "landing")
+            and 500 < height < 20_000
+            and state[3] < -self.return_settings.fin_min_descent_speed_m_s
+            and abs(self.alpha_deg(state)) < 15
+        )
+        fin_extension_rate = (
+            1 / FINS.deployment_time_s
+            if fin_allowed and state[10] < 1
+            else -1 / FINS.retraction_time_s
+            if not fin_allowed and state[10] > 0
+            else 0
+        )
+        engine_tau = max(0.04, self.disturbances.engine_lag_s)
+        mode_acceleration = slosh.displacement_acceleration_m_s2
+        if supported_on_pad and slosh.modal_mass_kg > 1e-9:
+            mode_acceleration += (
+                slosh.rotational_slosh_coupling_kg_m
+                / slosh.reduced_modal_mass_kg
+                * slosh.angular_acceleration_rad_s2
+            )
+        if systems_diagnostics is not None:
+            systems_diagnostics.update(feed=feed, slosh=slosh)
+        rate = np.empty(len(STATE_NAMES))
+        rate[:2] = state[2:4]
+        rate[2:4] = acceleration
+        rate[4] = state[5]
+        rate[5] = angular_acceleration
+        rate[6:11] = (-main_flow, -rcs_flow, deployment_rate, fin_rate, fin_extension_rate)
+        rate[11] = np.clip((gimbal - state[11]) / 0.06, -np.deg2rad(60), np.deg2rad(60))
+        rate[12] = (throttle - state[12]) / engine_tau
+        rate[13:17] = feed.state_derivatives
+        rate[17] = state[18]
+        rate[18] = mode_acceleration
+        return rate
+
+    def attitude_control(self, target, throttle, observed, *, thrust_direction=None):
+        self.attitude_target = target
+        limits = self.return_settings
+        error = atan2(sin(target - observed[4]), cos(target - observed[4]))
+        rate_limit = np.deg2rad(limits.attitude_rate_limit_deg_s)
+        alpha_limit = np.deg2rad(limits.attitude_acceleration_limit_deg_s2)
+        body_load = self.body_loads(observed, predicted=True)
+        if not self.upper_attached and body_load[2] >= limits.entry_attitude_cone_min_q_pa:
+            alpha_limit = min(alpha_limit, np.deg2rad(1.0))
+        stopping_rate = sqrt(2 * 0.8 * alpha_limit * abs(error))
+        desired_rate = np.sign(error) * min(rate_limit, 1.5 * abs(error), stopping_rate)
+        desired_alpha = float(np.clip(4 * (desired_rate - observed[5]), -alpha_limit, alpha_limit))
+        props = self.properties(observed, predicted=True)
+        # 총 발사질량 ±1%는 추진제가 아니라 기체 고정질량 ±1000 kg이다.
+        # 같은 액체 장부를 유지한 가벼운 기체의 관성으로 가속 토크를 제한한다.
+        lower_settings = self.settings(predicted=True)
+        mass_deviation = 0.01 * self.nominal_design.launch_mass_kg
+        lower_geometry = replace(
+            lower_settings.geometry,
+            airframe_mass_kg=lower_settings.geometry.airframe_mass_kg - mass_deviation,
+        )
+        lower_settings = replace(lower_settings, geometry=lower_geometry)
+        lower_mass = self.mass(observed, predicted=True) - mass_deviation
+        lower_props = mass_properties(lower_mass, observed[8], lower_settings)
+        lower_booster = (
+            mass_properties(
+                lower_mass - self.design.upper_mass_kg,
+                observed[8],
+                replace(self.settings(attached=False, predicted=True), geometry=lower_geometry),
+            )
+            if self.upper_attached
+            else lower_props
+        )
+        acceleration_inertia = lower_props.inertia_kg_m2 - 0.03 * lower_booster.inertia_kg_m2
+        _, main_flow = self.engine(observed[12], observed[1])
+        rcs_flow = abs(self.control[2]) / (
+            self.physics.geometry.rcs_arm_m * self.design.rcs_isp_s * G0
+        )
+        lever = props.cg_m - self.physics.geometry.nozzle_station_m
+        _, _, im, ideploy = mass_gradients(
+            self.mass(observed, predicted=True), observed[8], self.settings(predicted=True), props
+        )
+        gear_rate = (
+            1 / self.physics.gear.deployment_time_s
+            if not self.upper_attached
+            and observed[8] < 1
+            and self.height(observed, predicted=True) < limits.gear_deployment_height_m
+            else 0.0
+        )
+        inertia_rate = -im * (main_flow + rcs_flow) + ideploy * gear_rate
+        angular_flux = -main_flow * lever**2 * observed[5]
+        angular_flux -= (
+            rcs_flow
+            * (
+                self.physics.geometry.rcs_arm_m**2
+                + (self.physics.geometry.rcs_station_m - props.cg_m) ** 2
+            )
+            * observed[5]
+        )
+        # 몸체 토크와 핀 토크를 분리하여 실제 핀 모멘트는 한 번만 상쇄한다.
+        requested_raw = (
+            acceleration_inertia * desired_alpha
+            + inertia_rate * observed[5]
+            - angular_flux
+            - body_load[1]
+            - self.angular_torque_bias_nm
+        )
+        fin_target = self.fin_command(observed, requested_raw)
+        limit = np.deg2rad(self.design.gimbal_limit_deg)
+        # A new command executes only after the pending queue. Predict its
+        # actuator starting state from observed telemetry and known commands;
+        # do not flush the queue or read hidden actuator/model deviations.
+        allocation_gimbal = float(observed[11])
+        allocation_fin = float(observed[9])
+        allocation_time = self.time_s
+        pending_level = float(observed[12])
+        pending_slow_level = pending_level
+        pending_commands = list(self.action_queue)[1:]
+
+        def eligible_throttle(scenario, command_level, start_time):
+            if command_level <= 1e-8:
+                scenario["ready"], scenario["requested"] = float("inf"), False
+                return 0.0
+            if not scenario["requested"]:
+                scenario["requested"] = True
+                scenario["ready"] = start_time if scenario["level"] > 1e-3 else float("inf")
+            # Unknown supply/ignition readiness is not assumed to be true.
+            return command_level if start_time >= scenario["ready"] - 1e-9 else 0.0
+
+        def advance_actuator(angle, target_angle, duration, tau=0.06):
+            rate = np.deg2rad(60.0)
+            difference = target_angle - angle
+            linear_time = min(duration, max(0.0, (abs(difference) - rate * tau) / rate))
+            angle += np.sign(difference) * rate * linear_time
+            return target_angle + (angle - target_angle) * exp(-(duration - linear_time) / tau)
+
+        # 핀도 지연 측정이다. 측정 이후 실제로 전달했던 명령만 전파한다.
+        if self.observation_times:
+            fin_time = self.observation_times[0]
+            if self.observations:
+                pending_slow_level = float(self.observations[0][12])
+            for end, command in self.navigation_command_history:
+                if end <= fin_time + 1e-12:
+                    continue
+                duration = min(end, self.time_s) - fin_time
+                if duration <= 0:
+                    continue
+                allocation_fin = advance_actuator(
+                    allocation_fin, command[3], duration, FINS.actuator_time_constant_s
+                )
+                pending_slow_level = command[0] + (pending_slow_level - command[0]) * exp(
+                    -duration / 0.05
+                )
+                fin_time += duration
+        engine_scenarios = [
+            dict(
+                tau=tau,
+                level=level,
+                ready=self.ignition_ready_s,
+                requested=self.ignition_requested,
+            )
+            for tau, level in ((0.04, pending_level), (0.05, pending_slow_level))
+        ]
+        for pending in pending_commands:
+            for scenario in engine_scenarios:
+                level = eligible_throttle(scenario, pending[0], allocation_time)
+                scenario["level"] = level + (scenario["level"] - level) * exp(
+                    -limits.control_dt_s / scenario["tau"]
+                )
+            allocation_gimbal = advance_actuator(allocation_gimbal, pending[1], limits.control_dt_s)
+            allocation_fin = advance_actuator(
+                allocation_fin, pending[3], limits.control_dt_s, FINS.actuator_time_constant_s
+            )
+            allocation_time += limits.control_dt_s
+        # Apply ignition eligibility before sizing TVC as well as RCS. A
+        # fictitious future flame prepositions the gimbal during the wait,
+        # then adds its torque to the held RCS command when ignition begins.
+        for scenario in engine_scenarios:
+            scenario["thrust"] = self.engine(scenario["level"], observed[1])[0]
+            effective_level = eligible_throttle(scenario, throttle, allocation_time)
+            scenario["command_thrust"] = self.engine(effective_level, observed[1])[0]
+            scenario["future_thrust"] = scenario["command_thrust"] + (
+                scenario["thrust"] - scenario["command_thrust"]
+            ) * exp(-limits.control_dt_s / scenario["tau"])
+        midpoint = limits.control_dt_s / 2.0
+        mid_fin = advance_actuator(
+            allocation_fin, fin_target, midpoint, FINS.actuator_time_constant_s
+        )
+        requested = requested_raw - self.fin_loads(observed, mid_fin, predicted=True)[1]
+        # 점화 직후 작은 현재 추력으로 큰 짐벌각을 요구하지 않는다.
+        sizing_thrust = max(
+            max(scenario["thrust"], scenario["future_thrust"]) for scenario in engine_scenarios
+        )
+        gimbal = (
             float(
                 np.clip(
-                    (fin_target - y[11]) / FINS.actuator_time_constant_s,
-                    -np.deg2rad(FINS.deflection_rate_deg_s),
-                    np.deg2rad(FINS.deflection_rate_deg_s),
-                )
-            ),
-            self.fin_extension_rate(y),
-        ]
-
-    def attitude(self, target, throttle, y=None):
-        y = self.state if y is None else y
-        error = atan2(sin(target - y[4]), cos(target - y[4]))
-        rate_limit = 12.0
-        if self.upper_attached:
-            blend = self.preparation_fraction(y)
-            rate_limit += blend * (self.ascent_settings.preparation_rate_limit_deg_s - rate_limit)
-        if self.upper_attached:
-            rate = float(np.clip(1.5 * error, -np.deg2rad(rate_limit), np.deg2rad(rate_limit)))
-            alpha = float(np.clip(4.0 * (rate - y[5]), -np.deg2rad(4.5), np.deg2rad(4.5)))
-        else:
-            s = self.return_settings
-            rate_limit = np.deg2rad(s.attitude_rate_limit_deg_s)
-            rate = float(np.clip(s.attitude_position_gain_s_inv * error, -rate_limit, rate_limit))
-            acceleration_limit = np.deg2rad(s.attitude_acceleration_limit_deg_s2)
-            alpha = float(
-                np.clip(
-                    s.attitude_rate_gain_s_inv * (rate - y[5]),
-                    -acceleration_limit,
-                    acceleration_limit,
+                    np.arcsin(np.clip(-requested / max(lever * sizing_thrust, 1), -1, 1)),
+                    -limit,
+                    limit,
                 )
             )
-        thrust, flow = self.engine(throttle, y[1])
-        properties = self.properties(y)
-        lever = properties.cg_m - self.physics.geometry.nozzle_station_m
-        aero_torque = self.body_loads(y, predicted=True)[1]
-        flux = -flow * lever**2 * y[5]
-        requested = properties.inertia_kg_m2 * alpha - aero_torque - flux
-        requested += self.inertia_rate(y, -flow, 0.0) * y[5]
-        limit = np.deg2rad(self.design.gimbal_limit_deg)
-        gimbal_capacity = lever * thrust * sin(limit)
-        # Fins lead unpowered descent; TVC leads powered flight. Fins only assist
-        # beyond reserved TVC capacity, instead of chasing the same torque twice.
-        reserve = self.return_settings.gimbal_capacity_fraction * gimbal_capacity
-        assistance = requested - float(np.clip(requested, -reserve, reserve))
-        fin_requested = self.fin_share * requested + (1.0 - self.fin_share) * assistance
-        fin_target = self.fin_command(y, fin_requested)
-        # Compensate the ACTUAL delayed fin torque, not an ideal commanded torque.
-        requested -= self.fin_loads(y, predicted=True)[1]
-        gimbal = float(
-            np.clip(
-                np.arcsin(np.clip(-requested / max(lever * thrust, 1e-12), -1.0, 1.0)),
+            if sizing_thrust > 1
+            else 0.0
+        )
+        if thrust_direction is not None and sizing_thrust > 1:
+            lower = max(
                 -limit,
+                np.arcsin(
+                    np.clip(
+                        (-self.design.rcs_torque_limit_nm - requested) / (lever * sizing_thrust),
+                        -1,
+                        1,
+                    )
+                ),
+            )
+            upper = min(
                 limit,
+                np.arcsin(
+                    np.clip(
+                        (self.design.rcs_torque_limit_nm - requested) / (lever * sizing_thrust),
+                        -1,
+                        1,
+                    )
+                ),
             )
-        )
-        supplied = -lever * thrust * sin(gimbal)
-        rcs = float(
-            np.clip(
-                requested - supplied,
-                -self.design.rcs_torque_limit_nm,
-                self.design.rcs_torque_limit_nm,
+            if lower <= upper:
+                gimbal = float(np.clip(thrust_direction - observed[4], lower, upper))
+        # 한 명령을 유지하는 구간의 시작·중간·끝에서 핀과 TVC를 함께 배분한다.
+        # 40/50 ms 엔진 응답 후보의 극값 중심은 고정 RCS의 최대 토크 오차를 줄인다.
+        supplied = []
+        for instant in (0.0, midpoint, limits.control_dt_s):
+            fin_angle = advance_actuator(
+                allocation_fin, fin_target, instant, FINS.actuator_time_constant_s
             )
+            fin_moment = self.fin_loads(observed, fin_angle, predicted=True)[1]
+            gimbal_angle = advance_actuator(allocation_gimbal, gimbal, instant)
+            for scenario in engine_scenarios:
+                interval_thrust = scenario["command_thrust"] + (
+                    scenario["thrust"] - scenario["command_thrust"]
+                ) * exp(-instant / scenario["tau"])
+                supplied.append(-lever * interval_thrust * sin(gimbal_angle) + fin_moment)
+        supplied_midrange = (min(supplied) + max(supplied)) / 2.0
+        rcs_limit = self.design.rcs_torque_limit_nm
+        background = (
+            body_load[1] + angular_flux - inertia_rate * observed[5] + self.angular_torque_bias_nm
         )
-        if self.contact is not None:
-            return 0.0, 0.0, 0.0
-        self.last_allocation = dict(
-            desired_angular_acceleration_deg_s2=float(np.rad2deg(alpha)),
-            fin_share=self.fin_share,
-            fin_requested_torque_nm=fin_requested,
-            actual_fin_torque_nm=self.fin_loads(y, predicted=True)[1],
-            actual_gimbal_torque_nm=supplied,
-            rcs_torque_nm=rcs,
+        # 잔여 화염의 점화 경계가 불확실해도 두 후보 모두 안전한 고정 RCS를 찾는다.
+        # 4°/s²는 제어 여유이며 실제 비행 판정 5°/s²를 바꾸지 않는다.
+        guard_torque = acceleration_inertia * np.deg2rad(4.0)
+        lower_rcs = max(-rcs_limit, -guard_torque - background - min(supplied))
+        upper_rcs = min(rcs_limit, guard_torque - background - max(supplied))
+        if lower_rcs > upper_rcs:
+            lower_rcs, upper_rcs = -rcs_limit, rcs_limit
+        rcs = (
+            float(
+                np.clip(
+                    requested_raw - supplied_midrange,
+                    lower_rcs,
+                    upper_rcs,
+                )
+            )
+            if observed[7] > 0
+            else 0.0
+        )
+        if self.upper_attached and self.cutoff_pending:
+            # A queued pre-separation command must also be safe for the lighter
+            # booster. This preserves physical action delay instead of flushing it.
+            lower_mass = self.mass(observed, predicted=True) - self.design.upper_mass_kg
+            lower_props = mass_properties(
+                lower_mass, observed[8], self.settings(attached=False, predicted=True)
+            )
+            rcs_limit = lower_props.inertia_kg_m2 * np.deg2rad(2.0)
+            rcs = float(np.clip(rcs, -rcs_limit, rcs_limit))
+        capacity = lever * sizing_thrust * sin(limit) + self.design.rcs_torque_limit_nm
+        self.minimum_control_torque_margin_nm = min(
+            self.minimum_control_torque_margin_nm, capacity - abs(requested)
         )
         return gimbal, rcs, fin_target
 
-    def horizontal_acceleration(self, y):
-        s = self.return_settings
-        reference_x, reference_vx, reference_ax = (
-            self.horizontal_transfer.reference(self.time_s)
-            if self.horizontal_transfer is not None
-            else (0.0, 0.0, 0.0)
-        )
-        lag_compensation = (
-            self.horizontal_transfer.attitude_lag_compensation_s
-            * self.horizontal_transfer.jerk(self.time_s)
-            if self.horizontal_transfer is not None
-            else 0.0
-        )
-        feed_forward = reference_ax + lag_compensation
-        requested = (
-            feed_forward
-            - s.horizontal_kp_s2 * (y[0] - reference_x)
-            - s.horizontal_kd_s_inv * (y[2] - reference_vx)
-        )
-        acceleration = float(
-            np.clip(
-                requested,
-                -s.horizontal_acceleration_limit_m_s2,
-                s.horizontal_acceleration_limit_m_s2,
+    def force_control(self, acceleration, observed, *, vertical_body=False):
+        aero, _, q, _ = self.loads(observed, predicted=True)
+        mass = self.mass(observed, predicted=True)
+        proper = np.asarray(acceleration, dtype=float) + [0, gravity(observed[1])]
+        if vertical_body and self.navigation_estimator.estimate is not None:
+            settings = self.return_settings
+            height = self.height(observed, predicted=True)
+            blend = _smoothstep(
+                (settings.acceleration_bias_start_height_m - height)
+                / (
+                    settings.acceleration_bias_start_height_m
+                    - settings.acceleration_bias_full_height_m
+                )
             )
+            # The observer learns force/model mismatch from past measurements.
+            # It does not receive true mass, thrust error, gust or fluid state.
+            bias = self.navigation_estimator.estimate[:, 2].copy()
+            norm = hypot(*bias)
+            if norm > settings.acceleration_bias_limit_m_s2:
+                bias *= settings.acceleration_bias_limit_m_s2 / norm
+            proper -= blend * bias
+        if self.physics.atmosphere.coriolis_enabled:
+            omega = 7.292115e-5 * cos(np.deg2rad(self.conditions.latitude_deg))
+            proper -= 2 * omega * np.array([-observed[3], observed[2]])
+        magnitude = hypot(*proper)
+        if magnitude > 4.3 * G0:
+            proper *= 4.3 * G0 / magnitude
+        force = mass * proper - aero
+        force[1] = max(0.0, force[1])
+        if vertical_body:
+            lever = self.properties(observed, predicted=True).cg_m - (
+                self.physics.geometry.nozzle_station_m
+            )
+            # 수직 몸체를 유지할 때 수평 추력의 토크를 RCS로 상쇄할 여유를 둔다.
+            lateral_limit = 0.55 * self.design.rcs_torque_limit_nm / lever
+            force[0] = float(np.clip(force[0], -lateral_limit, lateral_limit))
+        direction = atan2(force[0], force[1])
+        limits = self.return_settings
+        if (
+            not self.upper_attached
+            and not vertical_body
+            and observed[3] < 0
+            and q >= limits.entry_attitude_cone_min_q_pa
+        ):
+            # High-q horizontal correction must not demand a broadside body
+            # attitude whose aerodynamic torque exceeds TVC/RCS authority.
+            # Preserve the vertical braking force; defer the unattainable
+            # lateral part instead of reducing thrust until control is lost.
+            air = self.air_velocity(observed, predicted=True)
+            flow_axis = atan2(-air[0], -air[1])
+            error = atan2(sin(direction - flow_axis), cos(direction - flow_axis))
+            cone = np.deg2rad(limits.entry_attitude_cone_deg)
+            direction = flow_axis + float(np.clip(error, -cone, cone))
+            force[0] = force[1] * np.tan(direction)
+        magnitude = hypot(*force)
+        full = self.engine(1, observed[1])[0]
+        throttle = float(np.clip(magnitude / full, 0, 1))
+        target = 0.0 if vertical_body else direction
+        alignment = abs(atan2(sin(direction - observed[4]), cos(direction - observed[4])))
+        if not vertical_body and alignment > np.deg2rad(15):
+            throttle = min(throttle, 0.05)
+        if not self.upper_attached and not vertical_body and q > 100.0:
+            properties = self.properties(observed, predicted=True)
+            lever = properties.cg_m - self.physics.geometry.nozzle_station_m
+            torque_budget = 1.1 * 1.15 * abs(
+                self.body_loads(observed, predicted=True)[1]
+            ) + properties.inertia_kg_m2 * np.deg2rad(limits.attitude_acceleration_limit_deg_s2)
+            required_tvc = max(0.0, torque_budget - 0.8 * self.design.rcs_torque_limit_nm)
+            minimum_throttle = required_tvc / (
+                0.97 * lever * full * sin(np.deg2rad(self.design.gimbal_limit_deg))
+            )
+            # Misalignment is not a reason to turn off the actuator needed
+            # to recover attitude. This is guidance reserve, not a relaxed
+            # physical angular-acceleration or flight-load criterion.
+            throttle = float(np.clip(max(throttle, minimum_throttle), 0, 1))
+        gimbal, rcs, fin = self.attitude_control(
+            target, throttle, observed, thrust_direction=direction if vertical_body else None
         )
-        self.horizontal_command = dict(
-            position_reference_m=reference_x,
-            velocity_reference_m_s=reference_vx,
-            acceleration_reference_m_s2=reference_ax,
-            attitude_lag_compensation_m_s2=lag_compensation,
-            acceleration_feed_forward_m_s2=feed_forward,
-            requested_acceleration_m_s2=requested,
-            limited_acceleration_m_s2=acceleration,
+        return throttle, gimbal, rcs, fin
+
+    def descent_speed(self, height):
+        s = self.return_settings
+        heights, squared, times = build_descent_reference(
+            self.settings(predicted=True).atmosphere,
+            s.entry_q_fraction * SAFETY.max_q_pa,
+            s.entry_braking_m_s2,
+            s.terminal_braking_m_s2,
         )
+        physical_height = float(np.clip(height, 0, PROFILE_TOP_M))
+        plateau = s.terminal_speed_plateau_height_m
+        height = max(0.0, physical_height - plateau)
+        index = min(max(int(np.searchsorted(heights, height)) - 1, 0), len(heights) - 2)
+        slope = (squared[index + 1] - squared[index]) / (heights[index + 1] - heights[index])
+        value = squared[index] + slope * (height - heights[index])
+        speed = sqrt(value)
+        time = times[index] + 2 * (height - heights[index]) / (speed + sqrt(squared[index]))
+        # Complete braking before touchdown so CG/altimetry error does not
+        # turn a small positive height error into an excessive contact speed.
+        gradient = 0.0 if physical_height <= plateau else slope / (2 * speed)
+        time += min(physical_height, plateau) / self.design.descent_reference_m_s
+        return speed, gradient, float(time)
+
+    def coast_attitude(self, observed):
+        velocity = self.air_velocity(observed, predicted=True)
+        # 원지점의 vz=0에서 참조 자세가 180도 뒤집히는 것을 피한다.
+        return atan2(-velocity[0], max(-velocity[1], 300.0))
+
+    def predict_return(self, burn_duration_s, observed=None, *, direction=None):
+        """유한 연소·엔진 응답·회전·공력·밀도 제동을 포함한 유도용 예측.
+
+        회수 참조를 계산하는 질점+유한 회전 근사다. 실제 강체 검증이나
+        접지 성공을 대신하지 않으며, 이 예측의 상태를 실제 상태에 복사하지 않는다.
+        """
+        observed = self.observed_state if observed is None else observed
+        direction = self.boost_direction if direction is None else direction
+        y = observed[:4].copy()
+        mass = self.mass(observed, predicted=True)
+        theta, rate, throttle = float(observed[4]), float(observed[5]), float(observed[12])
+        atmosphere_settings = self.settings(predicted=True).atmosphere
+        s = self.return_settings
+        elapsed, peak_q, peak_height = 0.0, 0.0, float(y[1])
+        q = 0.0
+        omega = 7.292115e-5 * cos(np.deg2rad(self.conditions.latitude_deg))
+        axis_area = pi * self.physics.geometry.body_radius_m**2
+        normal_area = 2 * self.physics.geometry.body_radius_m * self.physics.geometry.body_length_m
+        while y[1] > s.landing_entry_height_m and elapsed < 500:
+            temperature, pressure, rho = atmosphere(y[1], atmosphere_settings)
+            vx = y[2] - self.conditions.wind(y[1], self.time_s + elapsed, forecast=True)
+            vz = y[3]
+            speed = hypot(vx, vz)
+            q = 0.5 * rho * speed**2
+            peak_q = max(peak_q, q)
+            peak_height = max(peak_height, float(y[1]))
+            mach = speed / sqrt(1.4 * R_AIR * temperature)
+            correction = 1 + PHYSICS.aerodynamics.transonic_drag_rise * exp(
+                -(((mach - 1) / 0.2) ** 2)
+            )
+            axial = sin(theta) * vx + cos(theta) * vz
+            normal = cos(theta) * vx - sin(theta) * vz
+            aero = (
+                -0.5
+                * rho
+                * correction
+                * (
+                    PHYSICS.aerodynamics.axial_cd
+                    * axis_area
+                    * abs(axial)
+                    * axial
+                    * np.array([sin(theta), cos(theta)])
+                    + PHYSICS.aerodynamics.normal_cd
+                    * normal_area
+                    * abs(normal)
+                    * normal
+                    * np.array([cos(theta), -sin(theta)])
+                )
+            )
+            if (
+                self.fin_mode == "active"
+                and 500 < y[1] < 20_000
+                and vz < -s.fin_min_descent_speed_m_s
+            ):
+                aero -= (
+                    q
+                    * FINS.planar_effective_area_m2
+                    * FINS.base_drag_coefficient
+                    * (np.array([vx, vz]) / max(speed, 1))
+                )
+            coriolis = (
+                2 * omega * np.array([-y[3], y[2]])
+                if (self.physics.atmosphere.coriolis_enabled)
+                else np.zeros(2)
+            )
+            full = self.design.sea_level_thrust_n + self.design.nozzle_exit_area_m2 * (
+                101325 - pressure
+            )
+            boosting = elapsed < burn_duration_s - 1e-9
+            if boosting:
+                desired_force = (
+                    mass * (np.array([direction * s.boost_acceleration_m_s2, 0.0]) - coriolis)
+                    - aero
+                )
+                desired_force[1] = max(0, desired_force[1])
+                target = atan2(desired_force[0], desired_force[1])
+                command = min(1, hypot(*desired_force) / full)
+            else:
+                target = atan2(-vx, max(-vz, 300.0))
+                command = 0.0
+                if vz < 0 and speed > 1:
+                    reference, gradient, _ = self.descent_speed(y[1])
+                    desired_rate = gradient * vz + 0.9 * (reference - speed)
+                    free = (aero / mass + coriolis - [0, gravity(y[1])]) @ [vx, vz] / speed
+                    proper = max(0.0, free - desired_rate)
+                    if proper > 0:
+                        target = atan2(-vx, -vz)
+                        proper = min(proper, max(0, 4.2 * G0 - hypot(*aero) / mass))
+                        command = min(1, mass * proper / full)
+            dt = min(s.forecast_step_s, 500 - elapsed)
+            if boosting:
+                dt = min(dt, burn_duration_s - elapsed)
+            error = atan2(sin(target - theta), cos(target - theta))
+            alpha_limit = np.deg2rad(s.attitude_acceleration_limit_deg_s2)
+            desired_rate = np.sign(error) * min(
+                np.deg2rad(s.attitude_rate_limit_deg_s),
+                1.5 * abs(error),
+                sqrt(2 * 0.8 * alpha_limit * abs(error)),
+            )
+            alpha = float(np.clip(4 * (desired_rate - rate), -alpha_limit, alpha_limit))
+            if abs(error) > np.deg2rad(15):
+                command = min(command, 0.05)
+            decay = exp(-dt / 0.04)
+            average_throttle = command + (throttle - command) * 0.04 / dt * (1 - decay)
+            throttle = command + (throttle - command) * decay
+            flow = (
+                average_throttle
+                * self.design.sea_level_thrust_n
+                / (self.design.sea_level_isp_s * G0)
+            )
+            middle_mass = mass - 0.5 * flow * dt
+            middle_theta = theta + rate * dt / 2 + alpha * dt**2 / 8
+            force = aero + average_throttle * full * np.array(
+                [sin(middle_theta), cos(middle_theta)]
+            )
+            acceleration = force / max(middle_mass, self.nominal_design.dry_mass_kg) + coriolis
+            acceleration[1] -= gravity(y[1])
+            y[:2] += y[2:] * dt + acceleration * dt**2 / 2
+            y[2:] += acceleration * dt
+            theta += rate * dt + alpha * dt**2 / 2
+            rate += alpha * dt
+            mass -= flow * dt
+            elapsed += dt
+            if mass <= self.nominal_design.dry_mass_kg + observed[7]:
+                break
+        height = max(y[1], 0.0)
+        # 마지막 제동 구간의 수평 이동도 포함한다. 실제 접지는 별도로 적분한다.
+        landing_x = float(y[0] + y[2] * height / max(-y[3], 10.0))
+        remaining = mass - self.nominal_design.dry_mass_kg - observed[7]
+        landing_time = self.descent_speed(height)[2]
+        # 공력의 감속 이득을 제외한 마지막 연소 예산이다.
+        landing_delta_v = hypot(y[2], y[3]) + G0 * landing_time
+        landing_propellant = mass * (1 - exp(-landing_delta_v / (self.design.sea_level_isp_s * G0)))
+        return dict(
+            landing_x_m=landing_x,
+            terminal_state=y.tolist(),
+            elapsed_s=elapsed,
+            remaining_main_kg=float(remaining),
+            peak_dynamic_pressure_pa=float(peak_q),
+            peak_altitude_m=peak_height,
+            estimated_landing_propellant_kg=float(landing_propellant),
+            estimated_main_after_landing_kg=float(remaining - landing_propellant),
+            feasible=bool(
+                y[1] <= s.landing_entry_height_m
+                and remaining > landing_propellant + 200
+                and peak_q <= SAFETY.max_q_pa
+                and peak_height <= PROFILE_TOP_M
+            ),
+        )
+
+    def plan_return(self, observed=None):
+        observed = self.observed_state if observed is None else observed
+        cache = {}
+
+        def evaluate(duration):
+            key = float(duration)
+            if key not in cache:
+                cache[key] = self.predict_return(key, observed)
+            return cache[key]
+
+        free = evaluate(0.0)
+        miss = free["landing_x_m"]
+        if abs(miss) <= self.return_settings.predicted_miss_limit_m:
+            duration = 0.0
+        else:
+            root = None
+            for duration_limit in (8.0, 16.0, 24.0, 32.0, 40.0, 48.0):
+                endpoint = evaluate(duration_limit)
+                if miss * endpoint["landing_x_m"] <= 0:
+                    root = brentq(
+                        lambda time: evaluate(time)["landing_x_m"],
+                        0,
+                        duration_limit,
+                        xtol=0.005,
+                        maxiter=32,
+                    )
+                    break
+            if root is None:
+                self.return_plan = dict(
+                    time_s=self.time_s,
+                    feasible=False,
+                    reason="no_bracketed_return_solution",
+                    predicted_ground_range_m=miss,
+                )
+                self.outcome = "return_plan_infeasible"
+                return
+            duration = float(root)
+        prediction = evaluate(duration)
+        plan = dict(
+            time_s=self.time_s,
+            remaining_burn_s=duration,
+            burn_end_time_s=self.time_s + duration,
+            predicted_ground_range_m=prediction["landing_x_m"],
+            predicted_main_at_terminal_kg=prediction["remaining_main_kg"],
+            predicted_peak_q_pa=prediction["peak_dynamic_pressure_pa"],
+            prediction_evaluations=len(cache),
+            feasible=prediction["feasible"],
+            source="finite_burn_predictor_corrector",
+            touchdown_prediction_is_not_acceptance=True,
+        )
+        self.return_plan = plan
+        self.return_plan_history.append(plan.copy())
+        if not prediction["feasible"]:
+            self.outcome = "return_plan_infeasible"
+            return
+        self.boost_end_s = self.time_s + duration
+        self.next_plan_s = self.time_s + self.return_settings.boost_replan_period_s
+
+    def navigation_acceleration(self, measured, measurement_time_s):
+        """Nominal inertial acceleration from delayed measurements and forecast.
+
+        No plant derivative, actual wind, thrust scale or fluid-mode state is
+        consulted. Unmodelled forces are estimated through the filter's bias.
+        Pad support is a known discrete flight mode, not a hidden force input.
+        """
+        nominal = measured.copy()
+        nominal[17:19] = 0.0
+        force = self.loads(nominal, predicted=True, time_s=measurement_time_s)[0]
+        thrust = self.engine(float(np.clip(nominal[12], 0, 1)), nominal[1])[0]
+        force += thrust * np.array([sin(nominal[4] + nominal[11]), cos(nominal[4] + nominal[11])])
+        mass = self.mass(nominal, predicted=True)
+        local_g = gravity(nominal[1])
+        if self.on_pad and self.upper_attached and force[1] < mass * local_g:
+            return np.zeros(2)
+        acceleration = force / mass - np.array([0.0, local_g])
+        if self.physics.atmosphere.coriolis_enabled:
+            omega = 7.292115e-5 * cos(np.deg2rad(self.conditions.latitude_deg))
+            acceleration += 2 * omega * np.array([-nominal[3], nominal[2]])
         return acceleration
 
-    def landing_tilt_limit(self, height):
-        return float(np.deg2rad(np.interp(height, (200.0, 400.0, 600.0), (1.5, 4.0, 8.0))))
+    def predict_navigation_actuators(self, measured, measurement_time_s):
+        """Propagate delayed throttle/gimbal telemetry through known commands.
 
-    def filter_attitude_reference(self, target):
-        s = self.return_settings
-        error = atan2(
-            sin(target - self.filtered_attitude_target), cos(target - self.filtered_attitude_target)
-        )
-        change = -np.expm1(-s.control_dt_s / s.attitude_reference_tau_s) * error
-        bound = np.deg2rad(s.attitude_reference_slew_deg_s) * s.control_dt_s
-        self.filtered_attitude_target += float(np.clip(change, -bound, bound))
-        return self.filtered_attitude_target
+        Command entries describe the interval ending at their timestamp. The
+        engine uses its nominal 40 ms response, not the hidden lag deviation.
+        The gimbal prediction respects the nominal 60 degree/s actuator rate.
+        """
+        throttle, gimbal = float(measured[12]), float(measured[11])
+        begin = measurement_time_s
+        rate, tau = np.deg2rad(60.0), 0.06
+        for end, command in self.navigation_command_history:
+            if end <= begin + 1e-12:
+                continue
+            duration = min(end, self.time_s) - begin
+            if duration <= 0:
+                continue
+            throttle = command[0] + (throttle - command[0]) * exp(-duration / 0.04)
+            difference = command[1] - gimbal
+            linear_time = min(duration, max(0.0, (abs(difference) - rate * tau) / rate))
+            gimbal += np.sign(difference) * rate * linear_time
+            gimbal = command[1] + (gimbal - command[1]) * exp(-(duration - linear_time) / tau)
+            begin += duration
+        return float(gimbal), float(np.clip(throttle, 0, 1))
 
-    def alignment_ready(self, y):
-        s = self.return_settings
-        return bool(
-            abs(y[0]) <= s.alignment_position_gate_m
-            and abs(y[2]) <= s.alignment_horizontal_speed_gate_m_s
-            and abs(np.rad2deg(y[4])) <= s.alignment_tilt_gate_deg
-            and abs(np.rad2deg(y[5])) <= s.alignment_rate_gate_deg_s
-            and abs(y[3]) <= s.alignment_vertical_speed_gate_m_s
-            and y[12] <= 1e-8
-        )
+    def observe_angular_torque(self, measured, measurement_time_s):
+        """Estimate torque mismatch from delayed angular momentum telemetry.
 
-    def update_alignment(self, y, height):
-        s = self.return_settings
-        if self.phase == "landing" and height <= s.alignment_trigger_height_m:
-            self.phase = "alignment"
-            self.alignment_started_s = self.time_s
-            self.alignment_started_main_propellant_kg = float(y[6])
-            if s.synchronized_alignment and self.horizontal_transfer is not None:
-                remaining = (
-                    self.horizontal_transfer.started_s
-                    + self.horizontal_transfer.duration_s
-                    - self.time_s
-                )
-                if s.joint_return_planning:
-                    remaining = max(
-                        remaining,
-                        2.0
-                        * max(-y[3] - s.alignment_end_speed_m_s, 0.0)
-                        / s.alignment_reference_deceleration_m_s2,
-                    )
-                self.alignment_descent = AlignmentDescent.plan(
-                    self.time_s, height, y[3], remaining, s
-                )
-        if self.phase != "alignment":
+        RCS history entries describe executed intervals ending at their timestamp.
+        Only nominal properties, forecast loads and measured actuator states are
+        used. Staging impulses and pad support are not continuous disturbances.
+        """
+        previous = self.angular_observation
+        if (
+            self.upper_attached
+            or self.on_pad
+            or (
+                self.separation is not None
+                and measurement_time_s < self.separation["time_s"] - 1e-9
+            )
+        ):
+            self.angular_observation = None
+            self.angular_torque_bias_nm = 0.0
             return
-        if not self.alignment_ready(y):
-            self.alignment_ready_since_s = None
+        if previous is not None and measurement_time_s <= previous[0] + 1e-9:
             return
-        if self.alignment_ready_since_s is None:
-            self.alignment_ready_since_s = self.time_s
-        if self.time_s - self.alignment_ready_since_s >= s.alignment_dwell_s:
-            actual = self.state
-            actual_since = self.alignment_actual_ready_since_s
-            if (
-                self.disturbances.sensor_noise_scale == 0.0
-                and self.disturbances.observation_delay_steps == 0
-            ):
-                actual_since = self.alignment_ready_since_s
-            self.alignment_completed = dict(
-                time_s=self.time_s,
-                duration_s=self.time_s - self.alignment_started_s,
-                main_propellant_used_kg=self.alignment_started_main_propellant_kg - float(y[6]),
-                foot_height_m=self.height(actual),
-                x_m=actual[0],
-                vx_m_s=actual[2],
-                vz_m_s=actual[3],
-                attitude_deg=float(np.rad2deg(actual[4])),
-                angular_rate_deg_s=float(np.rad2deg(actual[5])),
-                dwell_s=self.time_s - self.alignment_ready_since_s,
-                actual_gates_passed=self.alignment_ready(actual),
-                actual_dwell_s=0.0 if actual_since is None else self.time_s - actual_since,
-                observed_state=y.tolist(),
-            )
-            self.phase = "approach"
-            self.approach_speed_reference = max(-y[3], 0.0)
-
-    def alignment_acceleration(self, y, height):
-        s = self.return_settings
-        if self.alignment_descent is None:
-            reference_height, reference_vz, feed_forward = s.alignment_hold_height_m, 0.0, 0.0
-            mode = "altitude_hold_fallback"
-        else:
-            reference_height, reference_vz, feed_forward = self.alignment_descent.reference(
-                self.time_s
-            )
-            mode = "synchronized_descent"
-        self.vertical_command = dict(
-            mode=mode,
-            height_reference_m=reference_height,
-            velocity_reference_m_s=reference_vz,
-            acceleration_reference_m_s2=feed_forward,
-        )
-        return (
-            feed_forward
-            + s.alignment_vertical_kp_s2 * (reference_height - height)
-            + s.alignment_vertical_kd_s_inv * (reference_vz - y[3])
-        )
-
-    def descent_command(self, y, height):
-        s = self.return_settings
-        speed = sqrt(
-            self.design.descent_reference_m_s**2
-            + 2.0 * s.descent_deceleration_m_s2 * max(height - s.terminal_flare_height_m, 0.0)
-        )
-        if self.phase == "approach":
-            wanted = min(s.approach_speed_limit_m_s, speed)
-            bound = s.approach_reference_acceleration_m_s2 * s.control_dt_s
-            change = float(np.clip(wanted - self.approach_speed_reference, -bound, bound))
-            self.approach_speed_reference += change
-            reference, feed_forward = -self.approach_speed_reference, -change / s.control_dt_s
-        else:
-            reference = -speed
-            feed_forward = (
-                -s.descent_deceleration_m_s2 * y[3] / speed
-                if height > s.terminal_flare_height_m
-                else 0.0
-            )
-        return feed_forward + s.vertical_velocity_gain_s_inv * (reference - y[3])
-
-    def governed_throttle(self, requested, y):
-        # Triangle bound keeps |F_aero + F_engine| below the limit for EVERY
-        # gimbal direction. Gravity is not part of the sensed support load.
-        maximum, _ = self.engine(1.0, y[1])
-        aero = self.loads(y, predicted=True)[0]
-        cap = self.return_settings.load_governor_g * self.mass(y) * G0
-        allowed = max(0.0, cap - hypot(*aero)) / maximum
-        throttle = float(np.clip(requested, 0.0, min(1.0, allowed)))
-        return throttle
-
-    def joint_ignition_height(self, y, downspeed, x_m, vx_m_s):
-        """Stopping margin plus the height needed by the SAME lateral horizon."""
-        s = self.return_settings
-        maximum, _ = self.engine(1.0, y[1])
-        aero = self.loads(y, predicted=True)[0]
-        available = (
-            self.governed_throttle(1.0, y) * maximum * max(cos(y[4]), 0.5) / self.mass(y)
-            + aero[1] / self.mass(y)
-            - gravity(y[1])
-        )
-        deceleration = min(s.ignition_deceleration_m_s2, max(1.0, 0.6 * available))
-        alignment_speed = sqrt(
-            self.design.descent_reference_m_s**2
-            + 2.0
-            * s.descent_deceleration_m_s2
-            * (s.alignment_trigger_height_m - s.terminal_flare_height_m)
-        )
-        brake_time = max(0.0, downspeed - alignment_speed) / deceleration
-        brake_distance = max(0.0, downspeed**2 - alignment_speed**2) / (2.0 * deceleration)
-        lateral = HorizontalTransfer.plan(self.time_s, x_m, vx_m_s, s)
-        reaction_time = s.attitude_reference_tau_s + 1.0 / s.attitude_position_gain_s_inv
-        reaction_time += s.return_plan_interval_s
-        alignment_time_budget = (s.alignment_trigger_height_m - s.alignment_min_height_m) / (
-            s.alignment_end_speed_m_s + (alignment_speed - s.alignment_end_speed_m_s) / 3.0
-        )
-        extra_time = max(
-            0.0, lateral.duration_s + reaction_time - brake_time - alignment_time_budget
-        )
-        height = s.alignment_trigger_height_m + brake_distance + downspeed * reaction_time
-        height += s.ignition_margin_m + 0.5 * gravity(y[1]) * reaction_time**2
-        height += alignment_speed * extra_time
-        return dict(
-            ignition_height_m=height,
-            braking_deceleration_m_s2=deceleration,
-            braking_time_s=brake_time,
-            horizontal_duration_s=lateral.duration_s,
-            alignment_time_budget_s=alignment_time_budget,
-            reaction_time_s=reaction_time,
-            horizontal_extra_time_s=extra_time,
-        )
-
-    def update_return_plan(self, y):
-        s = self.return_settings
-        if self.return_plan is not None and self.time_s < self.next_return_plan_s:
+        self.angular_observation = (measurement_time_s, measured.copy())
+        if previous is None:
             return
-        h, mass = self.height(y), self.mass(y)
-        area = self.physics.aerodynamics.axial_cd * pi * self.physics.geometry.body_radius_m**2
-        if self.fin_mode == "active":
-            area += FINS.installed_area_m2 * FINS.base_drag_coefficient
-        candidates = s.ignition_range_candidates_m if self.phase == "boostback" else (None,)
-        plans = []
-        direction = 1.0 if y[0] >= 0.0 else -1.0
-        for range_candidate in candidates:
-            ignition_height = 2000.0
-            for _ in range(4):
-                estimate = CoastEstimate.between(
-                    h,
-                    y[3],
-                    ignition_height,
-                    mass,
-                    area,
-                    atmosphere_settings=self.physics.atmosphere,
-                )
-                forecast_wind = (
-                    self.conditions.mean_wind(h, forecast=True)
-                    + 4.0 * self.conditions.mean_wind((h + ignition_height) / 2.0, forecast=True)
-                    + self.conditions.mean_wind(ignition_height, forecast=True)
-                ) / 6.0
-                if range_candidate is None:
-                    desired_vx = None
-                    ignition_x = (
-                        y[0]
-                        + forecast_wind * estimate.duration_s
-                        + (y[2] - forecast_wind) * estimate.horizontal_gain_s
-                    )
-                    ignition_vx = (
-                        forecast_wind + (y[2] - forecast_wind) * estimate.horizontal_velocity_ratio
-                    )
-                else:
-                    ignition_x = direction * range_candidate
-                    desired_vx = forecast_wind + (
-                        ignition_x - y[0] - forecast_wind * estimate.duration_s
-                    ) / max(estimate.horizontal_gain_s, 1.0)
-                    ignition_vx = (
-                        forecast_wind
-                        + (desired_vx - forecast_wind) * estimate.horizontal_velocity_ratio
-                    )
-                budget = self.joint_ignition_height(
-                    y, estimate.downspeed_m_s, ignition_x, ignition_vx
-                )
-                ignition_height = budget["ignition_height_m"]
-            # The fixed-point iterations are closed-form budgets, not flight rollouts.
-            minimum_align_time = (
-                2.0
-                * (
-                    sqrt(
-                        self.design.descent_reference_m_s**2
-                        + 2.0
-                        * s.descent_deceleration_m_s2
-                        * (s.alignment_trigger_height_m - s.terminal_flare_height_m)
-                    )
-                    - s.alignment_end_speed_m_s
-                )
-                / s.alignment_reference_deceleration_m_s2
-                + 2.0 * (s.attitude_reference_tau_s + 1.0 / s.attitude_position_gain_s_inv)
-                + s.alignment_dwell_s
+        begin, old = previous
+        duration = measurement_time_s - begin
+        midpoint = (old + measured) / 2.0
+        midpoint[4] = old[4] + 0.5 * atan2(sin(measured[4] - old[4]), cos(measured[4] - old[4]))
+        midpoint[17:19] = 0.0
+        rcs_integral = rcs_absolute_integral = 0.0
+        interval_begin = begin
+        for end, command in self.navigation_command_history:
+            if end <= interval_begin + 1e-9:
+                continue
+            if end - self.return_settings.control_dt_s > interval_begin + 1e-9:
+                break
+            overlap = min(end, measurement_time_s) - interval_begin
+            if overlap <= 0.0:
+                continue
+            rcs_integral += overlap * command[2]
+            rcs_absolute_integral += overlap * abs(command[2])
+            interval_begin += overlap
+            if interval_begin >= measurement_time_s - 1e-9:
+                break
+        if interval_begin < measurement_time_s - 1e-9:
+            # An incomplete command window cannot identify the torque residual.
+            self.angular_torque_bias_nm = 0.0
+            return
+        props = self.properties(midpoint, predicted=True)
+        lever = props.cg_m - self.physics.geometry.nozzle_station_m
+        thrust, main_flow = self.engine(midpoint[12], midpoint[1])
+        rcs_flow = rcs_absolute_integral / (
+            duration * self.physics.geometry.rcs_arm_m * self.design.rcs_isp_s * G0
+        )
+        flux = -main_flow * lever**2 * midpoint[5]
+        flux -= (
+            rcs_flow
+            * (
+                self.physics.geometry.rcs_arm_m**2
+                + (self.physics.geometry.rcs_station_m - props.cg_m) ** 2
             )
-            extra_powered_time = max(
-                0.0, budget["horizontal_duration_s"] - budget["braking_time_s"] - minimum_align_time
-            )
-            additional_velocity = 0.0
-            if desired_vx is not None:
-                additional_velocity = max(0.0, direction * (y[2] - desired_vx))
-            boost_fuel = (
-                mass
-                * additional_velocity
-                / (self.design.sea_level_isp_s * G0 * sin(np.deg2rad(s.boostback_tilt_limit_deg)))
-            )
-            delay_fuel = (
-                mass * gravity(y[1]) * extra_powered_time / (self.design.sea_level_isp_s * G0)
-            )
-            plans.append(
-                dict(
-                    time_s=self.time_s,
-                    phase=self.phase,
-                    candidate_count=len(candidates),
-                    ignition_target_range_m=range_candidate,
-                    return_vx_reference_m_s=desired_vx,
-                    predicted_ignition_x_m=float(ignition_x),
-                    predicted_ignition_vx_m_s=float(ignition_vx),
-                    predicted_ignition_downspeed_m_s=estimate.downspeed_m_s,
-                    forecast_mean_wind_m_s=forecast_wind,
-                    coast_estimate=asdict(estimate),
-                    **budget,
-                    estimated_boost_propellant_kg=boost_fuel,
-                    estimated_lateral_delay_propellant_kg=delay_fuel,
-                    estimated_objective_propellant_kg=boost_fuel + delay_fuel,
-                )
-            )
-        self.return_plan = min(plans, key=lambda plan: plan["estimated_objective_propellant_kg"])
-        self.next_return_plan_s = self.time_s + s.return_plan_interval_s
+            * midpoint[5]
+        )
+        nominal_torque = self.loads(
+            midpoint, predicted=True, time_s=(begin + measurement_time_s) / 2.0
+        )[1]
+        nominal_torque += -lever * thrust * sin(midpoint[11]) + rcs_integral / duration + flux
+        old_momentum = self.properties(old, predicted=True).inertia_kg_m2 * old[5]
+        momentum = self.properties(measured, predicted=True).inertia_kg_m2 * measured[5]
+        residual = (momentum - old_momentum) / duration - nominal_torque
+        bound = props.inertia_kg_m2 * np.deg2rad(4.0)
+        residual = float(np.clip(residual, -bound, bound))
+        blend = 1.0 - exp(-duration / 0.12)
+        self.angular_torque_bias_nm += blend * (residual - self.angular_torque_bias_nm)
+        self.angular_torque_bias_nm = float(np.clip(self.angular_torque_bias_nm, -bound, bound))
+
+    def observe_control_state(self):
+        raw = self.state.copy()
+        # Fluid mode coordinates are plant states, not ideal measurements
+        # secretly supplied to the guidance law.
+        raw[17:19] = 0.0
+        # 위치/속도 오차는 매 제어 시각에만 발생한다. 적분 호출 수와 무관하다.
+        errors = self.disturbances
+        if errors.sensor_position_error_m > 0:
+            error = self.rng.normal(size=2)
+            error /= max(hypot(*error), 1e-12)
+            raw[:2] += error * sqrt(self.rng.random()) * errors.sensor_position_error_m
+        if errors.sensor_velocity_error_m_s > 0:
+            error = self.rng.normal(size=2)
+            error /= max(hypot(*error), 1e-12)
+            raw[2:4] += error * sqrt(self.rng.random()) * errors.sensor_velocity_error_m_s
+        self.observations.append(raw)
+        self.observation_times.append(self.time_s)
+        self.navigation_command_history.append((self.time_s, self.control))
+        measured = self.observations[0]
+        measurement_time = self.observation_times[0]
+        self.observe_angular_torque(measured, measurement_time)
+        delay = max(0.0, self.time_s - measurement_time)
+        acceleration = self.navigation_acceleration(measured, measurement_time)
+        observed = self.navigation_estimator.observe(measured, self.time_s, acceleration, delay)
+        observed[4] += observed[5] * delay
+        observed[11], observed[12] = self.predict_navigation_actuators(measured, measurement_time)
+        self.observed_state = observed
+        return observed
 
     def guidance(self, observed=None):
         y = self.state if observed is None else observed
-        mass = self.mass(y)
-        g = gravity(y[1])
-        maximum, _ = self.engine(1.0, y[1])
+        h = self.height(y, predicted=True)
+        forecast_atmosphere = self.settings(predicted=True).atmosphere
+        q = self.loads(y, predicted=True)[2]
+        mass = self.mass(y, predicted=True)
         aero = self.loads(y, predicted=True)[0]
-        h = self.height(y)
-        target = 0.0
-        throttle = 0.0
-        if self.phase == "ascent":
-            target = self.ascent_attitude_target(y, h)
-            # Slow before 10 km rather than forcing separation in high dynamic pressure.
-            reference = self.ascent_vertical_speed_reference(h)
-            az = 0.8 * (reference - y[3])
-            force = max(0.0, mass * (g + az) - aero[1])
-            throttle = float(np.clip(force / (maximum * max(cos(y[4]), 0.2)), 0.0, 1.0))
-            # Feedback dynamic-pressure governor, with density-gradient feed-forward.
-            density = atmosphere(y[1], self.physics.atmosphere)[2]
-            v_limit = sqrt(2.0 * 22_000.0 / density)
-            density_next = atmosphere(y[1] + 1.0, self.physics.atmosphere)[2]
-            dv_limit_dz = sqrt(2.0 * 22_000.0 / density_next) - v_limit
-            limit_az = dv_limit_dz * y[3] + 0.8 * (
-                v_limit - hypot(y[2] - self.wind_field(predicted=True).at(y[1]), y[3])
-            )
-            q_throttle = (mass * (g + limit_az) - aero[1]) / (maximum * max(cos(y[4]), 0.2))
-            throttle = min(throttle, max(0.0, float(q_throttle)))
-        elif self.phase == "boostback":
-            s = self.return_settings
-            if s.joint_return_planning:
-                self.update_return_plan(y)
-                desired_vx = self.return_plan["return_vx_reference_m_s"]
-            else:
-                fall_time = (y[3] + sqrt(y[3] ** 2 + 2 * g * max(h, 0.0))) / g
-                desired_vx = -y[0] / max(fall_time, 1.0)
-            if (y[0] > 0.0 and y[2] <= desired_vx) or (y[0] < 0.0 and y[2] >= desired_vx):
-                self.boostback_completed = dict(
-                    time_s=self.time_s,
-                    altitude_m=y[1],
-                    x_m=y[0],
-                    vx_m_s=y[2],
-                    vz_m_s=y[3],
-                    return_vx_reference_m_s=desired_vx,
-                    reference_model="drag_and_ignition_budget"
-                    if s.joint_return_planning
-                    else "ballistic",
-                    return_plan=self.return_plan,
-                    main_propellant_kg=y[6],
-                    rcs_propellant_kg=y[7],
-                )
-                self.phase = "coast"
-                self.next_return_plan_s = 0.0
-                target = 0.0
-            else:
-                s = self.return_settings
-                throttle = s.boostback_throttle
-                ax = float(
-                    np.clip(
-                        s.boostback_velocity_gain_s_inv * (desired_vx - y[2]),
-                        -s.boostback_acceleration_limit_m_s2,
-                        s.boostback_acceleration_limit_m_s2,
-                    )
-                )
-                target = float(
-                    np.clip(
-                        np.arcsin(np.clip((mass * ax - aero[0]) / (throttle * maximum), -1, 1)),
-                        -np.deg2rad(s.boostback_tilt_limit_deg),
-                        np.deg2rad(s.boostback_tilt_limit_deg),
-                    )
-                )
-                if s.joint_return_planning:
-                    force_x = mass * ax - aero[0]
-                    if abs(force_x) > 1e-8:
-                        target = float(
-                            np.copysign(
-                                max(abs(target), np.deg2rad(s.boostback_min_burn_tilt_deg)), force_x
-                            )
-                        )
-                    # Do not burn nearly upright while turning. Once oriented,
-                    # request only the thrust needed for horizontal acceleration.
-                    if (
-                        abs(y[4]) < np.deg2rad(s.boostback_min_burn_tilt_deg)
-                        or force_x * sin(y[4]) <= 0.0
-                    ):
-                        throttle = 0.0
-                    else:
-                        throttle = float(
-                            np.clip(force_x / (maximum * sin(y[4])), 0.0, s.boostback_throttle)
-                        )
-        elif self.phase == "coast":
-            s = self.return_settings
-            if s.joint_return_planning:
-                self.update_return_plan(y)
-                budget = self.joint_ignition_height(
-                    y,
-                    max(-y[3], 0.0),
-                    self.return_plan["predicted_ignition_x_m"],
-                    self.return_plan["predicted_ignition_vx_m_s"],
-                )
-                ignition_height = max(
-                    self.return_plan["ignition_height_m"], budget["ignition_height_m"]
-                )
-            else:
-                available = self.governed_throttle(1.0, y) * maximum / mass + aero[1] / mass - g
-                deceleration = min(s.ignition_deceleration_m_s2, max(1.0, 0.6 * available))
-                ignition_height = max(0.0, y[3] ** 2 - 26.0**2) / (2 * deceleration)
-                ignition_height += s.ignition_margin_m
-            if y[3] < -s.fin_deploy_min_downspeed_m_s:
-                target = float(
-                    np.clip(
-                        atan2(self.wind_field(predicted=True).at(y[1]) - y[2], -y[3]),
-                        -np.deg2rad(8),
-                        np.deg2rad(8),
-                    )
-                )
-            if y[3] < 0.0 and h <= ignition_height:
-                self.landing_ignition = dict(
-                    time_s=self.time_s,
-                    foot_height_m=h,
-                    x_m=float(y[0]),
-                    vx_m_s=float(y[2]),
-                    vz_m_s=float(y[3]),
-                    main_propellant_kg=float(y[6]),
-                    rcs_propellant_kg=float(y[7]),
-                    ignition_height_reference_m=ignition_height,
-                    return_plan=self.return_plan,
-                )
-                self.phase = "landing"
-        if self.phase in ("landing", "alignment", "approach"):
-            s = self.return_settings
-            if self.horizontal_transfer is None:
-                self.horizontal_transfer = HorizontalTransfer.plan(self.time_s, y[0], y[2], s)
-            self.update_alignment(y, h)
-            ax = self.horizontal_acceleration(y)
-            if self.phase == "alignment":
-                az = self.alignment_acceleration(y, h)
-            else:
-                az = self.descent_command(y, h)
-            fx = mass * ax - aero[0]
-            fz = max(0.0, mass * (g + az) - aero[1])
-            tilt_limit = self.landing_tilt_limit(h)
-            # Respect the available vertical thrust. Do not turn a zero-upward
-            # request into a horizontal-only burn with a 25-degree reference.
-            fx = float(np.clip(fx, -fz * np.tan(tilt_limit), fz * np.tan(tilt_limit)))
-            target = atan2(fx, max(fz, 1e-12))
-            throttle = fz / (maximum * max(cos(y[4]), 0.5))
-            if h < 200.0 and self.approach_started_s is None:
-                self.approach_started_s = self.time_s
+        velocity = self.air_velocity(y, predicted=True)
         if self.contact is not None:
-            throttle, target = 0.0, 0.0
-        if y[6] <= 0.0:
-            throttle = 0.0
-        if not self.upper_attached:
-            self.update_fin_plan(y, h)
-            target = self.filter_attitude_reference(target)
-            wanted_share = 1.0 if self.phase == "coast" else 0.0
-            s = self.return_settings
-            self.fin_share += -np.expm1(-s.control_dt_s / s.fin_share_tau_s) * (
-                wanted_share - self.fin_share
+            return 0.0, 0.0, 0.0, 0.0
+        if self.upper_attached:
+            s = self.ascent_settings
+            # The observed tank mass can be old, a shutdown command can queue,
+            # and the engine keeps flowing while its throttle decays. Budget
+            # full flow over those known delays and the allowed 0.05 s lag.
+            shutdown_delay_s = (
+                self.disturbances.observation_delay_steps + self.disturbances.action_delay_steps + 1
+            ) * self.return_settings.control_dt_s + 0.05
+            shutdown_reserve_kg = self.engine(1.0, y[1])[1] * shutdown_delay_s + 10.0
+            if (
+                y[6] <= s.separation_min_main_propellant_kg + shutdown_reserve_kg
+                or y[1] >= s.separation_altitude_m
+            ):
+                self.cutoff_pending = True
+            programmed_pitch = np.deg2rad(s.final_pitch_deg) * _smoothstep(
+                (self.time_s - s.pitch_start_s) / s.pitch_duration_s
             )
-            governed = self.governed_throttle(throttle, y)
-            if governed < throttle - 1e-12:
-                self.load_governor_activations += 1
-            throttle = governed
-        self.attitude_target = target
-        gimbal, torque, fin_target = self.attitude(target, throttle, y)
-        if self.phase in ("landing", "alignment", "approach"):
-            # Reconcile vertical thrust with the actual body attitude AND gimbal.
-            throttle = fz / (maximum * max(cos(y[4] + gimbal), 0.5))
-            throttle = self.governed_throttle(throttle, y)
-            if y[6] <= 0.0:
+            # Build altitude before turning over. A large time-only pitch
+            # program can consume the vertical velocity needed for 37 km.
+            altitude_pitch_cap = np.deg2rad(25.0) * _smoothstep(
+                max(h, 0.0) / s.separation_altitude_m
+            )
+            pitch = min(programmed_pitch, altitude_pitch_cap)
+            flow = atan2(velocity[0], velocity[1]) if hypot(*velocity) > 20 else 0.0
+            if q > 100:
+                # At liftoff, the horizontal wind dominates the air-relative
+                # direction before the rocket has a meaningful upward speed.
+                # Bring the flow reference in gradually during vertical departure.
+                departure = _smoothstep((y[3] - 40.0) / 60.0)
+                protected_flow = departure * flow
+                # Low q permits more steering to recover a vertical path.
+                # Near max q, leave margin under both the 5-degree and
+                # Q-alpha acceptance limits for finite attitude tracking.
+                angle_budget_deg = 10.0 - 6.5 * _smoothstep((q - 5_000.0) / 5_000.0)
+                allowance = np.deg2rad(
+                    min(angle_budget_deg, 0.6 * SAFETY.max_q_alpha_kpa_deg * 1000 / q)
+                )
+                pitch = float(
+                    np.clip(pitch, protected_flow - allowance, protected_flow + allowance)
+                )
+            # Align while TVC is still available, not after shutting down at
+            # the gate. At roughly 1 km/s, the altitude window is shorter
+            # than the finite-time turn from the ascent pitch to the flow.
+            time_to_altitude = (s.separation_altitude_m - y[1]) / max(y[3], 1.0)
+            full_flow = self.engine(1.0, y[1])[1]
+            time_to_reserve = (
+                y[6] - s.separation_min_main_propellant_kg - shutdown_reserve_kg
+            ) / full_flow
+            angle_error = abs(atan2(sin(y[4] - flow), cos(y[4] - flow)))
+            alpha_limit = np.deg2rad(self.return_settings.attitude_acceleration_limit_deg_s2)
+            rate_limit = np.deg2rad(self.return_settings.attitude_rate_limit_deg_s)
+            slew_time = (
+                max(
+                    2 * sqrt(angle_error / alpha_limit),
+                    angle_error / rate_limit + rate_limit / alpha_limit,
+                )
+                + abs(y[5]) / alpha_limit
+            )
+            preview = max(s.separation_alignment_preview_s, slew_time + 2.0)
+            if (
+                self.separation_alignment_started_s is None
+                and y[3] > 100.0
+                and min(time_to_altitude, time_to_reserve) <= preview
+            ):
+                self.separation_alignment_started_s = self.time_s
+            if self.separation_alignment_started_s is not None:
+                blend = _smoothstep(
+                    (self.time_s - self.separation_alignment_started_s)
+                    / s.separation_alignment_blend_s
+                )
+                difference = atan2(sin(flow - pitch), cos(flow - pitch))
+                pitch += blend * difference
+            if self.cutoff_pending:
+                pitch = flow
                 throttle = 0.0
-            gimbal, torque, fin_target = self.attitude(target, throttle, y)
-        return throttle, gimbal, torque, fin_target
+            else:
+                full = self.engine(1, y[1])[0]
+                minimum_mass = mass - 0.01 * self.nominal_design.launch_mass_kg
+                thrust = min(full, 2.95 * G0 * minimum_mass / 1.03)
+                speed = hypot(*velocity)
+                if q > 0.75 * SAFETY.max_q_pa and speed > 10:
+                    rho = atmosphere(y[1], forecast_atmosphere)[2]
+                    gradient = (
+                        np.log(atmosphere(y[1] + 20, forecast_atmosphere)[2]) - np.log(rho)
+                    ) / 20
+                    # Density scale is hidden from guidance (up to +10%). Keep
+                    # additional headroom for an unforecast gust and throttle lag.
+                    robust_q = 0.94 * SAFETY.max_q_pa / (1.0 + MAX_DENSITY_SCALE_DEVIATION)
+                    cap = sqrt(2 * robust_q / rho)
+                    desired = -0.5 * cap * gradient * y[3] + 0.7 * (cap - speed)
+                    free = float((aero / mass - [0, gravity(y[1])]) @ velocity) / speed
+                    projection = (sin(pitch) * velocity[0] + cos(pitch) * velocity[1]) / speed
+                    if projection > 0.05:
+                        thrust = min(thrust, max(0, mass * (desired - free) / projection))
+                throttle = thrust / full
+            gimbal, rcs, fin = self.attitude_control(pitch, throttle, y)
+            return throttle, gimbal, rcs, fin
+        limits = self.return_settings
+        if self.phase == "flip":
+            if self.flip_started_s is None:
+                if q > limits.flip_max_q_pa:
+                    target = atan2(velocity[0], velocity[1]) if y[3] > 0 else self.coast_attitude(y)
+                    gimbal, rcs, fin = self.attitude_control(target, 0.0, y)
+                    return 0.0, gimbal, rcs, fin
+                self.flip_started_s = self.time_s
+                ground_time = (max(y[3], 0) + sqrt(y[3] ** 2 + 2 * gravity(y[1]) * y[1])) / gravity(
+                    y[1]
+                )
+                self.boost_direction = -1.0 if y[0] + y[2] * ground_time >= 0 else 1.0
+            target = self.boost_direction * pi / 2
+            error = atan2(sin(target - y[4]), cos(target - y[4]))
+            if abs(error) < np.deg2rad(0.25) and abs(y[5]) < np.deg2rad(0.1):
+                self.phase = "boostback"
+                self.plan_return(y)
+            else:
+                # 낮은 동압에서 RCS로 회전한다. 자세 전환 중 불필요한 병진 추력을 피한다.
+                gimbal, rcs, fin = self.attitude_control(target, 0.0, y)
+                return 0.0, gimbal, rcs, fin
+        if self.outcome != "running":
+            return 0.0, 0.0, 0.0, 0.0
+        if self.phase == "boostback":
+            if self.time_s >= self.boost_end_s - 1e-8:
+                self.phase = "coast"
+                self.boostback_completed = dict(time_s=self.time_s, state=self.state.tolist())
+            else:
+                if self.time_s >= self.next_plan_s and self.boost_end_s - self.time_s > 0.5:
+                    self.plan_return(y)
+                if self.outcome != "running":
+                    return 0.0, 0.0, 0.0, 0.0
+                if self.time_s < self.boost_end_s:
+                    acceleration = np.array(
+                        [self.boost_direction * limits.boost_acceleration_m_s2, -gravity(y[1])]
+                    )
+                    return self.force_control(acceleration, y)
+                self.phase = "coast"
+                self.boostback_completed = dict(time_s=self.time_s, state=self.state.tolist())
+        if y[3] >= 0:
+            gimbal, rcs, fin = self.attitude_control(self.coast_attitude(y), 0.0, y)
+            return 0.0, gimbal, rcs, fin
 
-    def separate(self):
-        actual_checks = self.separation_checks(self.state)
-        actual_gate_altitude = float(self.state[1])
-        before = self.properties(self.state)
+        speed, gradient, time_to_ground = self.descent_speed(h)
+        alignment_time = self.descent_speed(limits.horizontal_alignment_height_m)[2]
+        horizontal_time = max(4.0, time_to_ground - alignment_time + 4.0)
+        # ZEM/ZEV 형태의 종말 위치·속도 피드백. 수평 정렬 목표는 접지보다 앞선다.
+        ax = float(np.clip(-6 * y[0] / horizontal_time**2 - 4 * y[2] / horizontal_time, -8.0, 8.0))
+        vertical_body = h < limits.vertical_body_height_m
+        if vertical_body:
+            lever = self.properties(y, predicted=True).cg_m - self.physics.geometry.nozzle_station_m
+            ax_limit = 0.5 * self.design.rcs_torque_limit_nm / (lever * mass)
+            # A fixed four-second ZEM horizon can demand acceleration toward
+            # the pad even when the limited lateral actuator must already
+            # brake. Shape the velocity reference by reachable stopping
+            # distance, with 30% braking margin and a linear near-pad limit.
+            closing_speed = min(0.4 * abs(y[0]), sqrt(2.0 * 0.7 * ax_limit * abs(y[0])))
+            desired_vx = -np.sign(y[0]) * closing_speed
+            ax = float(np.clip(1.2 * (desired_vx - y[2]), -ax_limit, ax_limit))
+        lateral_speed = velocity[0]
+        vertical_speed_squared = speed**2 - lateral_speed**2
+        reference_squared = self.design.descent_reference_m_s**2
+        vertical_speed = sqrt(max(reference_squared, vertical_speed_squared))
+        desired_vz = -vertical_speed
+        # The lower speed bound is a constant reference, so its derivative
+        # is zero. Differentiating the unclipped expression here couples
+        # horizontal wind/correction into an unintended touchdown acceleration.
+        feedforward = (
+            (-speed * gradient * y[3] + lateral_speed * ax) / vertical_speed
+            if vertical_speed_squared > reference_squared
+            else 0.0
+        )
+        alignment_blend = (
+            _smoothstep(max(abs(y[0]) / 2.0, abs(y[2]) / 0.5) - 1.0) if vertical_body else 0.0
+        )
+        if alignment_blend > 0.0:
+            # 진입 분산이 남으면 고도를 소진하기 전에 정렬 시간을 확보한다.
+            alignment_duration = abs(y[2]) / ax_limit + sqrt(2 * abs(y[0]) / ax_limit) + 4
+            allowed = max(self.design.descent_reference_m_s, h / alignment_duration)
+            if allowed < vertical_speed:
+                desired_vz += alignment_blend * (-allowed - desired_vz)
+                alignment_feedforward = max(0, -y[3] / alignment_duration)
+                feedforward += alignment_blend * (alignment_feedforward - feedforward)
+        az = float(np.clip(feedforward + 1.2 * (desired_vz - y[3]), -gravity(y[1]), 28.0))
+        upward_force = mass * (az + gravity(y[1])) - aero[1]
+        actual_speed = hypot(*velocity)
+        if self.entry_started_s is None and (upward_force <= 0 or actual_speed < 0.95 * speed):
+            self.phase = "coast"
+            gimbal, rcs, fin = self.attitude_control(self.coast_attitude(y), 0.0, y)
+            return 0.0, gimbal, rcs, fin
+        if self.entry_started_s is None:
+            self.entry_started_s = self.time_s
+        self.phase = "landing" if h <= limits.landing_entry_height_m else "entry"
+        if upward_force <= 0:
+            gimbal, rcs, fin = self.attitude_control(self.coast_attitude(y), 0.0, y)
+            return 0.0, gimbal, rcs, fin
+        return self.force_control((ax, az), y, vertical_body=vertical_body)
+
+    def separation_checks(self, state):
+        s = self.ascent_settings
+        return dict(
+            altitude=abs(state[1] - s.separation_altitude_m) <= s.separation_tolerance_m,
+            dynamic_pressure=self.loads(state)[2] <= s.separation_max_q_pa,
+            angular_rate=abs(np.rad2deg(state[5])) <= s.separation_max_rate_deg_s,
+            alpha=abs(self.alpha_deg(state)) <= s.separation_max_alpha_deg,
+            main_reserve=state[6] >= s.separation_min_main_propellant_kg,
+            main_engine_off=state[12] <= 1e-3,
+            after_observed_max_q=self.ascent_max_q_passed,
+        )
+
+    def consider_separation(self):
+        if not self.upper_attached or not self.cutoff_pending:
+            return
+        checks = self.separation_checks(self.state)
+        if not all(checks.values()):
+            if self.state[1] > self.ascent_settings.separation_altitude_m + 5_000:
+                self.outcome = "separation_gate_missed"
+                self.failures.append(self.outcome)
+            return
+        gate_altitude = float(self.state[1])
+        pre_separation = self.state.copy()
         self.upper_attached = False
-        after = self.properties(self.state)
-        arm = rotation(self.state[4]) @ np.array([0.0, after.cg_m - before.cg_m])
-        self.state[:2] += arm
-        self.state[2:4] += self.state[5] * np.array([arm[1], -arm[0]])
+        props = self.properties(self.state)
+        upper_inertia = self.design.upper_mass_kg * (
+            self.physics.upper_length_m**2 / 12 + self.physics.geometry.body_radius_m**2 / 4
+        )
+        staging = separation_event(
+            pre_separation[:2],
+            pre_separation[2:4],
+            pre_separation[4],
+            pre_separation[5],
+            self.mass(self.state),
+            self.design.upper_mass_kg,
+            props.cg_m,
+            self.physics.upper_station_m,
+            props.inertia_kg_m2,
+            upper_inertia,
+            self.separation_settings,
+            main_propellant_kg=max(float(self.state[6]), 0.0),
+            slosh_state=SloshState(*self.state[17:19]),
+            slosh_station_m=self.physics.geometry.tank_bottom_m + props.fuel_height_m / 2.0,
+            slosh_settings=self.slosh_settings,
+        )
+        self.state[:2] = staging["booster_position_m"]
+        self.state[2:4] = staging["booster_velocity_m_s"]
+        self.state[5] = staging["booster_angular_rate_rad_s"]
+        self.state[18] = staging["booster_slosh_velocity_m_s"]
+        self.on_pad = False
+        self.phase = "flip"
+        # 분리는 관성이 불연속으로 바뀌는 사건이다. 다음 적분 전에 새 기체의
+        # 제어를 계산하여 결합체용 RCS 명령을 한 제어 주기 더 유지하지 않는다.
+        self.next_control_s = self.time_s
         self.separation = dict(
             time_s=self.time_s,
             state=self.state.tolist(),
-            engine_throttle=self.engine_throttle,
-            altitude_m=self.state[1],
-            x_m=self.state[0],
-            vx_m_s=self.state[2],
-            vz_m_s=self.state[3],
+            checks_before_separation=checks,
+            engine_throttle=float(self.state[12]),
+            gate_altitude_before_cg_change_m=gate_altitude,
             first_stage_mass_kg=self.mass(self.state),
-            main_propellant_kg=self.state[6],
-            rcs_propellant_kg=self.state[7],
-            dynamic_pressure_pa=self.loads(self.state)[2],
-            attitude_deg=float(np.rad2deg(self.state[4])),
-            angular_rate_deg_s=float(np.rad2deg(self.state[5])),
-            alpha_deg=self.alpha_deg(self.state),
-            after_observed_max_q=self.max_q_passed,
-            gate_altitude_before_cg_change_m=actual_gate_altitude,
-            gate_altitude_reference="attached_vehicle_center_of_mass",
-            checks_before_separation=actual_checks,
-            observed_checks_before_separation=self.last_separation_checks,
-            preparation_started_s=self.ascent_preparation_started_s,
-            simultaneous_conditions_dwell_s=self.time_s - self.separation_ready_since_s,
+            actual_separation_impulse_modelled=True,
+            impulse_model=staging,
         )
-        self.phase = "boostback" if abs(self.state[0]) > 2.0 else "coast"
-        self.filtered_attitude_target = float(self.state[4])
-        self.observations.clear()
-        self.vertical_estimate = None
-        self.sensor_estimator.estimate = None
 
-    def first_contact(self, y, control):
-        derivative = self.derivative(y, control, contact_enabled=False)
+    def first_contact(self, state, control):
+        rate = self.derivative(state, control)
+        mass_rate = rate[6] + rate[7]
         points, velocities = foot_kinematics(
-            self.vector(y), y[8], self.physics, mass_rate=derivative[6] + derivative[7]
+            self.vector(state),
+            state[8],
+            self.settings(),
+            mass_rate=mass_rate,
+            deployment_rate=rate[8],
         )
-        active = points[:, 1] <= 1e-6
+        gate = self.physics.acceptance
+        criteria = dict(
+            position=abs(state[0]) <= gate.max_position_error_m,
+            vertical_foot_speed=np.max(abs(velocities[:, 1])) <= gate.max_vertical_foot_speed_m_s,
+            horizontal_foot_speed=np.max(abs(velocities[:, 0]))
+            <= gate.max_horizontal_contact_speed_m_s,
+            tilt=abs(np.rad2deg(state[4])) <= gate.max_contact_tilt_deg,
+            angular_rate=abs(np.rad2deg(state[5])) <= gate.max_contact_rate_deg_s,
+            main_propellant=state[6] > 0,
+            rcs_propellant=state[7] >= 0,
+            gear_deployed=state[8] >= 1 - 1e-8,
+            feet_on_pad=np.max(abs(points[:, 0])) <= self.physics.gear.pad_half_width_m,
+        )
         self.contact = dict(
             time_s=self.time_s,
-            state=y.tolist(),
+            angular_torque_bias_nm=self.angular_torque_bias_nm,
+            state=state.tolist(),
+            observed_control_state=self.observed_state[:6].tolist(),
+            navigation_acceleration_bias_m_s2=(
+                self.navigation_estimator.estimate[:, 2].tolist()
+                if self.navigation_estimator.estimate is not None
+                else None
+            ),
             foot_positions_m=points.tolist(),
             foot_velocities_m_s=velocities.tolist(),
-            first_feet=np.flatnonzero(active).tolist(),
+            criteria={key: bool(value) for key, value in criteria.items()},
         )
-        c = self.physics.acceptance
-        tests = dict(
-            position=abs(y[0]) <= c.max_position_error_m,
-            horizontal_speed=bool(
-                np.all(abs(velocities[active, 0]) <= c.max_horizontal_contact_speed_m_s)
-            ),
-            vertical_speed=bool(
-                np.all(abs(velocities[active, 1]) <= c.max_vertical_foot_speed_m_s)
-            ),
-            attitude=abs(np.rad2deg(atan2(sin(y[4]), cos(y[4])))) <= c.max_contact_tilt_deg,
-            angular_rate=abs(np.rad2deg(y[5])) <= c.max_contact_rate_deg_s,
-            main_propellant=y[6] > 0.0,
-            rcs_propellant=y[7] >= 0.0,
-            gear_locked=y[8] >= 1.0 - 1e-8,
-            pad=bool(np.all(abs(points[active, 0]) <= self.physics.gear.pad_half_width_m)),
-        )
-        tests = {name: bool(passed) for name, passed in tests.items()}
-        self.contact["criteria"] = tests
-        self.failures.extend(f"touchdown_{name}" for name, passed in tests.items() if not passed)
-        self.phase = "ground_settling"
-        self.control = (0.0, 0.0, 0.0, 0.0)
+        if self.outcome == "running":
+            self.outcome = "landed" if all(criteria.values()) else "touchdown_limits_exceeded"
 
-    def monitor(self, y, control):
-        derivative = self.derivative(y, control)
-        force, aero_torque, q, _ = self.loads(y)
-        thrust, _ = self.engine(control[0] if y[6] > 0.0 else 0.0, y[1], actual=True)
-        force += thrust * np.array([sin(y[4] + control[1]), cos(y[4] + control[1])])
-        load_g = hypot(*force) / (self.mass(y) * G0)
-        self.max_q = max(self.max_q, q)
-        self.max_x = max(self.max_x, abs(y[0]))
-        self.max_altitude = max(self.max_altitude, y[1])
-        alpha = abs(self.alpha_deg(y))
-        rate = abs(float(np.rad2deg(y[5])))
-        angular_acceleration = abs(float(np.rad2deg(derivative[5])))
-        if self.upper_attached:
-            self.max_q_before_separation = max(self.max_q_before_separation, q)
-            self.update_max_q_passed(q)
+    def monitor(self, state, control):
+        if self.conditions.gust_amplitude_m_s > 0.0:
+            gust = abs(
+                self.conditions.wind(state[1], self.time_s) - self.conditions.mean_wind(state[1])
+            )
+            exposure = self.integration_gust_exposure
+            exposure["maximum_contribution_m_s"] = max(exposure["maximum_contribution_m_s"], gust)
+            phases = exposure["maximum_by_phase_m_s"]
+            phases[self.phase] = max(phases.get(self.phase, 0.0), gust)
+            altitude_error = abs(state[1] - self.conditions.gust_altitude_center_m)
+            closest = exposure["closest_descending_altitude_sample"]
             if (
-                self.ascent_preparation_started_s is None
-                and y[1] >= self.ascent_settings.preparation_start_altitude_m
+                state[3] < 0.0
+                and altitude_error <= self.conditions.gust_altitude_half_width_m
+                and (closest is None or altitude_error < closest["altitude_error_m"])
             ):
-                self.ascent_preparation_started_s = self.time_s
-            self.max_q_alpha = max(self.max_q_alpha, q / 1000.0 * alpha)
-            if q >= self.design.high_q_threshold_pa:
-                self.max_ascent_alpha = max(self.max_ascent_alpha, alpha)
-            self.max_ascent_rate = max(self.max_ascent_rate, rate)
-            self.max_ascent_acceleration = max(self.max_ascent_acceleration, angular_acceleration)
-            axial_g = abs(float((rotation(y[4]).T @ force)[1])) / (self.mass(y) * G0)
-            self.max_axial_g = max(self.max_axial_g, axial_g)
-        else:
-            fin_force, fin_torque, hinge = self.fin_loads(y)
-            self.max_fin_force_n = max(self.max_fin_force_n, hypot(*fin_force))
-            self.max_fin_torque_nm = max(self.max_fin_torque_nm, abs(fin_torque))
-            self.max_fin_hinge_nm = max(self.max_fin_hinge_nm, hinge)
-            if y[12] > 0.01:
-                temperature = atmosphere(y[1], self.physics.atmosphere)[0]
-                mach = hypot(y[2] - self.wind_field().at(y[1]), y[3]) / sqrt(
-                    1.4 * R_AIR * temperature
-                )
-                self.max_deployed_fin_mach = max(self.max_deployed_fin_mach, mach)
-                self.max_deployed_fin_alpha_deg = max(
-                    self.max_deployed_fin_alpha_deg, abs(self.alpha_deg(y))
-                )
-            self.max_recovery_g = max(self.max_recovery_g, load_g)
-            if self.contact is None:
-                if self.phase == "alignment":
-                    if self.alignment_ready(y):
-                        if self.alignment_actual_ready_since_s is None:
-                            self.alignment_actual_ready_since_s = self.time_s
-                    else:
-                        self.alignment_actual_ready_since_s = None
-                self.max_recovery_rate = max(self.max_recovery_rate, rate)
-                self.max_recovery_acceleration = max(
-                    self.max_recovery_acceleration, angular_acceleration
-                )
-                if self.approach_started_s is not None:
-                    self.max_approach_tilt = max(self.max_approach_tilt, abs(np.rad2deg(y[4])))
-            else:
-                contacts = gear_contacts(self.vector(y), self.physics)
-                self.peak_leg_force = np.maximum(self.peak_leg_force, contacts["normal"])
-                self.peak_leg_stroke = np.maximum(self.peak_leg_stroke, contacts["stroke"])
-                supported = force + contacts["forces"].sum(axis=0)
-                contact_g = hypot(*supported) / (self.mass(y) * G0)
-                self.max_recovery_g = max(self.max_recovery_g, contact_g)
-                if np.any(contacts["stroke"] > self.physics.gear.max_stroke_m):
-                    self.failures.append("leg_bottom_out")
-                    self.outcome = "leg_bottom_out"
-                if np.any(contacts["normal"] > self.physics.gear.max_normal_force_n):
-                    self.failures.append("leg_normal_overload")
-                    self.outcome = "leg_normal_overload"
-                points = contacts["points"]
-                g = self.physics.geometry
-                props = self.properties(y)
-                hull = np.array(
-                    [
-                        [-g.body_radius_m, -props.cg_m],
-                        [g.body_radius_m, -props.cg_m],
-                        [-g.nozzle_radius_m, g.nozzle_station_m - props.cg_m],
-                        [g.nozzle_radius_m, g.nozzle_station_m - props.cg_m],
-                        [-g.body_radius_m, g.body_length_m - props.cg_m],
-                        [g.body_radius_m, g.body_length_m - props.cg_m],
-                    ]
-                )
-                if float((hull @ rotation(y[4]).T)[:, 1].min() + y[1]) <= 0.0:
-                    self.failures.append("body_ground_collision")
-                    self.outcome = "body_ground_collision"
-                settled = (
-                    np.all(contacts["normal"] > 0.0)
-                    and hypot(y[2], y[3]) <= self.physics.acceptance.settled_speed_m_s
-                    and abs(y[5]) <= np.deg2rad(self.physics.acceptance.settled_rate_deg_s)
-                    and abs(y[4]) <= np.deg2rad(self.physics.acceptance.max_contact_tilt_deg)
-                    and abs(y[0]) <= self.physics.acceptance.max_position_error_m
-                )
-                if settled and self.settled_since is None:
-                    self.settled_since = self.time_s
-                if not settled:
-                    self.settled_since = None
-                acceptance = self.physics.acceptance
-                if (
-                    self.outcome == "running"
-                    and self.time_s - self.contact["time_s"]
-                    >= acceptance.observation_after_contact_s
-                ):
-                    if (
-                        self.settled_since is not None
-                        and self.time_s - self.settled_since >= acceptance.settled_dwell_s
-                    ):
-                        self.outcome = "landed"
-                    elif self.time_s - self.contact["time_s"] >= acceptance.max_post_contact_s:
-                        self.outcome = "post_contact_unstable"
-                        self.failures.append(self.outcome)
-                if np.any(abs(points[contacts["active"], 0]) > self.physics.gear.pad_half_width_m):
-                    self.failures.append("contact_outside_pad")
-                    self.outcome = "contact_outside_pad"
-        balance = sum(self.initial_propellant)
-        balance -= y[6] + y[7] + self.main_consumed + self.rcs_consumed
-        self.max_mass_balance_error = max(self.max_mass_balance_error, abs(balance))
-
-    def advance(self):
-        """Advance one integration interval, preserving sensors, delays and fuel."""
-        if self.outcome != "running" or self.time_s >= self.deadline_s:
-            return
-        if self.time_s >= self.next_control_s - 1e-10:
-            self.requested_control = self.guidance(self.observe_control_state())
-            self.action_queue.append(self.requested_control)
-            self.control = self.action_queue[0]
-            if self.contact is not None:
-                self.control = (0.0, 0.0, 0.0, 0.0)
-            self.next_control_s += self.return_settings.control_dt_s
-        if self.time_s >= self.next_record_s - 1e-10:
-            self.steps.append(
-                dict(
+                exposure["closest_descending_altitude_sample"] = dict(
                     time_s=self.time_s,
                     phase=self.phase,
-                    state=self.state.tolist(),
-                    control=list(self.control),
-                    requested_control=list(self.requested_control),
-                    engine_throttle=self.engine_throttle,
-                    observed_state=self.observed_state.tolist(),
-                    wind_m_s=self.wind_field().at(self.state[1]),
-                    mass_kg=self.mass(self.state),
-                    dynamic_pressure_pa=self.loads(self.state)[2],
-                    ascent_command=self.ascent_command if self.upper_attached else None,
-                    attitude_target_deg=float(np.rad2deg(self.attitude_target)),
-                    horizontal_command=self.horizontal_command,
-                    vertical_command=self.vertical_command if self.phase == "alignment" else None,
-                    fin_torque_nm=self.fin_loads(self.state)[1],
-                    control_allocation=self.last_allocation,
+                    altitude_m=float(state[1]),
+                    altitude_error_m=float(altitude_error),
+                    gust_contribution_m_s=gust,
                 )
+            if gust >= 0.1:
+                exposure["endpoints_above_0_1_m_s"] += 1
+                if exposure["first_endpoint_above_0_1_m_s"] is None:
+                    exposure["first_endpoint_above_0_1_m_s"] = self.time_s
+                exposure["last_endpoint_above_0_1_m_s"] = self.time_s
+                exposure["gust_encounter_observed"] = True
+        if not self.on_pad:
+            geometry = self.physics.geometry
+            cg = self.properties(state).cg_m
+            length = geometry.body_length_m + (
+                self.physics.upper_length_m if self.upper_attached else 0.0
             )
-            self.next_record_s += 0.1
-        y = self.state
-        h = 0.001 if not self.upper_attached and self.height(y) < 2.0 else 0.01
-        h = min(h, self.next_control_s - self.time_s, self.deadline_s - self.time_s)
-        if h < 1e-10:
-            self.time_s = self.next_control_s
-            return
-        initial_throttle = self.engine_throttle
-        started_s = self.time_s
-        command = self.control
-        flow = self.derivative(
-            y,
-            self.applied_control(started_s, command, started_s, initial_throttle),
-            contact_enabled=False,
-        )
-        for index in (6, 7):
-            if flow[index] < 0.0:
-                h = min(h, max(y[index], 0.0) / (-flow[index]))
-        if h <= 1e-12:
-            self.outcome = "propellant_depletion"
-            self.failures.append(self.outcome)
-            return
-
-        def rhs(_time, value):
-            return self.derivative(
-                value,
-                self.applied_control(_time, command, started_s, initial_throttle),
-                time_s=_time,
+            body_corners = np.array(
+                [
+                    [-geometry.body_radius_m, -cg],
+                    [geometry.body_radius_m, -cg],
+                    [-geometry.body_radius_m, length - cg],
+                    [geometry.body_radius_m, length - cg],
+                ]
             )
-
-        advanced = rk4_step(rhs, self.time_s, y, h)
-        depleted = [index for index in (6, 7) if y[index] > 0.0 and advanced[index] < 0.0]
-        if depleted:
-            h = min(
-                brentq(
-                    lambda dt, index=index: (
-                        rk4_step(rhs, self.time_s, y, dt)[index] if dt else y[index]
-                    ),
-                    0.0,
-                    h,
-                    xtol=1e-12,
-                )
-                for index in depleted
-            )
-            advanced = rk4_step(rhs, self.time_s, y, h)
-            for index in depleted:
-                if abs(advanced[index]) < 1e-8:
-                    advanced[index] = 0.0
-        # Exact first foot contact, using the unforced flight limit from above.
-        if (
-            not self.upper_attached
-            and self.contact is None
-            and self.height(y) > 0.0
-            and self.height(advanced) <= 0.0
-        ):
-
-            def flight_rhs(_time, value):
-                return self.derivative(
-                    value,
-                    self.applied_control(_time, command, started_s, initial_throttle),
-                    contact_enabled=False,
-                    time_s=_time,
-                )
-
-            event = brentq(
-                lambda dt, y=y, step=flight_rhs, time=self.time_s: (
-                    self.height(rk4_step(step, time, y, dt)) if dt else self.height(y)
-                ),
-                0.0,
-                h,
-                xtol=1e-12,
-            )
-            advanced = rk4_step(flight_rhs, self.time_s, y, event)
-            h = event
-            self.time_s += h
-            actual_control = self.applied_control(self.time_s, command, started_s, initial_throttle)
-            self.engine_throttle = actual_control[0]
-            self.state = advanced
-            self.main_consumed += y[6] - advanced[6]
-            self.rcs_consumed += y[7] - advanced[7]
-            self.first_contact(advanced, actual_control)
-            self.monitor(advanced, actual_control)
-            return
-        self.time_s += h
-        actual_control = self.applied_control(self.time_s, command, started_s, initial_throttle)
-        self.engine_throttle = actual_control[0]
-        self.main_consumed += y[6] - advanced[6]
-        self.rcs_consumed += y[7] - advanced[7]
-        advanced[6:8] = np.maximum(advanced[6:8], 0.0)
-        advanced[8] = float(np.clip(advanced[8], 0.0, 1.0))
-        advanced[11] = float(
-            np.clip(
-                advanced[11],
-                -np.deg2rad(FINS.deflection_limit_deg),
-                np.deg2rad(FINS.deflection_limit_deg),
-            )
-        )
-        advanced[12] = float(np.clip(advanced[12], 0.0, 1.0))
-        if not self.upper_attached:
-            contacts = gear_contacts(self.vector(advanced), self.physics)
-            for leg in range(2):
-                if contacts["normal"][leg] <= 0.0:
-                    advanced[9 + leg] = 0.0
-                elif contacts["slipping"][leg]:
-                    bound = (
-                        abs(contacts["tangent"][leg]) / self.physics.gear.tangential_stiffness_n_m
-                    )
-                    advanced[9 + leg] = np.clip(advanced[9 + leg], -bound, bound)
-        self.state = advanced
-        self.monitor(advanced, actual_control)
+            body_corners += self.settings().body_frame_offset(self.vector(state))[0]
+            corners = body_corners @ rotation(state[4]).T + state[:2]
+            if np.min(corners[:, 1]) < -0.001:
+                self.outcome = "body_ground_collision"
+        force, _, q, _ = self.loads(state)
+        alpha = abs(self.alpha_deg(state))
+        self.max_q = max(self.max_q, q)
+        self.max_altitude = max(self.max_altitude, state[1])
         if self.upper_attached:
-            if (
-                self.disturbances.sensor_noise_scale == 0.0
-                and self.disturbances.observation_delay_steps == 0
-            ):
-                self.consider_separation(advanced)
-            else:
-                self.consider_separation(self.observed_state, predicted=True)
+            self.max_ascent_q = max(self.max_ascent_q, q)
+            self.ascent_max_q_passed |= self.max_ascent_q > 5000 and q < 0.9 * self.max_ascent_q
+            self.max_q_alpha = max(self.max_q_alpha, q * alpha / 1000)
+            if q > self.design.high_q_threshold_pa:
+                self.max_ascent_alpha = max(self.max_ascent_alpha, alpha)
+        else:
+            self.max_return_q = max(self.max_return_q, q)
+            self.max_fin_hinge = max(self.max_fin_hinge, self.fin_loads(state)[2])
+            if state[10] > 0.01 and self.fin_mode == "active":
+                temperature = atmosphere(state[1], self.physics.atmosphere)[0]
+                self.max_fin_mach = max(
+                    self.max_fin_mach,
+                    hypot(*self.air_velocity(state)) / sqrt(1.4 * R_AIR * temperature),
+                )
+                self.max_fin_alpha = max(self.max_fin_alpha, alpha)
+        thrust = self.actual_engine(state)[0]
+        supported = force + thrust * np.array(
+            [sin(state[4] + state[11]), cos(state[4] + state[11])]
+        )
+        flight_g = hypot(*supported) / (self.mass(state) * G0)
+        self.max_flight_g = max(self.max_flight_g, flight_g)
+        if self.upper_attached:
+            self.max_ascent_axial_g = max(
+                self.max_ascent_axial_g,
+                abs(float((rotation(state[4]).T @ supported)[1])) / (self.mass(state) * G0),
+            )
+        systems = {}
+        derivative = self.derivative(state, control, systems_diagnostics=systems)
+        demand = self.engine(float(np.clip(state[12], 0, 1)), state[1], actual=True)[1]
+        feed = self.feed_status(state, demand)
+        self.minimum_feed_buffer_kg = min(self.minimum_feed_buffer_kg, float(state[13]))
+        self.minimum_tank_pressure_pa = min(self.minimum_tank_pressure_pa, feed.tank_pressure_pa)
+        self.max_feed_shortage_kg_s = max(self.max_feed_shortage_kg_s, feed.demand_shortfall_kg_s)
+        self.feed_inventory_valid &= feed.inventory_valid
+        # A numerical micro-flow at shutdown is not an engine firing.
+        self.feed_supply_valid &= demand < 1e-3 or feed.demand_shortfall_kg_s < 0.01 * demand
+        if not self.feed_inventory_valid:
+            self.outcome = "feed_inventory_violation"
+        elif not self.feed_supply_valid:
+            # Emptying regularisation approaches zero inventory smoothly.
+            # Stop at loss of usable supply instead of waiting for tiny
+            # positive liquid masses to break the modal mass matrix later.
+            self.outcome = "propellant_feed_starvation"
+        self.max_helium_balance_error_kg = max(
+            self.max_helium_balance_error_kg,
+            abs(float(state[15] + state[16]) - self.feed_settings.helium_total_mass_kg),
+        )
+        displacement = slosh_displacement(SloshState(*state[17:19]), self.slosh_settings)[0]
+        self.max_slosh_displacement_m = max(
+            self.max_slosh_displacement_m, float(np.linalg.norm(displacement))
+        )
+        self.max_slosh_mode_force_n = max(
+            self.max_slosh_mode_force_n, systems["slosh"].modal_constraint_force_n
+        )
+        self.slosh_model_valid &= systems["slosh"].valid
+        liquid_station = (
+            self.physics.geometry.tank_bottom_m + self.properties(state).fuel_height_m / 2
+        )
+        self.slosh_model_valid &= (
+            self.physics.geometry.tank_bottom_m - 1e-8
+            <= liquid_station + displacement[1]
+            <= self.physics.geometry.tank_bottom_m + self.physics.geometry.tank_length_m + 1e-8
+            and abs(displacement[0]) <= self.physics.geometry.body_radius_m + 1e-8
+        )
+        if not self.slosh_model_valid:
+            self.outcome = "slosh_model_out_of_domain"
+        if self.first_subsystem_failure is None and not (
+            self.feed_inventory_valid and self.feed_supply_valid and self.slosh_model_valid
+        ):
+            self.first_subsystem_failure = dict(
+                time_s=self.time_s,
+                phase=self.phase,
+                feed_inventory_valid=bool(self.feed_inventory_valid),
+                feed_supply_valid=bool(self.feed_supply_valid),
+                slosh_model_valid=bool(self.slosh_model_valid),
+                state=state.tolist(),
+            )
+        self.max_rate = max(self.max_rate, abs(np.rad2deg(state[5])))
+        angular_acceleration = float(np.rad2deg(derivative[5]))
+        if abs(angular_acceleration) > self.max_acceleration:
+            self.max_acceleration = abs(angular_acceleration)
+            self.peak_angular_acceleration = dict(
+                time_s=self.time_s,
+                angular_torque_bias_nm=self.angular_torque_bias_nm,
+                phase=self.phase,
+                upper_attached=self.upper_attached,
+                acceleration_deg_s2=angular_acceleration,
+                state=state.tolist(),
+                control=list(control),
+                observed_control_state=self.observed_state.tolist(),
+                requested_control=list(self.requested_control),
+                navigation_acceleration_bias_m_s2=(
+                    self.navigation_estimator.estimate[:, 2].tolist()
+                    if self.navigation_estimator.estimate is not None
+                    else None
+                ),
+                attitude_target_deg=float(np.rad2deg(self.attitude_target)),
+            )
+        self.max_gimbal = max(self.max_gimbal, abs(np.rad2deg(state[11])))
+        balance = self.design.main_propellant_kg + self.design.rcs_propellant_kg
+        balance -= state[6] + state[7] + self.main_consumed + self.rcs_consumed
+        self.max_mass_balance_error = max(self.max_mass_balance_error, abs(balance))
 
-    def run(self):
-        while self.outcome == "running" and self.time_s < self.deadline_s:
-            self.advance()
-        if self.outcome == "running":
-            self.outcome = "timeout"
-            self.failures.append(self.outcome)
+    def record(self):
         self.steps.append(
             dict(
                 time_s=self.time_s,
+                angular_torque_bias_nm=self.angular_torque_bias_nm,
                 phase=self.phase,
                 state=self.state.tolist(),
                 control=list(self.control),
+                requested_control=list(self.requested_control),
+                observed_control_state=self.observed_state[:6].tolist(),
+                navigation_acceleration_bias_m_s2=(
+                    self.navigation_estimator.estimate[:, 2].tolist()
+                    if self.navigation_estimator.estimate is not None
+                    else None
+                ),
+                engine_throttle=float(self.state[12]),
                 mass_kg=self.mass(self.state),
                 dynamic_pressure_pa=self.loads(self.state)[2],
                 attitude_target_deg=float(np.rad2deg(self.attitude_target)),
                 fin_torque_nm=self.fin_loads(self.state)[1],
             )
         )
-        criteria = dict(
-            surface_wind=True,
-            weather_profile_domain=self.max_altitude <= PROFILE_TOP_M,
-            separation=self.separation is not None
-            and all(self.separation["checks_before_separation"].values()),
-            ascent_q=self.max_q_before_separation <= 30_000.0,
-            ascent_q_alpha=self.max_q_alpha <= 150.0,
-            ascent_high_q_alpha=self.max_ascent_alpha <= 5.0,
-            ascent_angular_rate=self.max_ascent_rate <= 15.0,
-            ascent_angular_acceleration=self.max_ascent_acceleration <= 5.0,
-            ascent_axial_acceleration=self.max_axial_g <= 3.0,
-            recovery_normal_acceleration=self.max_recovery_g <= 5.0,
-            recovery_absolute_acceleration=self.max_recovery_g <= 6.0,
-            recovery_angular_rate=self.max_recovery_rate <= 15.0,
-            recovery_angular_acceleration=self.max_recovery_acceleration <= 5.0,
-            approach_attitude=self.max_approach_tilt <= 5.0,
-            touchdown=self.contact is not None and all(self.contact["criteria"].values()),
-            engine_off_standing=self.outcome == "landed",
-            pre_approach_alignment=(
-                self.alignment_completed is not None
-                and self.alignment_completed["foot_height_m"] > 200.0
-                and self.alignment_completed["actual_gates_passed"]
-                and self.alignment_completed["actual_dwell_s"]
-                >= self.return_settings.alignment_dwell_s
-            ),
-            mass_balance=self.max_mass_balance_error <= 1e-6,
-            fin_hinge_load=self.max_fin_hinge_nm <= FINS.per_fin_hinge_limit_nm,
-            fin_model_envelope=(
-                self.max_deployed_fin_mach <= FINS.model_max_mach
-                and self.max_deployed_fin_alpha_deg <= FINS.control_max_alpha_deg
-            ),
+
+    def advance(self):
+        if self.outcome != "running":
+            return
+        if self.time_s >= self.next_control_s - 1e-9:
+            self.requested_control = self.guidance(self.observe_control_state())
+            self.action_queue.append(self.requested_control)
+            self.control = self.ignition_control(self.action_queue[0])
+            self.next_control_s += self.return_settings.control_dt_s
+        if self.time_s >= self.next_record_s - 1e-9:
+            self.record()
+            self.next_record_s += 0.2
+        step = min(
+            self.integration_dt_s
+            if self.height(self.state) > 2 or self.upper_attached
+            else min(self.integration_dt_s, 0.001),
+            self.next_control_s - self.time_s,
         )
-        criteria = {name: bool(passed) for name, passed in criteria.items()}
-        not_evaluated = []
-        if self.scope == "10km_separation_to_settled_landing":
-            not_evaluated.extend(name for name in criteria if name.startswith("ascent_"))
-        if self.separation is None:
-            not_evaluated.extend(
-                name
-                for name in criteria
-                if name.startswith("recovery_") or name == "approach_attitude"
+        if step < 1e-9:
+            self.time_s = self.next_control_s
+            return
+        before = self.state.copy()
+        available_propellant = (before[6] > 0, before[7] > 0)
+
+        def rhs(time, value):
+            # 소진 직전의 매끄러운 유량으로 사건 시각을 찾는다.
+            # 중간 RK 단계에서 유량을 끄면 실제 소진 시각이 왜곡된다.
+            return self.derivative(
+                value, self.control, time_s=time, available_propellant=available_propellant
             )
-        for name in not_evaluated:
-            criteria[name] = None
+
+        advanced = rk4_step(rhs, self.time_s, before, step)
+        if not np.isfinite(advanced).all():
+            self.outcome = "numerical_failure"
+            return
+        # 추진제 소진은 실제 장부로 판정한다. 음의 질량으로 비행을 계속하지 않는다.
+        if advanced[6] <= 0 or advanced[7] < 0:
+            event_steps = [
+                brentq(
+                    lambda dt, index=index: (
+                        rk4_step(rhs, self.time_s, before, dt)[index] if dt else before[index]
+                    ),
+                    0,
+                    step,
+                    xtol=1e-10,
+                )
+                for index in (6, 7)
+                if before[index] > 0 and advanced[index] <= 0
+            ]
+            step = min(event_steps)
+            advanced = rk4_step(rhs, self.time_s, before, step)
+            advanced[6:8] = np.maximum(advanced[6:8], 0)
+            if advanced[6] < 1e-7:
+                advanced[6] = 0
+                self.outcome = "main_propellant_depleted"
+            if advanced[7] < 1e-7:
+                advanced[7] = 0
+            self.time_s += step
+            self.main_consumed += before[6] - advanced[6]
+            self.rcs_consumed += before[7] - advanced[7]
+            self.state = advanced
+            self.monitor(advanced, self.control)
+            return
+        if (
+            not self.upper_attached
+            and self.contact is None
+            and self.height(before) > 0 >= self.height(advanced)
+        ):
+
+            def free_rhs(time, value):
+                return self.derivative(
+                    value,
+                    self.control,
+                    time_s=time,
+                    available_propellant=available_propellant,
+                )
+
+            fraction = brentq(
+                lambda dt: (
+                    self.height(rk4_step(free_rhs, self.time_s, before, dt))
+                    if dt
+                    else self.height(before)
+                ),
+                0,
+                step,
+                xtol=1e-10,
+            )
+            advanced = rk4_step(free_rhs, self.time_s, before, fraction)
+            step = fraction
+            self.time_s += step
+            self.state = advanced
+            self.main_consumed += before[6] - advanced[6]
+            self.rcs_consumed += before[7] - advanced[7]
+            self.first_contact(advanced, self.control)
+            self.monitor(advanced, self.control)
+            return
+        self.time_s += step
+        advanced[8] = np.clip(advanced[8], 0, 1)
+        advanced[9] = np.clip(advanced[9], -np.deg2rad(20), np.deg2rad(20))
+        advanced[10] = np.clip(advanced[10], 0, 1)
+        advanced[11] = np.clip(
+            advanced[11],
+            -np.deg2rad(self.design.gimbal_limit_deg),
+            np.deg2rad(self.design.gimbal_limit_deg),
+        )
+        advanced[12] = np.clip(advanced[12], 0, 1)
+        self.main_consumed += before[6] - advanced[6]
+        self.rcs_consumed += before[7] - advanced[7]
+        self.state = advanced
+        if self.upper_attached and self.actual_engine(advanced)[0] > self.mass(advanced) * gravity(
+            advanced[1]
+        ):
+            self.on_pad = False
+        self.monitor(advanced, self.control)
+        self.consider_separation()
+
+    def run(self, progress=None):
+        next_progress_s = self.time_s
+        previous_phase = None
+        while self.outcome == "running" and self.time_s < self.deadline_s:
+            if progress is not None and (
+                self.time_s >= next_progress_s or self.phase != previous_phase
+            ):
+                progress(self)
+                previous_phase = self.phase
+                next_progress_s = self.time_s + 20.0
+            self.advance()
+        if self.outcome == "running":
+            self.outcome = "timeout"
+        if self.outcome != "landed" and self.outcome not in self.failures:
+            self.failures.append(self.outcome)
+        self.record()
+        separation_passed = self.separation is not None and all(
+            self.separation["checks_before_separation"].values()
+        )
+        contact_passed = self.contact is not None and all(self.contact["criteria"].values())
+        s = SAFETY
+        eps = 1e-7  # 부동소수점 비교만 허용한다. 물리 허용값을 늘리지 않는다.
+        safety = dict(
+            dynamic_pressure=self.max_q <= s.max_q_pa + eps,
+            ascent_q_alpha=self.max_q_alpha <= s.max_q_alpha_kpa_deg + eps,
+            ascent_high_q_alpha=self.max_ascent_alpha <= s.max_high_q_alpha_deg + eps,
+            ascent_axial_g=self.max_ascent_axial_g <= s.max_ascent_axial_g + eps,
+            flight_load_g=self.max_flight_g <= s.max_recovery_flight_g + eps,
+            angular_rate=self.max_rate <= s.max_angular_rate_deg_s + eps,
+            angular_acceleration=self.max_acceleration <= s.max_angular_acceleration_deg_s2 + eps,
+            gimbal=self.max_gimbal <= self.design.gimbal_limit_deg + eps,
+            fin_hinge=self.max_fin_hinge <= FINS.per_fin_hinge_limit_nm + eps,
+            fin_model_envelope=self.max_fin_mach <= FINS.model_max_mach + eps
+            and self.max_fin_alpha <= FINS.control_max_alpha_deg + eps,
+            contact_load_g=None,
+            leg_force=None,
+            leg_stroke=None,
+            mass_balance=self.max_mass_balance_error < 1e-6,
+            weather_profile_domain=self.max_altitude <= PROFILE_TOP_M,
+            feed_inventory=bool(self.feed_inventory_valid),
+            feed_supply=bool(self.feed_supply_valid),
+            helium_mass_balance=self.max_helium_balance_error_kg < 1e-6,
+            slosh_model_domain=bool(self.slosh_model_valid),
+        )
+        staging = self.separation.get("impulse_model") if self.separation else None
+        safety["separation_momentum"] = staging is None or (
+            np.linalg.norm(staging["linear_momentum_residual_kg_m_s"]) < 1e-6
+            and abs(staging["angular_momentum_residual_kg_m2_s"]) < 1e-5
+        )
+        safety["separation_pulse_estimate"] = (
+            staging is None
+            or abs(np.rad2deg(staging["booster_pulse_average_angular_acceleration_rad_s2"]))
+            <= s.max_angular_acceleration_deg_s2
+        )
+        full_mission = self.scope == "launch_to_separation_to_touchdown"
+        mission = bool(
+            full_mission
+            and separation_passed
+            and self.contact is not None
+            and abs(self.contact["state"][0]) <= 2
+        )
+        landing = bool(contact_passed and self.outcome == "landed")
+        if not full_mission:
+            for name in ("ascent_q_alpha", "ascent_high_q_alpha", "ascent_axial_g"):
+                safety[name] = None
+        safe = bool(all(value for value in safety.values() if value is not None))
+        criteria = {name: None if value is None else bool(value) for name, value in safety.items()}
+        criteria.update(
+            separation=bool(separation_passed),
+            touchdown=bool(contact_passed),
+            engine_off_standing=None,
+        )
+        if not full_mission:
+            criteria["separation"] = None
         return dict(
             description=(
-                "3톤 APR 강체 회수 계산. 입력 허용 판정은 실제 발사 승인·실기체 검증이 아닙니다."
+                "100톤·500 kg 탑재체의 2D 강체 개념 모델. 실기체 인증·전체 2단 비행 검증 아님."
             ),
             environment_version=OPERATING_SCOPE,
+            systems_model_version=SYSTEMS_MODEL_VERSION,
+            acceptance_version=f"apr_100t_{self.landing_assessment}_v1",
+            landing_assessment=self.landing_assessment,
+            assessment_scope=dict(
+                flight_safety="through_first_contact",
+                contact_structural_dynamics=False,
+                post_contact_settling=False,
+                leg_load_adequacy="assumed_within_vertical_touchdown_speed_limit",
+                vertical_touchdown_speed_limit_m_s=self.physics.acceptance.max_vertical_foot_speed_m_s,
+            ),
+            state_names=list(STATE_NAMES),
             simulation_scope=self.scope,
-            ascent_simulated=self.scope == "launch_to_separation_to_settled_landing",
+            ascent_simulated=full_mission,
             operating_input_eligible=True,
             seed=378,
             simulation_count=1,
-            return_method=RETURN_METHOD if self.fin_mode == "active" else "PID, fins stowed",
+            return_method=RETURN_METHOD,
             fin_mode=self.fin_mode,
+            fin_selection_reason=self.fin_selection_reason,
             fin_settings=asdict(FINS),
-            dry_mass_budget_kg=dict(
-                engine=110.0,
-                landing_gear=60.0,
-                other_airframe_systems=326.0,
-                fin_surfaces=FINS.surface_mass_kg,
-                fin_actuators=FINS.actuator_mass_kg,
-                fin_deployment=FINS.deployment_mass_kg,
-                fin_electrical=FINS.electrical_mass_kg,
+            design=asdict(self.design) | {"launch_mass_kg": self.design.launch_mass_kg},
+            physics=asdict(self.physics),
+            safety_limits=asdict(s),
+            safety_derivation=s.derivation(),
+            ascent_settings=asdict(self.ascent_settings),
+            conditions=asdict(self.conditions),
+            disturbances=asdict(self.disturbances),
+            integration_dt_s=self.integration_dt_s,
+            criteria=criteria,
+            mission_success=mission,
+            flight_safety=safe,
+            landing_success=landing,
+            simulated_acceptance_passed=bool(
+                (mission if full_mission else True) and safe and landing
             ),
-            design=asdict(self.design),
+            outcome=self.outcome,
+            failures=self.failures,
+            separation=self.separation,
+            contact=self.contact,
+            boostback_completed=self.boostback_completed,
+            return_plan=self.return_plan,
+            return_plan_history=self.return_plan_history,
+            return_guidance_settings=asdict(self.return_settings),
+            flip_started_s=self.flip_started_s,
+            entry_started_s=self.entry_started_s,
+            separation_alignment_started_s=self.separation_alignment_started_s,
+            minimum_control_torque_margin_nm=self.minimum_control_torque_margin_nm,
+            final_state=self.state.tolist(),
+            time_s=self.time_s,
+            main_propellant_used_kg=self.main_consumed,
+            rcs_propellant_used_kg=self.rcs_consumed,
+            main_propellant_remaining_kg=float(self.state[6]),
+            rcs_propellant_remaining_kg=float(self.state[7]),
+            max_dynamic_pressure_pa=self.max_q,
+            max_recovery_dynamic_pressure_pa=self.max_return_q,
+            max_ascent_q_alpha_kpa_deg=self.max_q_alpha,
+            max_angular_rate_deg_s=self.max_rate,
+            max_angular_acceleration_deg_s2=self.max_acceleration,
+            peak_angular_acceleration=self.peak_angular_acceleration,
+            max_flight_load_g=self.max_flight_g,
+            max_contact_load_g=None,
+            max_gimbal_deg=self.max_gimbal,
+            max_fin_hinge_nm=self.max_fin_hinge,
+            max_mass_balance_error_kg=self.max_mass_balance_error,
+            max_altitude_m=self.max_altitude,
+            integration_gust_exposure=self.integration_gust_exposure,
+            peak_leg_force_n=None,
+            peak_leg_stroke_m=None,
             upper_stage_mission=dict(
                 payload_mass_kg=self.design.payload_mass_kg,
                 stage_wet_mass_kg=self.design.upper_stage_wet_mass_kg,
-                target_orbit_altitude_m=ASSUMED_UPPER_STAGE_ORBIT_ALTITUDE_M,
+                total_with_payload_kg=self.design.upper_mass_kg,
+                dry_mass_kg=1500,
+                main_propellant_kg=15500,
+                target_orbit_altitude_m=700000,
                 orbit_insertion_assumed=True,
                 orbit_insertion_simulated=False,
                 orbit_insertion_verified=False,
             ),
             first_stage_mission=dict(
                 separation_altitude_m=self.ascent_settings.separation_altitude_m,
-                separation_attitude_from_vertical_deg=self.ascent_settings.separation_attitude_deg,
-                separation_attitude_tolerance_deg=self.ascent_settings.separation_attitude_tolerance_deg,
                 landing_target_x_m=0.0,
+                return_main_budget_kg=20000,
                 horizontal_distance_prescribed=False,
                 horizontal_velocity_prescribed=False,
             ),
-            physics=asdict(self.physics),
-            ascent_guidance=asdict(self.ascent_settings),
-            return_guidance=asdict(self.return_settings),
-            initial_twr=self.design.sea_level_thrust_n / (self.design.launch_mass_kg * G0),
-            external_disturbances=dict(
-                environment=asdict(self.conditions), healthy_vehicle=asdict(self.disturbances)
-            ),
-            initial_propellant_kg=dict(
-                main=self.initial_propellant[0], rcs=self.initial_propellant[1]
+            nominal_dry_mass_budget_kg=dict(
+                engine=1200, other_airframe_systems=8700, landing_gear=1500, fins=600
             ),
             unconnected_systems=list(UNCONNECTED_SYSTEMS),
-            legacy_evidence_transferred=False,
-            assumptions=[
-                "주 엔진 비추력 260초, RCS 비추력 220초는 기존 모델에서 가져온 가정입니다.",
-                "주 엔진은 지상 최대 42 kN에 고도별 압력 추력을 더하며 0-100% 조절합니다. "
-                "입력한 1차 응답 지연은 반영하지만 "
-                "최소 20% 스로틀·시동/재점화 제약은 적용하지 않습니다.",
-                "실제 물리는 고도별 바람·정현파 돌풍·온도·기압·추력/관성 편차를 사용합니다. "
-                "제어기는 예보 바람과 인과적 센서 추정만 사용하며 실제 상태로 성공을 판정합니다.",
-                "바람은 평면 내 수평 성분이며 0-20 km의 선형 프로파일입니다. "
-                "입력 경계는 잠정 프로젝트 범위이며 NASA의 이 기체 인증 기준이 아닙니다.",
-                "잡음은 위치·속도·자세·각속도에 적용합니다. 연료·기구 상태·실제 스로틀·"
-                "Max-Q 계측은 이상적인 원격 계측으로 가정합니다. "
-                "낙뢰·구름·기체 검토는 입력 게이트입니다.",
-                "1단 형상 5 m x 지름 0.9 m, 결합체 7 m, 2단 질량 중심 위치 6 m를 가정합니다.",
-                "상부 총질량 1,015 kg 안에 탑재체 30 kg을 포함하며, "
-                "추진제를 포함한 2단 자체 질량은 985 kg입니다.",
-                "분리 후 2단의 700 km 원궤도 도달은 임무 가정입니다. "
-                "2단 비행을 계산하거나 궤도 투입 성공을 검증하지 않습니다.",
-                "건조질량 520 kg 안에서 엔진 110 kg·다리 60 kg·"
-                "기타 구조와 계통 326 kg·핀과 구동계 24 kg로 잠정 배분했습니다.",
-                "핀 질량·면적·계수·힌지 허용치는 설계 가정이며 "
-                "실측된 격자핀 또는 Falcon 9의 공력 데이터가 아닙니다.",
-                "4개 핀 총 면적 0.8 m² 중 평면 내 한 쌍의 유효 면적은 0.4 m²입니다. "
-                "전개와 재접기는 각각 2초, 조종각은 ±20도, 구동 속도는 60도/s입니다.",
-                "핀은 분리 후 하강 때 전개합니다. 구동 지연과 항력은 반영하지만 "
-                "전개 중 질량 분포 변화는 평균 반경으로 근사합니다.",
-                "전개기구가 기존 24 kg 예산 안에서 양방향 구동·재잠금을 할 수 있다고 "
-                "추가 가정합니다. 실제 재접기 하중·구동 전력·기구 강도는 미검증입니다.",
-                "핀은 무추력 하강을 담당하고 엔진이 켜지면 짐벌 우선으로 전환합니다. "
-                "실제 지연된 핀 토크를 보상하며 RCS는 남은 토크만 제공합니다.",
-                "추력과 공력 합산 하중을 4.75 g 목표로 제한합니다. "
-                "5 g 정상 기준·6 g 절대 기준·접지 기준은 변경하지 않습니다.",
-                "수평 PD·자세 참조 필터·점화 제동과 접근 하강 속도 램프를 적용합니다. "
-                "중간 접근 상한은 20 m/s이고 최종 접지 참조는 0.9 m/s입니다.",
-                "착륙 점화 시 관측한 수평 위치·속도로 5차 목표 궤적을 계획합니다. "
-                "가속도 참조 0.8 m/s²·저크 참조 0.2 m/s³ 이내에서 원점과 정지 상태를 "
-                "함께 목표로 하며 기존 PID가 오차를 보정합니다.",
-                "참조 필터와 자세 PD의 저주파 추종 지연을 1차 선행 보상합니다. "
-                "보상된 가속도도 참조 예산 0.8 m/s² 이내로 제한하며 "
-                "실제 자세는 기존 속도·가속도 한계를 지켜 적분합니다.",
-                "600 m부터 수평 참조 종료 시각에 맞춰 단조 하강·감속 참조를 계획합니다. "
-                "참조 순가속도 상한 8 m/s²·최저 유지 높이 250 m를 적용하고 "
-                "계획이 불가능하면 기존 350 m 고도 유지로 돌아갑니다.",
-                "정렬의 실제 위치·속도·자세·각속도·핀 재접기·1초 유지 조건과 "
-                "접지 기준은 완화하지 않습니다. 전역 연료 최소 최적해는 아닙니다.",
-                "추가 5도/s² 진단은 이전과 같이 회수 전체에 적용하며, "
-                "사용자가 정한 Flip 구간만의 한계보다 보수적인 평가입니다.",
-                "RCS와 주 추진제의 소비·잔량은 별도 계산하며 "
-                "질량 분포는 동일 위치의 등가 액체로 근사합니다.",
-                "500 m 이후 작은 각도 중력 선회 참조와 공기 상대속도 피드백으로 "
-                "수직 기준 9도 분리를 목표로 합니다. 수평거리·속도는 비행 결과입니다.",
-                "상승 수평속도 유도 예산 25 m/s·수평거리 유도 예산 600 m를 적용하며 "
-                "실제 속도·자세·좌표를 강제로 맞추지 않습니다.",
-                "분리 자세는 수직 기준 9±0.5도이며 기존 받음각·각속도·동압 조건도 "
-                "동시에 만족해야 합니다.",
-                "귀환 제동은 최대 스로틀 15%·수평가속도 참조 최대 2 m/s²·자세 참조 최대 "
-                "20도를 사용합니다. 공동 계획 모드는 실제 기울기 8도 미만에서 "
-                "불필요한 수직 추력을 끄고, 이후 필요한 수평 힘만 요청합니다.",
-                "공동 계획 모드는 평균 대기밀도·축방향 항력·핀 기본 항력의 닫힌 근사식으로 "
-                "귀환 속도 후보와 점화 고도를 함께 정합니다. 미래 비행을 추가 적분하지 않습니다.",
-                "근사 비용은 귀환 제동 추진제와 추가 정렬 체류 추진제의 추정값입니다. "
-                "이 계획은 횡공력·핀 양력·밀도 변화·코리올리와 점화 전 질량 변화를 "
-                "정확히 예측하지 않으며 실제 비행은 기존 물리식으로 적분합니다.",
-                "점화 고도에는 실제 제동 여유·자세 지연·계획 갱신 지연과 "
-                "수평 정렬 시간 예산을 반영합니다. 전역 연료 최적해를 주장하지 않습니다.",
-                "8.5-9 km에서 분리 준비로 전환하며 "
-                "받음각·각속도 목표 2도·2도/s 이내 여유를 둡니다.",
-                "분리 허용 범위는 결합체 질량 중심 기준 9900-10100 m이며 "
-                "모든 조건을 0.3초 유지해야 합니다.",
-                "Max-Q 통과는 관측 피크 대비 1% 이상 낮아지면서 "
-                "0.5초 연속 감소하는 인과적 근사입니다.",
-                "고동압 기준 10 kPa 이상, 분리 후 부하·착륙 기준과 기체 제원은 "
-                "이전 실험과 같습니다.",
-                "접지 상한 1.0 m/s를 위한 최종 하강 속도 참조는 0.9 m/s입니다.",
-                "분리 후 질량 중심 변화와 회전 운동학을 반영하지만 분리 충격은 0으로 가정합니다.",
-                "핫스테이징 상태 조건만 평가하며 "
-                "2단 실제 점화·플룸·분리 기구는 구현하지 않았습니다.",
-                "공급·가압·액체 슬로싱·탄성·상세 열해석을 제외하므로 "
-                "기존 systems-v1 검증과 구별해야 합니다.",
-                "기존 스프링·댐퍼·마찰 접지를 사용하되 "
-                "다리 재료·좌굴·응력 인증은 이 예비 모델의 범위 밖입니다.",
-            ],
-            separation=self.separation,
-            boostback_completed=self.boostback_completed,
-            landing_ignition=self.landing_ignition,
-            return_plan=self.return_plan,
-            last_separation_checks=self.last_separation_checks,
-            last_separation_check_state=self.last_separation_check_state,
-            first_contact=self.contact,
-            simulated_acceptance_passed=all(
-                passed is True for name, passed in criteria.items() if name not in not_evaluated
+            systems_settings=dict(
+                feed=asdict(self.feed_settings),
+                slosh=asdict(self.slosh_settings),
+                separation=asdict(self.separation_settings),
+                ignition=asdict(self.ignition_settings),
             ),
-            criteria=criteria,
-            not_evaluated_criteria=not_evaluated,
-            outcome=self.outcome,
-            failure_reasons=sorted(set(self.failures)),
-            failed_criteria=[name for name, passed in criteria.items() if passed is False],
-            flight_time_s=self.time_s,
-            elapsed_time_s=self.time_s - self.started_s,
-            max_altitude_m=self.max_altitude,
-            max_horizontal_distance_m=self.max_x,
-            max_ascent_q_pa=self.max_q_before_separation,
-            max_ascent_q_alpha_kpa_deg=self.max_q_alpha,
-            max_ascent_high_q_alpha_deg=self.max_ascent_alpha,
-            max_ascent_rate_deg_s=self.max_ascent_rate,
-            max_ascent_angular_acceleration_deg_s2=self.max_ascent_acceleration,
-            max_ascent_axial_g=self.max_axial_g,
-            max_recovery_g=self.max_recovery_g,
-            max_recovery_rate_deg_s=self.max_recovery_rate,
-            max_recovery_angular_acceleration_deg_s2=self.max_recovery_acceleration,
-            max_approach_tilt_deg=self.max_approach_tilt,
-            alignment_started_s=self.alignment_started_s,
-            alignment_completed=self.alignment_completed,
-            alignment_descent=asdict(self.alignment_descent)
-            if self.alignment_descent is not None
-            else None,
-            horizontal_transfer=asdict(self.horizontal_transfer)
-            if self.horizontal_transfer is not None
-            else None,
-            fin_deployment_started_s=self.fin_deployment_started_s,
-            fin_retraction_started_s=self.fin_retraction_started_s,
-            load_governor_activations=self.load_governor_activations,
-            peak_leg_force_n=self.peak_leg_force.tolist(),
-            peak_leg_stroke_m=self.peak_leg_stroke.tolist(),
-            main_propellant_used_kg=self.main_consumed,
-            rcs_propellant_used_kg=self.rcs_consumed,
-            remaining_main_propellant_kg=self.state[6],
-            remaining_rcs_propellant_kg=self.state[7],
-            max_mass_balance_error_kg=self.max_mass_balance_error,
-            max_fin_force_n=self.max_fin_force_n,
-            max_fin_torque_nm=self.max_fin_torque_nm,
-            max_fin_hinge_torque_nm=self.max_fin_hinge_nm,
-            max_deployed_fin_mach=self.max_deployed_fin_mach,
-            max_deployed_fin_alpha_deg=self.max_deployed_fin_alpha_deg,
-            fin_model_envelope_passed=(
-                self.max_deployed_fin_mach <= FINS.model_max_mach
-                and self.max_deployed_fin_alpha_deg <= FINS.control_max_alpha_deg
+            subsystem_design_budget=design_budget_check(
+                self.feed_settings, initial_main_kg=self.design.main_propellant_kg
             ),
-            development_only=True,
-            state_names=[
-                "x_m",
-                "z_m",
-                "vx_m_s",
-                "vz_m_s",
-                "theta_rad",
-                "omega_rad_s",
-                "main_propellant_kg",
-                "rcs_propellant_kg",
-                "gear_extension",
-                "left_friction_m",
-                "right_friction_m",
-                "fin_deflection_rad",
-                "fin_extension",
-            ],
+            systems_diagnostics=dict(
+                minimum_feed_buffer_kg=self.minimum_feed_buffer_kg,
+                minimum_tank_pressure_pa=(
+                    self.minimum_tank_pressure_pa
+                    if np.isfinite(self.minimum_tank_pressure_pa)
+                    else None
+                ),
+                maximum_feed_shortfall_kg_s=self.max_feed_shortage_kg_s,
+                maximum_helium_balance_error_kg=self.max_helium_balance_error_kg,
+                maximum_slosh_displacement_m=self.max_slosh_displacement_m,
+                maximum_slosh_mode_force_n=self.max_slosh_mode_force_n,
+                first_failure=self.first_subsystem_failure,
+                ignition_events=self.ignition_events,
+            ),
+            validation_status=dict(
+                basis="theoretical_concept_design",
+                measured_parameter_calibration=False,
+                real_vehicle_safety_certified=False,
+                continuous_operating_envelope_proven=False,
+                fluid_model="single_equivalent_fluid_nonlinear_pendulum",
+                slosh_coordinate="pendulum_arc_length",
+                pressure_model="closed_isothermal_helium_pump_inlet",
+                separation_model="conserved_rigid_impulse_not_pyroshock",
+            ),
             steps=self.steps,
         )

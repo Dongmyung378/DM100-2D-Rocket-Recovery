@@ -2,27 +2,40 @@
 schema_version: 1
 root_seed: 378
 vehicle:
-  dry_mass_kg: 520.0
-  main_propellant_kg: 1450.0
-  rcs_propellant_kg: 15.0
-  upper_mass_kg: 1015.0
-  sea_level_thrust_n: 42000.0
-  sea_level_isp_s: 260.0
-  nozzle_exit_area_m2: 0.02
+  dry_mass_kg: 12000.0
+  main_propellant_kg: 70200.0
+  rcs_propellant_kg: 300.0
+  upper_mass_kg: 17500.0
+  sea_level_thrust_n: 1600000.0
+  sea_level_isp_s: 300.0
+  nozzle_exit_area_m2: 1.5790772267456206
   gimbal_limit_deg: 6.0
   rcs_isp_s: 220.0
-  rcs_torque_limit_nm: 6000.0
+  rcs_torque_limit_nm: 100000.0
   high_q_threshold_pa: 10000.0
-  descent_reference_m_s: 0.9
-  payload_mass_kg: 30.0
+  descent_reference_m_s: 1.0
+  payload_mass_kg: 500.0
 environment:
-  wind_profile: [[0.0, 3.0], [1000.0, 5.0], [5000.0, 10.0], [10000.0, 14.0], [20000.0, 18.0]]
-  forecast_wind_profile: [[0.0, 3.0], [1000.0, 5.0], [5000.0, 10.0], [10000.0, 14.0], [20000.0, 18.0]]
+  wind_profile: [[0.0, 3.0], [1000.0, 5.0], [5000.0, 10.0], [10000.0, 14.0], [20000.0, 18.0], [100000.0, 18.0]]
+  forecast_wind_profile: [[0.0, 3.0], [1000.0, 5.0], [5000.0, 10.0], [10000.0, 14.0], [20000.0, 18.0], [100000.0, 18.0]]
   gust_amplitude_m_s: 0.5
   gust_period_s: 12.0
   gust_phase_rad: 0.0
+  # One smooth, finite gust episode in the 10 km atmosphere layer.
+  gust_start_s: 40.0
+  gust_duration_s: 120.0
+  gust_altitude_center_m: 10000.0
+  gust_altitude_half_width_m: 2500.0
+  forecast_gust_amplitude_m_s: 0.5
+  vertical_wind_profile: [[0.0, 1.0], [10000.0, 2.0], [100000.0, 2.0]]
+  density_scale: 1.05
   sea_level_temperature_k: 288.15
   sea_level_pressure_pa: 101325.0
+  # Optional [altitude_m, kelvin] and [altitude_m, pascal] profiles; [] uses the
+  # layered hydrostatic model. A supplied profile must span 0-100000 m.
+  temperature_profile: []
+  pressure_profile: []
+  latitude_deg: 37.0
   health_checks_passed: true
   known_fault: false
   lightning_cloud_review_passed: true
@@ -32,8 +45,11 @@ environment:
   thunderstorm_or_hail_present: false
 disturbances:
   thrust_scale: 0.99
+  drag_coefficient_scale: 1.10
+  initial_mass_scale: 1.005
   inertia_scale: 1.01
-  sensor_noise_scale: 0.25
+  sensor_position_error_m: 1.5
+  sensor_velocity_error_m_s: 0.75
   observation_delay_steps: 1
   action_delay_steps: 1
   engine_lag_s: 0.02
