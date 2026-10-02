@@ -223,6 +223,47 @@ memory and mark upstream ascent checks as not evaluated. They do not establish
 full-flight success. Replay is presentation only: hiding exhaust at contact
 does not simulate engine shutdown or post-contact dynamics.
 
+For a full-flight record with upper-stage staging states, replay carries the
+recorded upper COM position, velocity and angular rate into a separate visual
+departure. Its illustrative engine starts three seconds after separation, ramps
+to a prescribed 18 m/s² thrust acceleration with a 1.2 s time constant, and uses
+4 s angular-rate damping. A closed-form display curve includes constant gravity
+at separation; it is not a variable-mass upper-stage dynamics or orbit solution.
+The dashed overview ends at 100 km altitude or the end of the recording.
+These visual assumptions do not consume simulated fuel or change first-stage
+states, acceptance or telemetry. Missing staging states and recovery-only
+records do not fabricate an upper-stage departure. Clip bounds select recorded
+seconds only; full-flight rendering remains the default.
+
+## Local UI contract
+
+The optional `ui` extra exposes the packaged HTML interface through a loopback-only
+FastAPI application. Flight calculations run in a separate local process. Only
+one calculation or video-rendering job runs at a time; the interface polls its
+status without starting another flight. No external API, analytics or CDN is used.
+Mutation requests require the application's per-session token and same-origin
+checks. Download routes accept only the app's generated result and media filenames.
+
+The UI keeps the current 100 t design, seed 378, active fins, first-contact landing
+assessment and 0.01 s integration step fixed. Environment and uncertainty inputs
+are validated by `AprConditions` and `RecoveryDisturbances`, including combined
+density and altitude-profile constraints. Completed flight failures retain their
+results and are distinct from execution errors. Missing contact measurements are
+not reported as zero or as passing landing criteria.
+
+The result view uses recorded values and the calculation's input snapshot. Graphs
+may use a bounded sample set for display; the downloadable JSON retains the full
+record. First-contact speed values use landing-gear contact-point kinematics.
+Only a successful full mission enables video generation from its existing record.
+User-selected video intervals and resolutions affect rendering, not acceptance.
+MP4 generation renders individual frames on the CPU and can take considerably
+longer than flight calculation. Longer clips and higher resolutions add work;
+use a short 640 × 360 interval for a quick preview. The UI explains this before
+generation and while rendering. Keep the application open; recorded graphs and
+tables remain available. No fixed wait time or GPU-rendering speedup is promised.
+The local UI is a source-installed application; frozen executable distribution
+and validation on additional operating systems are separate work.
+
 ## Evidence and limitations
 
 The current design passed 205 development, 72 previously observed regression and

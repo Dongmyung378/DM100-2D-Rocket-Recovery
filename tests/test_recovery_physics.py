@@ -2239,6 +2239,159 @@ def _replay_test_font_family():
     )
 
 
+def _synthetic_upper_departure_record():
+    """Recorded staging poses with an upper COM state, not orbit evidence."""
+    record = _synthetic_full_flight_record(base_height=40_000.0)
+    theta = 0.2
+    base = np.asarray((200.0, 40_000.0))
+    axis = rotation(theta) @ np.asarray((0.0, 1.0))
+    booster_mass = Design().dry_mass_kg + 20_000.0 + Design().rcs_propellant_kg
+    cg = mass_properties(booster_mass, 1.0, PHYSICS).cg_m
+    combined_cg = (booster_mass * cg + Design().upper_mass_kg * PHYSICS.upper_station_m) / (
+        booster_mass + Design().upper_mass_kg
+    )
+    for index, row in enumerate(record["steps"]):
+        row["state"][:2] = (base + axis * (combined_cg if index == 0 else cg)).tolist()
+        row["state"][2:6] = (80.0, 600.0, theta, 0.013)
+        row["state"][17:19] = (0.0, 0.0)
+    record["steps"][-1]["time_s"] = record["contact"]["time_s"] = 8.0
+    record["ascent_simulated"] = True
+    record["simulation_scope"] = "launch_to_separation_to_touchdown"
+    record["separation"]["state"] = deepcopy(record["steps"][1]["state"])
+    record["separation"]["impulse_model"] = {
+        "upper_position_m": (base + axis * PHYSICS.upper_station_m).tolist(),
+        "upper_velocity_m_s": [81.0, 601.0],
+        "upper_angular_rate_rad_s": -0.007,
+        "upper_impulse_n_s": [2500.0, 5000.0],
+    }
+    return record
+
+
+def test_upper_departure_uses_recorded_post_impulse_state_without_reapplying_impulse():
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    replay = _NominalFlightReplay(record)
+    departure = replay.upper_departure
+    assert departure is not None
+    assert departure.sample(0.999) is None
+    assert departure.base(0.999) is None
+    position, velocity, theta, omega, ignition = departure.sample(1.0)
+    impulse = record["separation"]["impulse_model"]
+    np.testing.assert_array_equal(position, impulse["upper_position_m"])
+    np.testing.assert_array_equal(velocity, impulse["upper_velocity_m_s"])
+    assert theta == record["separation"]["state"][4]
+    assert omega == impulse["upper_angular_rate_rad_s"]
+    assert ignition == 0.0
+    assert record == original
+
+
+def test_upper_departure_base_is_continuous_with_the_attached_shape_at_separation():
+    replay = _NominalFlightReplay(_synthetic_upper_departure_record())
+    upper_base, theta = replay.upper_departure.base(1.0)
+    _, booster_base, *_ = replay.sample(1.0)
+    interface = booster_base + rotation(theta) @ np.asarray(
+        (0.0, replay.settings.geometry.body_length_m)
+    )
+    np.testing.assert_allclose(upper_base, interface, atol=1e-10)
+    upper_position = replay.upper_departure.sample(1.0)[0]
+    np.testing.assert_allclose(
+        upper_position,
+        upper_base
+        + rotation(theta)
+        @ np.asarray((0.0, replay.upper_station_m - replay.settings.geometry.body_length_m)),
+        atol=1e-10,
+    )
+
+
+def test_upper_departure_retains_initial_motion_and_delays_visual_ignition():
+    replay = _NominalFlightReplay(_synthetic_upper_departure_record())
+    departure = replay.upper_departure
+    initial = departure.sample(1.0)
+    epsilon = 1e-5
+    nearby = departure.sample(1.0 + epsilon)
+    np.testing.assert_allclose((nearby[0] - initial[0]) / epsilon, initial[1], atol=1e-3, rtol=0)
+    assert (nearby[2] - initial[2]) / epsilon == pytest.approx(initial[3], abs=1e-6)
+    for time_s in (1.0, 2.0, 3.999, 4.0):
+        assert departure.sample(time_s)[4] == 0.0
+    assert 0.0 < departure.sample(6.0)[4] <= 1.0
+    for time_s in (1.0, 2.0, 4.0, 6.0):
+        _, _, theta, omega, _ = departure.sample(time_s)
+        elapsed = time_s - 1.0
+        assert theta == pytest.approx(initial[2] + initial[3] * 4 * (1 - np.exp(-elapsed / 4)))
+        assert omega == pytest.approx(initial[3] * np.exp(-elapsed / 4))
+
+
+def test_upper_departure_is_stateless_and_does_not_change_stage_one_replay():
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    without_upper = deepcopy(record)
+    without_upper["separation"].pop("impulse_model")
+    replay = _NominalFlightReplay(record)
+    stage_one_only = _NominalFlightReplay(without_upper)
+    expected = {time_s: replay.upper_departure.sample(time_s) for time_s in (1.0, 2.0, 5.0, 7.0)}
+    for time_s in (7.0, 1.0, 5.0, 2.0, 7.0):
+        actual = replay.upper_departure.sample(time_s)
+        for result, saved in zip(actual, expected[time_s], strict=True):
+            np.testing.assert_array_equal(result, saved)
+        with_upper = replay.sample(time_s)
+        without = stage_one_only.sample(time_s)
+        for result, saved in zip(with_upper, without, strict=True):
+            np.testing.assert_array_equal(result, saved)
+    assert record == original
+
+
+@pytest.mark.parametrize("time_s", (1.5, 4.0, 5.5))
+def test_upper_departure_visual_position_and_velocity_remain_kinematically_consistent(time_s):
+    departure = _NominalFlightReplay(_synthetic_upper_departure_record()).upper_departure
+    epsilon = 1e-3
+    before = departure.sample(time_s - epsilon)
+    current = departure.sample(time_s)
+    after = departure.sample(time_s + epsilon)
+    np.testing.assert_allclose(
+        (after[0] - before[0]) / (2 * epsilon), current[1], atol=1e-5, rtol=0
+    )
+
+
+@pytest.mark.parametrize(
+    "missing", ("upper_position_m", "upper_velocity_m_s", "upper_angular_rate_rad_s")
+)
+def test_upper_departure_rejects_incomplete_impulse_state(missing):
+    record = _synthetic_upper_departure_record()
+    record["separation"]["impulse_model"].pop(missing)
+    with pytest.raises(ValueError, match="upper-stage"):
+        _NominalFlightReplay(record)
+
+
+@pytest.mark.parametrize(
+    "field,invalid",
+    (
+        ("upper_position_m", [float("nan"), 30.0]),
+        ("upper_position_m", [3.0]),
+        ("upper_velocity_m_s", [4.0, float("inf")]),
+        ("upper_velocity_m_s", [1.0, 2.0, 3.0]),
+        ("upper_angular_rate_rad_s", float("nan")),
+    ),
+)
+def test_upper_departure_rejects_invalid_impulse_state(field, invalid):
+    record = _synthetic_upper_departure_record()
+    record["separation"]["impulse_model"][field] = invalid
+    with pytest.raises(ValueError, match="upper-stage"):
+        _NominalFlightReplay(record)
+
+
+@pytest.mark.parametrize("scope", ("missing-impulse", "recovery-only", "no-separation"))
+def test_upper_departure_is_not_fabricated_without_an_entire_recorded_ascent(scope):
+    record = _synthetic_upper_departure_record()
+    if scope == "missing-impulse":
+        record["separation"].pop("impulse_model")
+    elif scope == "recovery-only":
+        record["ascent_simulated"] = False
+        record["simulation_scope"] = "37km_separation_to_touchdown"
+    else:
+        record["separation"] = None
+    assert _NominalFlightReplay(record).upper_departure is None
+
+
 def test_nominal_flight_replay_preserves_body_position_across_separation():
     replay = _NominalFlightReplay(_synthetic_full_flight_record())
     np.testing.assert_allclose(replay.bases, [[0, 20]] * 3)
@@ -2422,6 +2575,302 @@ def test_replay_hides_upper_stage_only_after_recorded_separation():
         plt.close(scene.fig)
 
 
+def test_replay_keeps_a_recorded_upper_stage_after_separation_and_then_ignites_it():
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    scene = _NominalFlightAnimationScene(record, width=640)
+    try:
+        assert scene.body_label.get_text() == "DM100"
+        assert scene.title.get_text() == "DM100"
+        for time_s in (0.999, 1.0, 3.999, 4.0, 6.0, 8.0):
+            scene.update(time_s)
+            for name in ("upper_stage", "upper_highlight", "upper_band_detail"):
+                assert scene.parts[name].get_visible()
+            assert scene.parts["upper_nozzle"].get_visible() == (time_s >= 1.0)
+            assert scene.parts["separation_band"].get_visible() == (time_s < 1.0)
+            assert any(plume.get_visible() for plume in scene.upper_plumes) == (time_s > 4.0)
+        assert scene.display_engine_on is False
+        assert scene.displayed_thrust_n == 0.0
+        assert any(plume.get_visible() for plume in scene.upper_plumes)
+        assert "2단" in scene.footer.get_text()
+        assert "미계산" in scene.footer.get_text()
+        assert record == original
+    finally:
+        plt.close(scene.fig)
+
+
+@pytest.mark.parametrize("gust,expected", ((0.0, "무풍 기준"), (5.0, "설정 외란")))
+def test_replay_record_note_only_shows_the_condition_title(gust, expected):
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_full_flight_record()
+    record["conditions"] = {"gust_amplitude_m_s": gust}
+    original = deepcopy(record)
+    scene = _NominalFlightAnimationScene(record, width=640)
+    try:
+        assert scene.record_note.get_text() == expected
+        assert record == original
+    finally:
+        plt.close(scene.fig)
+
+
+def test_replay_upper_stage_geometry_and_overview_are_independent_of_frame_order():
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    scene = _NominalFlightAnimationScene(record, width=640)
+    try:
+        scene.update(1.0)
+        upper_initial = scene.parts["upper_stage"].get_xy().copy()
+        upper_base, _ = scene.replay.upper_departure.base(1.0)
+        midpoint = (upper_initial[0] + upper_initial[1]) / 2
+        np.testing.assert_allclose(midpoint, upper_base, atol=1e-10)
+        scene.update(6.0)
+        upper_later = scene.parts["upper_stage"].get_xy().copy()
+        first_later = scene.parts["body"].get_xy().copy()
+        history = tuple(np.asarray(values).copy() for values in scene.upper_history.get_data())
+        marker = tuple(np.asarray(values).copy() for values in scene.upper_marker.get_data())
+        assert len(history[0]) > 0
+        assert np.linalg.norm(upper_later.mean(axis=0) - upper_initial.mean(axis=0)) > 100.0
+        position = scene.replay.upper_departure.sample(6.0)[0]
+        np.testing.assert_allclose([marker[0][0], marker[1][0]], position / 1000)
+        scene.update(0.0)
+        assert len(scene.upper_history.get_xdata()) == 0
+        assert len(scene.upper_marker.get_xdata()) == 0
+        scene.update(6.0)
+        np.testing.assert_array_equal(scene.parts["upper_stage"].get_xy(), upper_later)
+        np.testing.assert_array_equal(scene.parts["body"].get_xy(), first_later)
+        for actual, expected in zip(scene.upper_history.get_data(), history, strict=True):
+            np.testing.assert_array_equal(actual, expected)
+        for actual, expected in zip(scene.upper_marker.get_data(), marker, strict=True):
+            np.testing.assert_array_equal(actual, expected)
+        assert record == original
+    finally:
+        plt.close(scene.fig)
+
+
+@pytest.mark.parametrize("time_s", (1.0, 6.0, 8.0))
+def test_cached_replay_frame_matches_full_canvas_with_detached_upper_stage(time_s):
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    with matplotlib.rc_context(
+        {"font.family": _replay_test_font_family(), "axes.unicode_minus": False}
+    ):
+        scene = _NominalFlightAnimationScene(record, width=640)
+        renderer = _NominalFlightFrameRenderer(scene)
+        try:
+            scene.update(time_s)
+            cached = np.asarray(renderer.frame()).copy()
+            renderer.close()
+            scene.fig.canvas.draw()
+            np.testing.assert_array_equal(cached, np.asarray(scene.fig.canvas.buffer_rgba()))
+            assert record == original
+        finally:
+            renderer.close()
+            plt.close(scene.fig)
+
+
+@pytest.mark.parametrize("width", (640, 1920))
+@pytest.mark.parametrize("time_s", (0.0, 8.0))
+def test_replay_telemetry_cards_keep_long_values_clear_of_labels_and_bottom_strip(width, time_s):
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    record = _synthetic_upper_departure_record()
+    original = deepcopy(record)
+    long_values = (
+        "100.000 km",
+        "+100,000.00 m",
+        "-1,234.567 m/s",
+        "+1,234.567 m/s",
+        "+180.000\N{DEGREE SIGN}",
+        "+15.000\N{DEGREE SIGN}/s",
+        "70.200 t",
+        "300.00 kg",
+        "100.000 t",
+        "30.000 kPa",
+        "1,600.0 kN",
+        "100.00 %",
+        "100 %",
+        "100 %",
+    )
+    with matplotlib.rc_context(
+        {"font.family": _replay_test_font_family(), "axes.unicode_minus": False}
+    ):
+        scene = _NominalFlightAnimationScene(record, width=width)
+        try:
+            scene.update(time_s)
+            for artist, value in zip(scene.telemetry, long_values, strict=True):
+                artist.set_text(value)
+            scene.fig.canvas.draw()
+            renderer = scene.fig.canvas.get_renderer()
+            assert scene.title.get_text() == "DM100"
+            assert len(scene.telemetry) == len(scene.telemetry_labels) == 14
+            assert len(scene.info.patches) == 14
+            text_bounds = []
+            card_bounds = [card.get_window_extent(renderer) for card in scene.info.patches]
+            for index, (label, value, card) in enumerate(
+                zip(scene.telemetry_labels, scene.telemetry, card_bounds, strict=True)
+            ):
+                for artist in (label, value):
+                    bounds = artist.get_window_extent(renderer)
+                    assert bounds.x0 >= card.x0 - 0.1, (index, artist.get_text())
+                    assert bounds.x1 <= card.x1 + 0.1, (index, artist.get_text())
+                    assert bounds.y0 >= card.y0 - 0.1, (index, artist.get_text())
+                    assert bounds.y1 <= card.y1 + 0.1, (index, artist.get_text())
+                    text_bounds.append(bounds)
+            for index, bounds in enumerate(card_bounds):
+                assert not any(bounds.overlaps(other) for other in card_bounds[index + 1 :])
+            for index, bounds in enumerate(text_bounds):
+                assert not any(bounds.overlaps(other) for other in text_bounds[index + 1 :])
+            for artist in (scene.status, scene.environment_text, scene.event):
+                bottom_bounds = artist.get_window_extent(renderer)
+                assert not any(bottom_bounds.overlaps(bounds) for bounds in text_bounds)
+            assert record == original
+        finally:
+            plt.close(scene.fig)
+
+
+def _rendered_patch_bounds(patch, renderer, *, include_stroke=True):
+    """Include rounded path padding and the actual rendered border width."""
+    from matplotlib.transforms import Bbox
+
+    bounds = patch.get_path().get_extents(patch.get_transform())
+    border = 0.0
+    if patch.get_edgecolor()[3] > 0:
+        border = renderer.points_to_pixels(patch.get_linewidth()) / 2
+    adjustment = border if include_stroke else -border
+    return Bbox.from_extents(
+        bounds.x0 - adjustment,
+        bounds.y0 - adjustment,
+        bounds.x1 + adjustment,
+        bounds.y1 + adjustment,
+    )
+
+
+def _assert_positive_bounds_gap(left, right, description):
+    horizontal = max(right.x0 - left.x1, left.x0 - right.x1)
+    vertical = max(right.y0 - left.y1, left.y0 - right.y1)
+    assert max(horizontal, vertical) > 0.0, description
+
+
+def _assert_bounds_inside(inner, outer, description):
+    assert inner.x0 >= outer.x0, description
+    assert inner.x1 <= outer.x1, description
+    assert inner.y0 >= outer.y0, description
+    assert inner.y1 <= outer.y1, description
+
+
+@pytest.mark.parametrize("width", (640, 1280, 1920))
+@pytest.mark.parametrize("pose", ("launch", "separation", "high-speed", "touchdown"))
+def test_replay_dashboard_all_text_and_rounded_cards_have_positive_clearance(width, pose):
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    if pose in ("launch", "touchdown"):
+        record = _synthetic_full_flight_record(base_height=1.0)
+        time_s = 0.0 if pose == "launch" else 2.0
+    else:
+        record = _synthetic_upper_departure_record()
+        time_s = 1.0 if pose == "separation" else 6.0
+    if pose == "high-speed":
+        record["conditions"] = {"gust_amplitude_m_s": 5.0, "wind_profile": [[0, 8], [10000, 20]]}
+        for row in record["steps"]:
+            row["state"][2:4] = [1234.567, -1234.567]
+            row["control"][2] = 100_000.0
+    original = deepcopy(record)
+    with matplotlib.rc_context(
+        {"font.family": _replay_test_font_family(), "axes.unicode_minus": False}
+    ):
+        scene = _NominalFlightAnimationScene(record, width=width)
+        try:
+            scene.update(time_s)
+            for index, artist in enumerate(scene.telemetry):
+                if index in (2, 3):
+                    artist.set_text("-1,234.567 m/s")
+                elif index == 1:
+                    artist.set_text("+100,000.00 m")
+            scene.fig.canvas.draw()
+            renderer = scene.fig.canvas.get_renderer()
+            canvas = scene.fig.bbox
+            rounded_cards = [*scene.info.patches, *(card for card, _ in scene.timeline)]
+            card_bounds = [_rendered_patch_bounds(card, renderer) for card in rounded_cards]
+            for index, bounds in enumerate(card_bounds):
+                _assert_bounds_inside(bounds, canvas, f"card {index} leaves the video canvas")
+                for other_index, other in enumerate(card_bounds[index + 1 :], start=index + 1):
+                    _assert_positive_bounds_gap(bounds, other, f"cards {index}/{other_index} touch")
+            for index, (card, text) in enumerate(scene.timeline):
+                _assert_bounds_inside(
+                    text.get_window_extent(renderer),
+                    _rendered_patch_bounds(card, renderer, include_stroke=False),
+                    f"timeline label {index} escapes its rounded card",
+                )
+            texts = [
+                scene.title,
+                scene.subtitle,
+                scene.mission_label,
+                scene.record_note,
+                scene.clock,
+                scene.footer,
+                scene.telemetry_heading,
+                *scene.telemetry_labels,
+                *scene.telemetry,
+                scene.status,
+                scene.environment_text,
+                scene.event,
+                scene.phase,
+                scene.camera_note,
+                scene.scale_label,
+                scene.overview.title,
+                scene.overview.xaxis.label,
+                scene.overview.yaxis.label,
+                scene.overview.xaxis.get_offset_text(),
+                scene.overview.yaxis.get_offset_text(),
+                *(text for _, text in scene.timeline),
+            ]
+            if scene.overview_legend is not None:
+                texts.extend(scene.overview_legend.get_texts())
+            for axis, limits in (
+                (scene.overview.xaxis, scene.overview.get_xlim()),
+                (scene.overview.yaxis, scene.overview.get_ylim()),
+            ):
+                for tick in axis.get_major_ticks():
+                    if min(limits) <= tick.get_loc() <= max(limits):
+                        texts.append(tick.label1)
+            rendered_texts = []
+            for artist in texts:
+                if not artist.get_visible() or not artist.get_text():
+                    continue
+                bounds = artist.get_window_extent(renderer)
+                if artist.get_bbox_patch() is not None:
+                    bounds = _rendered_patch_bounds(artist.get_bbox_patch(), renderer)
+                rendered_texts.append((artist, bounds))
+                _assert_bounds_inside(bounds, canvas, f"text leaves canvas: {artist.get_text()}")
+            for index, (artist, bounds) in enumerate(rendered_texts):
+                for other, other_bounds in rendered_texts[index + 1 :]:
+                    _assert_positive_bounds_gap(
+                        bounds,
+                        other_bounds,
+                        f"text collision: {artist.get_text()} / {other.get_text()}",
+                    )
+                if artist not in [text for _, text in scene.timeline]:
+                    for card, _ in scene.timeline:
+                        _assert_positive_bounds_gap(
+                            bounds,
+                            _rendered_patch_bounds(card, renderer),
+                            f"text crosses a timeline card: {artist.get_text()}",
+                        )
+            assert record == original
+        finally:
+            plt.close(scene.fig)
+
+
 def test_nominal_flight_replay_draws_grounded_feet_without_shifting_hull():
     base_height = -PHYSICS.gear.foot_station_m
     replay = _NominalFlightReplay(_synthetic_full_flight_record(base_height=base_height))
@@ -2512,6 +2961,105 @@ def test_nominal_flight_replay_rejects_invalid_end_hold_duration(tmp_path, durat
     with pytest.raises(ValueError, match="end_hold"):
         save_nominal_flight_replay({}, tmp_path / "flight.mp4", end_hold_s=duration)
     assert not (tmp_path / "flight.mp4").exists()
+
+
+@pytest.mark.parametrize("field", ("start_s", "end_s"))
+@pytest.mark.parametrize("value", (-0.01, float("nan"), float("inf"), True, "1.0"))
+def test_replay_rejects_invalid_interval_bounds_before_loading_a_flight(tmp_path, field, value):
+    output = tmp_path / "flight.mp4"
+    with pytest.raises(ValueError, match="interval bounds"):
+        save_nominal_flight_replay({}, output, **{field: value})
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("start_s,end_s", ((4.0, 6.0), (5.0, 8.0), (6.0, 5.0), (7.0, 7.0)))
+def test_replay_refuses_intervals_outside_the_recording_without_creating_output(
+    tmp_path, monkeypatch, start_s, end_s
+):
+    from powered_landing_guidance import visualization
+
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["time_s"] += 5.0
+    record["separation"]["time_s"] += 5.0
+    record["contact"]["time_s"] += 5.0
+    original = deepcopy(record)
+    output = tmp_path / "unused" / "flight.mp4"
+    monkeypatch.setattr(visualization, "_ffmpeg_available", lambda: True)
+    with pytest.raises(ValueError, match="inside the recorded flight"):
+        save_nominal_flight_replay(record, output, start_s=start_s, end_s=end_s, width=640)
+    assert not output.parent.exists()
+    assert record == original
+
+
+def test_replay_clip_keeps_normal_time_and_does_not_turn_off_an_airborne_engine(
+    tmp_path, monkeypatch
+):
+    from contextlib import contextmanager
+
+    from powered_landing_guidance import visualization
+
+    record = _synthetic_full_flight_record()
+    for row in record["steps"]:
+        row["state"][12] = 0.2
+    original = deepcopy(record)
+    scene_factory = visualization._NominalFlightAnimationScene
+    scenes, times, frames = [], [], []
+
+    def make_scene(*args, **kwargs):
+        scene = scene_factory(*args, **kwargs)
+        original_update = scene.update
+
+        def update(time_s):
+            original_update(time_s)
+            times.append(time_s)
+
+        scene.update = update
+        scenes.append(scene)
+        return scene
+
+    class CaptureWriter:
+        def __init__(self, *, fps, **_kwargs):
+            assert fps == 4
+
+        @contextmanager
+        def saving(self, _figure, filename, dpi):
+            assert dpi == 40
+            Path(filename).write_bytes(b"synthetic interval writer")
+            yield
+
+        def grab_frame(self, **_kwargs):
+            scene = scenes[-1]
+            frames.append(
+                (
+                    scene.parts["body"].get_xy().copy(),
+                    scene.display_engine_on,
+                    scene.displayed_thrust_n,
+                    scene.event.get_text(),
+                )
+            )
+
+    def no_integration(*_args, **_kwargs):
+        pytest.fail("a recorded interval replay must not advance flight physics")
+
+    monkeypatch.setattr(visualization, "_NominalFlightAnimationScene", make_scene)
+    monkeypatch.setattr(visualization, "FFMpegWriter", CaptureWriter)
+    monkeypatch.setattr(visualization, "_ffmpeg_available", lambda: True)
+    monkeypatch.setattr(AprFlight, "advance", no_integration)
+    output = tmp_path / "clip.mp4"
+    save_nominal_flight_replay(
+        record, output, start_s=0.25, end_s=1.25, fps=4, width=640, end_hold_s=1.0
+    )
+    np.testing.assert_array_equal(times, (0.25, 0.5, 0.75, 1.0, 1.25, 1.25, 1.25, 1.25, 1.25))
+    assert len(frames) == 9
+    for _body, engine_on, thrust, event in frames:
+        assert engine_on is True
+        assert thrust > 0
+        assert "엔진 OFF" not in event
+    for body, *_ in frames[5:]:
+        np.testing.assert_array_equal(body, frames[4][0])
+    assert output.read_bytes() == b"synthetic interval writer"
+    assert record == original
 
 
 def test_failed_ascent_replay_does_not_fabricate_separation_or_contact():

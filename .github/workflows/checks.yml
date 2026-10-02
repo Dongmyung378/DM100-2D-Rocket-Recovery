@@ -1,0 +1,40 @@
+name: DM100 checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-python:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[ui,video,dev]"
+      - name: Lint
+        run: python -m ruff check --no-cache .
+      - name: Formatting
+        run: python -m ruff format --check --no-cache .
+      - name: Tests
+        run: python -m pytest -q -p no:cacheprovider
+      - name: Package
+        run: python -m pip wheel . --no-deps --wheel-dir dist

@@ -1,164 +1,195 @@
-# 100톤 2차원 로켓 자동 회수
+# DM100 - 2차원 로켓 자동 회수
 
-[English](README.md) · [모델 명세](docs/spec.ko.md)
+[English](README.md) · [모델 명세](docs/spec.ko.md) · [분리 데모](docs/assets/flight.mp4)
 
-**발사·콜드 분리·원래 발사장으로의 1단 귀환과 착륙**을 계산하는 평면
-시뮬레이터입니다. 가변 질량 강체 운동, 모델 기반 유도, 피드백 자세 제어,
-엔진 짐벌·RCS·공력핀을 결합합니다.
+100톤 로켓의 발사, 2단 분리, 원래 발사장으로의 1단 귀환과 착륙을 구현한
+**완료된 2차원 개념 시뮬레이션 프로젝트**입니다. 직접 만든 강체 물리 환경,
+모델 기반 귀환 유도, PID 계열 자세 피드백 제어와 로컬 영문·한글 실험 UI를
+결합합니다.
 
-현재 기체의 발사 질량은 **100,000 kg**, 1단 주 추진제는 **70,200 kg**,
-RCS 추진제는 **300 kg**입니다. 상단에는 **500 kg 탑재체**를 포함하며
-이론상 **700 km 원궤도**를 목표로 합니다. 2단 궤도 진입은 성공을 가정하며
-비행을 계산하거나 검증하지 않습니다.
+![DM100 로컬 실험 화면](docs/assets/ui.png)
 
-## 기체와 모델
+## 주요 결과물
 
-| 항목 | 현재 제원 |
+- 발사, 약 37 km에서 콜드 분리, 귀환 제동, 재진입, 첫 발 접지까지 계산합니다.
+- 가변 질량, 대기 중 비행, 엔진 짐벌·RCS·핀과 축약 공급·가압·출렁임·분리
+  모델을 연결합니다.
+- 허용 범위의 날씨와 정상 기체 편차를 설정하고 계산 전에 입력을 검증합니다.
+- 임무·비행 안전·착륙을 구분해 판정하고 그래프·측정값·실패 항목을 표시합니다.
+- 저장한 비행 기록으로 선택적으로 MP4를 생성하며 비행을 다시 계산하지 않습니다.
+
+구현 기술은 Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JavaScript와
+Matplotlib/FFmpeg입니다. 외부 서비스나 프런트엔드 빌드 도구는 필요하지 않습니다.
+
+실물 로켓이나 안전 인증을 받은 비행 도구가 아닌 **소프트웨어 개념 모델**입니다.
+2단의 500 kg 탑재체·이론상 700 km 원궤도 도달은 성공을 가정하며 직접 계산하거나
+검증하지 않습니다. 연결한 영상은 짧은 분리 시연이며 전체 영상은 로컬 UI에서
+선택적으로 생성할 수 있습니다.
+
+## 검증 결과
+
+최종 100톤 제원은 **알려진 조건 286개의 전체 비행 회귀 검사**를 통과했습니다.
+
+| 시험군 | 통과 / 시험 |
+|---|---:|
+| 개발 조건 | 205 / 205 |
+| 이미 관측한 평가 조건을 다시 사용한 회귀 검사 | 72 / 72 |
+| 실제 돌풍 노출·적분 간격 절반의 보조 검사 | 9 / 9 |
+
+본 검사 277개와 보조 검사 9개는 별도 분모로 기록합니다. 새로운 독립 평가나
+연속 입력 범위의 모든 조합을 증명한 결과는 아닙니다. 성공하려면 임무 완료,
+비행 안전, 착륙과 연료 보존 검사를 모두 통과해야 합니다.
+
+| 전체 286회 검사 항목 | 관측 최악값 | 기준 |
+|---|---:|---:|
+| 접지 질량중심 위치 오차 | 0.839 m | ≤2 m |
+| 발의 수직 / 수평속도 | 1.2551 / 0.202 m/s | ≤1.5 / ≤0.5 m/s |
+| 접지 자세 / 각속도 | 0.0212° / 0.0226°/s | ≤3° / ≤0.5°/s |
+| 최대 동압 | 28.949 kPa | ≤30 kPa |
+| 접지 전 최대 각가속도 | 3.780°/s² | ≤5°/s² |
+| 최소 잔여 주 추진제 / RCS 추진제 | 2,958 / 95.875 kg | >0 / ≥0 kg |
+
+최대값은 올림, 잔량은 내림으로 표시했습니다. 로컬 UI도 실제 무풍 전체 비행
+1회와 선택 MP4 생성으로 확인했습니다. 해당 비행은 **405.709초**에 첫 접지했고,
+**발 수직속도 1.005 m/s**, **주 추진제 5,796 kg**, **RCS 추진제 262.546 kg**을
+남겼습니다. 소프트웨어·API·브라우저 검사는 전체 비행 회귀 횟수와 구분합니다.
+
+![기록한 무풍 비행의 궤적과 계산값](docs/assets/trajectory.png)
+
+고정 회귀 입력은 [configs/apr-regression-v1.json](configs/apr-regression-v1.json)에
+보관합니다. 생성한 원본 실험과 개인 기록은 Git에서 제외하며, 새로 복제한
+저장소에서도 과거 로컬 파일 없이 선언한 입력을 재실행할 수 있습니다.
+
+## 사용자 컴퓨터에서 실행
+
+검증한 개발 환경은 **Windows·Python 3.12.7**이며 Python 3.12.x가 필요합니다.
+저장소 폴더에서 실행합니다.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[ui,video]"
+.\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
+```
+
+설치 후 Windows에서는 [launch-dm100.bat](launch-dm100.bat)를 더블클릭해도 됩니다.
+앱을 사용하는 동안 터미널을 열어 두고 종료할 때 Ctrl+C를 누릅니다. 현재는
+Python으로 실행하는 프로그램이며 단독 실행파일은 아닙니다. 다른 운영체제는
+실행 환경과 영상 글꼴을 별도로 확인해야 합니다.
+
+앱은 비어 있는 로컬 포트를 선택해 `127.0.0.1`에서 브라우저를 엽니다. 계산·결과·
+영상 생성은 사용자 컴퓨터에서 실행합니다. 실행 중에는 외부 서버·계정·API·
+분석 도구·CDN을 사용하지 않으며 최초 패키지 설치에는 인터넷이 필요합니다.
+영어가 기본이며 UI에서 한국어로 전환할 수 있습니다.
+
+1. 무풍 기본값을 유지하거나 화면의 허용 범위 안에서 값을 입력합니다.
+2. 비행을 실행합니다. 실제 계산 전에 전체 입력 조합을 검증합니다.
+3. 성공·실패, 그래프, 결과표와 실패 항목을 확인합니다. 계산을 완료했지만
+   비행에 실패한 경우와 프로그램 실행 오류를 구분합니다.
+4. 성공한 비행에서 원할 때 MP4를 생성하고 내려받습니다.
+
+기체 제원, 시드 **378**, 활성 핀과 **0.01초** 적분 간격은 고정합니다. 입력 허용이
+비행 성공을 보장하지는 않습니다. 각 결과에 실제 사용한 입력을 보존하며 폼을
+수정해도 기존 결과의 입력이 바뀌지 않습니다. 기본 결과 저장 위치는 로컬
+사용자 데이터 폴더입니다. 다른 위치를 지정하려면 다음처럼 실행합니다.
+
+```powershell
+.\.venv\Scripts\python.exe -m powered_landing_guidance.local_app --output-dir artifacts/local-runs
+```
+
+### 영상 생성은 시간이 더 걸립니다
+
+**MP4 렌더링은 CPU 작업량이 많아 비행 계산보다 오래 걸릴 수 있습니다.** 전체
+영상은 수천 프레임을 만들며 해상도가 높을수록 작업량이 늘어납니다. 완료 시간은
+보장하지 않습니다. 생성 중에는 앱을 열어 두고 빠르게 확인하려면 짧은 구간과
+640 또는 1280 픽셀을 선택하세요. 저장한 비행을 렌더할 뿐 결과는 바꾸지 않습니다.
+
+## 기체와 성공 기준
+
+| 항목 | 최종 제원 |
 |---|---:|
 | 총 발사 / 1단 초기 질량 | 100,000 / 82,500 kg |
-| 1단 건조질량 | 12,000 kg, 핀과 착륙장치 포함 |
+| 1단 건조질량, 핀과 착륙장치 포함 | 12,000 kg |
 | 1단 주 추진제 / RCS 추진제 | 70,200 / 300 kg |
 | 2단 건조질량 / 추진제 / 탑재체 | 1,500 / 15,500 / 500 kg |
 | 1단 해면 / 진공 추력 | 1,600 / 약 1,760 kN |
 | 1단 해면 / 진공 비추력 | 300 / 약 330초 |
 | 초기 추력 대 중량비 | 약 1.63 |
 | 스로틀 / 짐벌 | 이상적인 연속 0-100% / ±6° |
-| 분리 허용 조건 | 37 ±1 km, 주 추진제 20,000 kg 이상 |
+| 콜드 분리 허용 조건 | 37 ±1 km, 주 추진제 ≥20,000 kg |
 | 회수 목표 | 원래 발사장 |
 
-19개 상태 모델은 고도별 중력·층별 대기·바람과 돌풍·공력·변하는 질량
-특성·구동기 응답·지연 관측·액체 수집과 공급·폐쇄형 헬륨 가압·비선형
-진자 출렁임·재점화 준비·분리 충격량을 포함합니다. 설치한 핀 4개는 평면
-등가 면 2개로 계산합니다.
+착륙은 **첫 발 접지**에서 평가합니다. 질량중심 위치 오차 ≤2 m, 발의 수직·수평
+속도 ≤1.5·0.5 m/s, 자세 ≤3°, 각속도 ≤0.5°/s, 주 추진제 >0 kg, RCS 추진제 ≥0 kg이
+기준입니다. 착륙장치 전개·발사대 접촉 위치·동체 충돌 방지도 통과해야 합니다.
+수직속도 기준 이내에서는 다리가 견딘다고 가정하며 접촉 강도와 접지 후 안정
+기립은 평가하지 않습니다.
 
-착륙 평가는 첫 발 접지에서 끝내며 접지 후 안정 기립은 계산하지 않습니다.
-발 수직속도 ≤1.5 m/s이면 다리가 견딘다고 가정하며 접촉 하중·재료 강도는
-평가하지 않습니다. 부품과 계수는 실측 보정한 하드웨어 자료가 아닌 이론적
-설계 가정입니다. 입력·물리·한계는 [모델 명세](docs/spec.ko.md)에 있습니다.
+[모델 명세](docs/spec.ko.md)에 좌표계, 19개 상태, 환경 범위, 관측 가정, 보존 법칙과
+안전 기준을 정리했습니다.
 
-## 설치와 단일 비행
+## 재현과 소프트웨어 검사
 
-Python 3.12.x를 사용하며 작업 환경은 Python 3.12.7입니다.
+저장소 폴더에서 설치한 가상환경으로 실행합니다. 기존 결과를 덮어쓰지 않으므로
+각 비행이나 시험군에는 **새 출력 폴더**를 사용합니다.
 
-~~~powershell
-python -m pip install -e ".[dev,video]"
+```powershell
+# 예제 운용 입력만 검증하고 비행하지 않습니다.
+.\.venv\Scripts\python.exe -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --check-inputs
 
-# 비행 없이 운용 입력 검증
-python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --check-inputs
+# 무풍 발사부터 착륙까지 1회 계산하고 result.json·trajectory.png를 저장합니다.
+.\.venv\Scripts\python.exe -m scripts.run_nominal_flight --output-dir artifacts/nominal --progress
 
-# 무풍·표준 대기·기체와 센서 편차 없음
-python -m scripts.run_nominal_flight --output-dir artifacts/apr100t/nominal-current --progress
+# 고정 회귀 입력을 검증·해시한 뒤 286개를 실행합니다.
+.\.venv\Scripts\python.exe -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/regression
+.\.venv\Scripts\python.exe -m scripts.evaluate_regression_suite --run all --workers 8 --output-dir artifacts/regression
+```
 
-# 지정한 날씨와 정상 기체 편차를 반영한 전체 비행
-python -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --output-dir artifacts/apr100t/configured-current --progress
-~~~
+회귀 실행기는 실패 조건과 실행 오류도 보존합니다. `--workers`는 독립 CPU
+프로세스 수이며 성능이 낮은 컴퓨터에서는 줄이세요. NumPy/SciPy float64로
+계산하며 GPU 가속은 구현하지 않았습니다. 전체 비행 재실행은 입력 검증보다
+훨씬 오래 걸립니다.
 
-비행마다 새 출력 폴더를 사용합니다. `result.json`과 `trajectory.png`에
-실제 상태·사건·성공 판정·연료 수지·소스와 입력 해시를 저장합니다.
-성공 기준을 통과하지 못하면 0이 아닌 종료 코드를 반환합니다.
-기준 시드는 **378**이며 입력 허용이 비행 성공을 뜻하지는 않습니다.
+위 실행을 완료한 뒤 서로 연결된 영문·한글 보고서를 생성할 수 있습니다.
 
-## 검증 결과
+```powershell
+.\.venv\Scripts\python.exe -m scripts.present_validation_results --campaign-dir artifacts/regression --nominal-result artifacts/nominal/result.json --out-dir artifacts/report --language both
+```
 
-현재 제원은 임무 완료·비행 안전·착륙·연료 수지를 함께 요구한 다음
-고정 입력 전체 비행 검사를 통과했습니다.
+소프트웨어 검사는 물리·보존 법칙·유도·성공 판정·로컬 UI/API를 다룹니다.
+다음 명령은 286개 전체 비행 시험을 실행하지 않습니다.
 
-| 시험군 | 통과 / 시험 |
-|---|---:|
-| 알려진 개발 조건 | 205 / 205 |
-| 이미 관측한 평가 조건의 회귀 검사 | 72 / 72 |
-| 실제 돌풍 노출·적분 간격 절반의 보조 검사 | 9 / 9 |
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[ui,video,dev]"
+.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
+.\.venv\Scripts\python.exe -m ruff check --no-cache .
+.\.venv\Scripts\python.exe -m ruff format --check --no-cache .
+```
 
-본 검사 277개와 보조 검사 9개는 별도 분모로 기록합니다. **전체 286개가
-통과**했으며 통과를 위해 제어기나 성공 기준을 바꾸지 않았습니다.
-이미 알려진 조건의 회귀 결과이지 새로운 독립 평가나 연속 입력 범위의
-모든 조합에 대한 증명이 아닙니다.
+v1.0.0 로컬 검증에서 **자동 검사 748개**, 코드 규칙·서식 검사와 설치한 휠 검사를
+통과했습니다. [Windows CI 규약](.github/workflows/checks.yml)은 푸시와 풀 리퀘스트에서
+소프트웨어 검사·패키지 빌드를 반복하도록 설정했습니다. 286개 전체 비행 시험을
+자동으로 다시 실행하지는 않습니다.
 
-| 전체 검사 286회의 항목 | 관측 최악값 | 기준 |
-|---|---:|---:|
-| 접지 질량중심 위치 오차 | 0.839 m | 2 m |
-| 발의 수직 / 수평속도 | 1.2551 / 0.202 m/s | 1.5 / 0.5 m/s |
-| 접지 자세 / 각속도 | 0.0212° / 0.0226°/s | 3° / 0.5°/s |
-| 최대 동압 | 28.949 kPa | 30 kPa |
-| 접지 전 최대 각가속도 | 3.780°/s² | 5°/s² |
-| 최소 잔여 주 추진제 / RCS 추진제 | 2,958 / 95.875 kg | >0 / ≥0 kg |
+## 저장소 구성
 
-최대값은 올림, 잔량은 내림으로 표시했습니다. 최대 RCS 사용량은
-204.124806 kg이며 95.875194 kg, 초기 재고의 31.96%를 남겼습니다.
-무풍 검사도 발 수직속도 약 1.005 m/s, 주 추진제 5,796 kg·RCS 262.546 kg을
-남기며 통과했습니다. NumPy/SciPy float64 계산을 CPU 프로세스 8개로 실행했으며
-GPU 가속은 구현하거나 속도를 측정하지 않았습니다.
-
-현재 원본 결과는 로컬의 `artifacts/apr100t/rcs300-v1`에 보관합니다.
-보고서·영상·개인 기록은 Git에서 제외하며 새로 복제한 저장소에 포함하지
-않습니다. 저장소의 고정 회귀 입력 목록으로 과거 로컬 기록 없이 같은
-선언 조건을 다시 실행할 수 있습니다.
-
-## 회귀 검사 재실행
-
-저장소의 `configs/apr-regression-v1.json`은 같은 286개 알려진 입력·관측 시드
-방식·적분 간격을 선언합니다. 준비 단계는 비행 없이 입력을 검증하고 해시를
-남깁니다. 실행은 모든 실패를 보존하며 기존 결과를 덮어쓰지 않습니다.
-
-~~~powershell
-python -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/apr100t/regression-v1
-python -m scripts.evaluate_regression_suite --run all --workers 8 --output-dir artifacts/apr100t/regression-v1
-~~~
-
-개인 근거 묶음 없이 실행할 수 있습니다. 다시 시험하려면 새 출력 폴더를
-사용합니다. 전체 비행 검사는 입력 검증보다 오래 걸리며 `--workers`는
-독립적인 CPU 비행 프로세스 수입니다. 알려진 조건을 다시 실행해도 새로운
-독립 평가가 되지는 않습니다.
-
-## 결과 보고서
-
-보고서 도구는 완료한 현재 제원 결과를 읽으며 비행을 추가 실행하지 않습니다.
-영문이 기본이며 `--language ko`는 한글, `--language both`는 서로 연결한
-영문·한글 버전을 생성합니다.
-
-~~~powershell
-# 로컬에 완료한 현재 제원 결과가 있어야 함
-python -m scripts.present_validation_results --language both
-
-# 새로 복제한 저장소에서도 위 단일 비행·회귀 명령을 완료한 뒤 실행
-python -m scripts.present_validation_results --campaign-dir artifacts/apr100t/regression-v1 --nominal-result artifacts/apr100t/nominal-current/result.json --out-dir artifacts/apr100t/presentation-current --language both
-~~~
-
-기본 출력 폴더는 `artifacts/apr100t/presentation-current`입니다.
-`validation-report.html`·`validation-report.ko.html`, 요약·계산 그래프와
-`presentation-data.json`을 저장합니다. 새로 복제한 저장소에는 실행 결과가
-없으므로 먼저 비행을 실행하고 `--campaign-dir`·`--nominal-result`에 그 출력을
-지정합니다. 새 보고서 폴더는 `--out-dir`로 지정합니다. 보고서와 그래프는
-새로운 독립 평가나 비행 결과를 만들지 않습니다.
-
-## 애니메이션
-
-현재 제원으로 완료한 비행을 추가 시뮬레이션 없이 재생합니다.
-
-~~~powershell
-python -m powered_landing_guidance.visualization --replay artifacts/apr100t/nominal-current/result.json --animation artifacts/apr100t/nominal-current/flight.mp4 --preview artifacts/apr100t/nominal-current/preview.png --fps 24 --width 1920 --end-hold 4
-~~~
-
-고도별 배경·로켓·지상 시설·엔진과 RCS 불꽃·계산값 대시보드를 표시합니다.
-Full HD·24 fps의 정상 배속입니다. 첫 접지 이후에는 불꽃을 숨기고 기록한
-자세를 4초 유지합니다. 실제 엔진 종료나 안정 기립을 계산한 것이 아닌
-화면 연출입니다. MP4 생성은 별도 명령이며 비행 실행만으로 영상이 생기지는
-않습니다.
-
-## 구성과 검사
-
-~~~text
+```text
+.github/workflows/               Windows 소프트웨어 검사와 패키지 빌드
 configs/                         운용 입력과 고정 회귀 입력 목록
-docs/                            영문·한글 모델 명세
-scripts/                         비행·회귀 검사·결과 보고 도구
-src/powered_landing_guidance/     운동·제어·계통·시각화
-tests/                           물리·보존 법칙·항법·평가 규약 검사
-~~~
+docs/                            영문·한글 모델 명세와 선택한 데모 자료
+scripts/                         비행·회귀 검사·결과 보고 명령
+src/powered_landing_guidance/     물리·유도·계통·로컬 API/UI·재생
+tests/                           물리·보존 법칙·평가 규약·UI/API 검사
+launch-dm100.bat                  Windows 로컬 앱 실행기
+```
 
-~~~powershell
-python -m pytest -p no:cacheprovider
-python -m ruff check --no-cache .
-python -m ruff format --check --no-cache .
-~~~
+생성한 실행 결과는 `artifacts/`, 개인 기록은 `.local/`에 보관하며 두 폴더 모두
+Git에서 제외합니다. 저장소에는 선택한 포트폴리오 자료만 포함합니다.
 
-소프트웨어 검사와 유한한 합성 비행이 실물 기체의 안전 인증을 대신하지는 않습니다.
+## 적용 범위와 한계
+
+모델은 두 축 이동과 평면 내 회전을 계산합니다. 부품·계수는 이론적 가정이며
+실측 보정하거나 실물 인증을 받지 않았습니다. 3차원 비행, 기체 탄성 변형,
+세부 유체·열·플룸 효과, 다리·지면 재료 강도는 해석하지 않습니다. 영상의
+2단 상승은 연출용 경로이며 궤도 계산이 아닙니다. 접지 후 불꽃을 숨기고 자세를
+유지하는 것도 화면 연출이며 엔진 종료나 안정 기립을 계산한 것은 아닙니다.
+유한한 합성 시험의 성공이 실물 기체의 안전성을 증명하지는 않습니다.

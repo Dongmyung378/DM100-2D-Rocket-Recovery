@@ -264,6 +264,7 @@ class _NominalFlightReplay:
             from powered_landing_guidance.recovery_physics import rotation
 
             self.bases[index] -= rotation(state[4]) @ (np.array([0.0, cg]) + offset)
+        self.upper_departure = _UpperStageDeparture.from_replay(self)
 
     def com_mode_offset(self, state, mass):
         vector = np.r_[state[:6], mass, state[6], state[17:19]]
@@ -306,6 +307,119 @@ class _NominalFlightReplay:
         return state, base, mass, control, phase, left
 
 
+class _UpperStageDeparture:
+    """A display-only departure anchored to the recorded staging impulse.
+
+    Ignition delay, acceleration ramp and attitude damping are cinematic
+    assumptions. They neither integrate an upper-stage vehicle nor establish
+    orbital insertion, propellant use or flight acceptance.
+    """
+
+    ignition_delay_s = 3.0
+    acceleration_m_s2 = 18.0
+    ramp_s = 1.2
+    attitude_damping_s = 4.0
+
+    @classmethod
+    def from_replay(cls, replay):
+        separation = replay.flight.get("separation")
+        recovery_only = replay.flight.get("ascent_simulated") is False or (
+            replay.flight.get("simulation_scope") == "37km_separation_to_touchdown"
+        )
+        if not separation or recovery_only or separation.get("impulse_model") is None:
+            return None
+        return cls(replay)
+
+    def __init__(self, replay):
+        from powered_landing_guidance.recovery_physics import gravity
+
+        separation = replay.flight["separation"]
+        impulse = separation["impulse_model"]
+        try:
+            self.position = np.asarray(impulse["upper_position_m"], dtype=float)
+            self.velocity = np.asarray(impulse["upper_velocity_m_s"], dtype=float)
+            self.theta = float(separation["state"][4])
+            self.omega = float(impulse["upper_angular_rate_rad_s"])
+            self.separation_s = float(separation["time_s"])
+        except (KeyError, TypeError, ValueError, IndexError) as error:
+            raise ValueError(
+                "upper-stage departure requires recorded finite staging states"
+            ) from error
+        if (
+            self.position.shape != (2,)
+            or self.velocity.shape != (2,)
+            or not np.all(np.isfinite(self.position))
+            or not np.all(np.isfinite(self.velocity))
+            or not np.all(np.isfinite((self.theta, self.omega, self.separation_s)))
+        ):
+            raise ValueError("upper-stage departure requires recorded finite staging states")
+        self.cg_station_m = replay.upper_station_m - replay.settings.geometry.body_length_m
+        self.gravity = np.asarray((0.0, -gravity(self.position[1])))
+        self.axis = np.asarray((np.sin(self.theta), np.cos(self.theta)))
+
+    def sample(self, time_s):
+        """Return an illustrative COM pose, never a simulated upper-stage state."""
+        if time_s < self.separation_s:
+            return None
+        elapsed = float(time_s - self.separation_s)
+        powered = max(0.0, elapsed - self.ignition_delay_s)
+        ratio = float(-np.expm1(-powered / self.ramp_s))
+        velocity_ramp = powered - self.ramp_s * ratio
+        position_ramp = 0.5 * powered**2 - self.ramp_s * powered + self.ramp_s**2 * ratio
+        acceleration = self.acceleration_m_s2 * self.axis
+        position = (
+            self.position
+            + self.velocity * elapsed
+            + 0.5 * self.gravity * elapsed**2
+            + acceleration * position_ramp
+        )
+        velocity = self.velocity + self.gravity * elapsed + acceleration * velocity_ramp
+        damp = np.exp(-elapsed / self.attitude_damping_s)
+        theta = self.theta + self.omega * self.attitude_damping_s * (1 - damp)
+        return position, velocity, float(theta), float(self.omega * damp), ratio
+
+    def base(self, time_s):
+        from powered_landing_guidance.recovery_physics import rotation
+
+        sample = self.sample(time_s)
+        if sample is None:
+            return None
+        position, _, theta, _, _ = sample
+        return position - rotation(theta) @ np.asarray((0.0, self.cg_station_m)), theta
+
+
+def _upper_stage_geometry(base, theta, radius, length):
+    from powered_landing_guidance.recovery_physics import rotation
+
+    parts = {
+        "upper_stage": np.asarray(
+            (
+                (-radius, 0),
+                (radius, 0),
+                (radius, length * 0.7),
+                (radius * 0.65, length * 0.9),
+                (0, length),
+                (-radius * 0.65, length * 0.9),
+                (-radius, length * 0.7),
+            )
+        ),
+        "upper_nozzle": np.asarray(((-0.42, 0), (0.42, 0), (0.20, 0.65), (-0.20, 0.65))),
+        "upper_highlight": np.asarray(
+            (
+                (-radius * 0.65, 0.8),
+                (-radius * 0.4, 0.8),
+                (-radius * 0.4, length * 0.67),
+                (-radius * 0.65, length * 0.67),
+            )
+        ),
+        "upper_band_detail": np.asarray(
+            ((-radius, 0.7), (radius, 0.7), (radius, 1.0), (-radius, 1.0))
+        ),
+    }
+    transform = rotation(theta)
+    return {name: vertices @ transform.T + base for name, vertices in parts.items()}
+
+
 def _nominal_flight_geometry(replay: _NominalFlightReplay, time_s: float):
     """Draw the recorded stage-one geometry and its actual ground-contact points."""
     from powered_landing_guidance.recovery_physics import rotation
@@ -341,21 +455,11 @@ def _nominal_flight_geometry(replay: _NominalFlightReplay, time_s: float):
         parts[f"fin_{side}"] = panel @ transform.T + base
     length = replay.settings.geometry.body_length_m
     upper_length = replay.upper_length_m
-    parts["upper_stage"] = (
-        np.asarray(
-            (
-                (-radius, length),
-                (radius, length),
-                (radius, length + upper_length * 0.7),
-                (radius * 0.65, length + upper_length * 0.9),
-                (0, length + upper_length),
-                (-radius * 0.65, length + upper_length * 0.9),
-                (-radius, length + upper_length * 0.7),
-            )
-        )
-        @ transform.T
-        + base
-    )
+    upper_base = base + transform @ np.asarray((0, length))
+    upper_theta = state[4]
+    if time_s >= replay.separation_s and replay.upper_departure is not None:
+        upper_base, upper_theta = replay.upper_departure.base(time_s)
+    parts.update(_upper_stage_geometry(upper_base, upper_theta, radius, upper_length))
     parts["separation_band"] = (
         np.asarray(
             (
@@ -383,9 +487,10 @@ class _NominalFlightAnimationScene:
     def __init__(self, flight: dict[str, Any], *, width: int = 1920) -> None:
         self.replay = _NominalFlightReplay(flight)
         self.fig = plt.figure(figsize=(16, 9), dpi=width / 16, facecolor="#07131e")
-        self.camera = self.fig.add_axes((0.04, 0.17, 0.565, 0.69))
-        self.overview = self.fig.add_axes((0.655, 0.665, 0.30, 0.19), facecolor="#0e2535")
-        self.info = self.fig.add_axes((0.645, 0.17, 0.32, 0.46))
+        self.camera = self.fig.add_axes((0.04, 0.205, 0.565, 0.655))
+        self.camera_aspect = (16 * 0.565) / (9 * 0.655)
+        self.overview = self.fig.add_axes((0.660, 0.700, 0.295, 0.155), facecolor="#0e2535")
+        self.info = self.fig.add_axes((0.645, 0.205, 0.32, 0.43))
         self.info.axis("off")
         self.display_engine_on = False
         self.displayed_thrust_n = 0.0
@@ -397,12 +502,16 @@ class _NominalFlightAnimationScene:
         recovery_only = flight.get("ascent_simulated") is False or (
             flight.get("simulation_scope") == "37km_separation_to_touchdown"
         )
-        self.fig.text(0.04, 0.944, "APR / 100", color="#edf6fb", fontsize=25, weight="bold")
-        self.fig.text(0.205, 0.948, "2차원 재사용 로켓 · 비행 기록", color="#bad0dc", fontsize=15)
-        self.fig.text(
+        self.title = self.fig.text(
+            0.04, 0.944, "DM100", color="#edf6fb", fontsize=25, weight="bold"
+        )
+        self.subtitle = self.fig.text(
+            0.205, 0.948, "2D 로켓 · 발사 및 1단 회수", color="#bad0dc", fontsize=15
+        )
+        self.mission_label = self.fig.text(
             0.956,
             0.95,
-            "1단 귀환 재생" if recovery_only else "발사 · 분리 · 발사장 복귀",
+            "1단 회수" if recovery_only else "발사장 복귀",
             ha="right",
             color="#63ddce",
             fontsize=12,
@@ -413,10 +522,10 @@ class _NominalFlightAnimationScene:
             for key in ("wind_profile", "vertical_wind_profile")
             for _, speed in conditions.get(key, ())
         )
-        self.fig.text(
+        self.record_note = self.fig.text(
             0.04,
             0.902,
-            f"{'무풍 기준 비행' if calm else '설정 외란 비행'}  |  실제 계산 기록 · 정상 배속 1×",
+            "무풍 기준" if calm else "설정 외란",
             color="#8da6b6",
             fontsize=10,
         )
@@ -426,7 +535,7 @@ class _NominalFlightAnimationScene:
         self.footer = self.fig.text(
             0.04,
             0.035,
-            "2D 개념 모델 · 배경/형상은 시각화 · 2단 분리 이후 궤도는 계산하지 않음",
+            "2D 모델 · 2단 상승은 연출(궤도·연료 미계산)",
             color="#8da6b6",
             fontsize=9,
         )
@@ -539,6 +648,9 @@ class _NominalFlightAnimationScene:
             "body": "#c8d4db",
             "adapter": "#d5dfe3",
             "upper_stage": "#e4eced",
+            "upper_nozzle": "#233541",
+            "upper_highlight": "#ffffff",
+            "upper_band_detail": "#456775",
             "highlight": "#f0f5f3",
             "panel": "#8b9da7",
             "nozzle": "#283a45",
@@ -580,7 +692,7 @@ class _NominalFlightAnimationScene:
         self.body_label = self.camera.text(
             0,
             0,
-            "APR / 01",
+            "DM100",
             ha="center",
             va="center",
             rotation=90,
@@ -601,6 +713,17 @@ class _NominalFlightAnimationScene:
             )
             self.camera.add_patch(plume)
             self.plumes.append(plume)
+        self.upper_plumes = []
+        for color, alpha, order in (
+            ("#69a9f5", 0.22, 6),
+            ("#97d5ff", 0.65, 6.1),
+            ("#f0faff", 0.95, 6.2),
+        ):
+            plume = Polygon(
+                np.zeros((4, 2)), facecolor=color, edgecolor="none", alpha=alpha, zorder=order
+            )
+            self.camera.add_patch(plume)
+            self.upper_plumes.append(plume)
         self.rcs_jets = []
         for _ in range(2):
             jet = Polygon(
@@ -650,6 +773,14 @@ class _NominalFlightAnimationScene:
         )
         self.telemetry = []
         self.telemetry_labels = []
+        self.telemetry_heading = self.fig.text(
+            0.654,
+            0.634,
+            "비행 텔레메트리",
+            color="#a6bfcd",
+            fontsize=9,
+            weight="bold",
+        )
         labels = (
             "중심 고도 (COM)",
             "발사장 수평 위치",
@@ -666,20 +797,43 @@ class _NominalFlightAnimationScene:
             "핀 전개율",
             "다리 전개율",
         )
-        # Each value has its own artist; updating one never reflows the column.
+        # Fixed-width tiles keep changing values aligned, with a separate
+        # status strip below the main panels rather than squeezing extra rows in.
         for i, label in enumerate(labels):
             col, row = i % 2, i // 2
-            xx, yy = col * 0.51, 0.98 - row * 0.112
-            label_artist = self.info.text(xx, yy, label, color="#86a8ba", fontsize=9, va="top")
+            xx, yy = 0.015 + col * 0.525, 0.952 - row * 0.140
+            self.info.add_patch(
+                FancyBboxPatch(
+                    (xx, yy - 0.107),
+                    0.455,
+                    0.115,
+                    transform=self.info.transAxes,
+                    boxstyle="round,pad=0.002,rounding_size=0.012",
+                    facecolor="#0d2130",
+                    edgecolor="#203c4c",
+                    linewidth=0.55,
+                )
+            )
+            label_artist = self.info.text(
+                xx + 0.022, yy, label, color="#86a8ba", fontsize=8.5, va="top"
+            )
             self.telemetry_labels.append(label_artist)
             value = self.info.text(
-                xx, yy - 0.046, "", color="#e1eef6", fontsize=13, va="top", family="DejaVu Sans"
+                xx + 0.022,
+                yy - 0.050,
+                "",
+                color="#79e0cc" if i in (6, 7) else "#e8f2f8",
+                fontsize=13,
+                va="top",
+                family="DejaVu Sans",
             )
             self.telemetry.append(value)
-        self.status = self.info.text(0, 0.14, "", color="#8daebb", fontsize=9, va="top")
-        self.environment_text = self.info.text(0, 0.205, "", color="#86a8ba", fontsize=8, va="top")
-        self.event = self.info.text(
-            0, 0.01, "", color="#6ee0c6", fontsize=10, va="bottom", linespacing=1.35
+        self.status = self.fig.text(0.654, 0.142, "", color="#8daebb", fontsize=8.5, va="bottom")
+        self.environment_text = self.fig.text(
+            0.654, 0.168, "", color="#86a8ba", fontsize=8.5, va="bottom"
+        )
+        self.event = self.fig.text(
+            0.045, 0.164, "", color="#6ee0c6", fontsize=10, va="center", linespacing=1.55
         )
         self._draw_overview()
         self.timeline = []
@@ -687,10 +841,10 @@ class _NominalFlightAnimationScene:
             xx = 0.04 + i * 0.155
             card = FancyBboxPatch(
                 (xx, 0.073),
-                0.145,
+                0.138,
                 0.054,
                 transform=self.fig.transFigure,
-                boxstyle="round,pad=0.005,rounding_size=0.008",
+                boxstyle="round,pad=0.002,rounding_size=0.008",
                 facecolor="#102636",
                 edgecolor="#203d4c",
                 linewidth=0.8,
@@ -769,6 +923,31 @@ class _NominalFlightAnimationScene:
         xlow = min(0, bases[:, 0].min()) / 1000 - 0.5
         xhigh = max(0, bases[:, 0].max()) / 1000 + 0.5
         zhigh = max(1, bases[:, 1].max() / 1000 + 2)
+        self.upper_path_times = np.empty(0)
+        self.upper_path = np.empty((0, 2))
+        departure = self.replay.upper_departure
+        if departure is not None:
+            # Display departure through 100 km, not an invented 700 km orbit.
+            times = np.linspace(
+                departure.separation_s,
+                min(self.replay.times[-1], departure.separation_s + 180),
+                361,
+            )
+            positions = np.asarray([departure.sample(t)[0] for t in times])
+            crossed = np.flatnonzero(positions[:, 1] >= 100_000)
+            if len(crossed):
+                end = int(crossed[0])
+                if end > 0:
+                    weight = (100_000 - positions[end - 1, 1]) / (
+                        positions[end, 1] - positions[end - 1, 1]
+                    )
+                    times[end] = times[end - 1] + weight * (times[end] - times[end - 1])
+                    positions[end] = (1 - weight) * positions[end - 1] + weight * positions[end]
+                times, positions = times[: end + 1], positions[: end + 1]
+            self.upper_path_times, self.upper_path = times, positions
+            xlow = min(xlow, positions[:, 0].min() / 1000 - 0.5)
+            xhigh = max(xhigh, positions[:, 0].max() / 1000 + 0.5)
+            zhigh = max(zhigh, positions[:, 1].max() / 1000 + 2)
         self.overview.imshow(
             _recovery_sky(np.linspace(0, zhigh * 1000, 64))[:, None, :],
             extent=(xlow, xhigh, 0, zhigh),
@@ -784,9 +963,28 @@ class _NominalFlightAnimationScene:
             linewidth=1,
         )
         self.overview.scatter([0], [0], marker="s", color="#63ddce", s=22, zorder=5)
-        (self.history,) = self.overview.plot([], [], color="#63ddce", linewidth=1.5, zorder=4)
+        (self.history,) = self.overview.plot(
+            [], [], color="#63ddce", linewidth=1.5, zorder=4, label="1단 계산"
+        )
         (self.marker,) = self.overview.plot([], [], "o", color="#ffcc85", markersize=5, zorder=6)
-        self.overview.set(xlim=(xlow, xhigh), ylim=(-1, zhigh), title="검증된 전체 비행 경로")
+        (self.upper_history,) = self.overview.plot(
+            [], [], "--", color="#f6c56b", linewidth=1.4, zorder=4, label="2단 연출"
+        )
+        (self.upper_marker,) = self.overview.plot(
+            [], [], "^", color="#f6c56b", markersize=5, zorder=6
+        )
+        self.upper_marker.set_visible(False)
+        self.overview_legend = None
+        if departure is not None:
+            legend = self.overview.legend(loc="upper left", fontsize=7, frameon=False, ncol=2)
+            self.overview_legend = legend
+            for text in legend.get_texts():
+                text.set_color("#c6dce8")
+        self.overview.set(
+            xlim=(xlow, xhigh),
+            ylim=(-1, zhigh),
+            title="비행 경로",
+        )
         self.overview.set_xlabel("발사장 거리 (km)", color="#a5bfcc", fontsize=8)
         self.overview.set_ylabel("고도 (km)", color="#a5bfcc", fontsize=8)
         self.overview.title.set_color("#c6dce8")
@@ -852,9 +1050,18 @@ class _NominalFlightAnimationScene:
         state, base, mass, control, phase, index = sample
         attached = shown_time < self.replay.separation_s
         contacted = shown_time >= self.replay.contact_s
+        departure = self.replay.upper_departure
+        upper_present = attached or departure is not None
         for name, vertices in parts.items():
             self.parts[name].set_xy(vertices)
-            self.parts[name].set_visible(name not in {"upper_stage", "separation_band"} or attached)
+            visible = True
+            if name in {"upper_stage", "upper_highlight", "upper_band_detail"}:
+                visible = upper_present
+            elif name == "upper_nozzle":
+                visible = departure is not None and not attached
+            elif name == "separation_band":
+                visible = attached
+            self.parts[name].set_visible(visible)
         self._update_shell(parts, base, state, attached)
         x, z, vx, vz, theta, omega = state[:6]
         rocket_length = self.replay.settings.geometry.body_length_m
@@ -867,8 +1074,20 @@ class _NominalFlightAnimationScene:
             )
         height = float(np.clip(rocket_length * 2.05 + max(z, 0) * 0.0007, 43, 105))
         center = base + 0.48 * rocket_length * np.asarray((np.sin(theta), np.cos(theta)))
+        if departure is not None and not attached:
+            # Show both vehicles briefly, then ease back to first-stage tracking.
+            elapsed = shown_time - self.replay.separation_s
+            blend = float(1 - np.clip((elapsed - 5) / 5, 0, 1))
+            blend = blend**2 * (3 - 2 * blend)
+            vertices = np.vstack((parts["body"], parts["upper_stage"]))
+            low, high = vertices.min(axis=0), vertices.max(axis=0)
+            joint_center = (low + high) / 2
+            aspect = self.camera_aspect
+            joint_height = max(height, 1.6 * (high[1] - low[1]), 1.6 * (high[0] - low[0]) / aspect)
+            center += blend * (joint_center - center)
+            height += blend * (joint_height - height)
         bottom = max(-4.5, center[1] - 0.45 * height)
-        view_width = height * (16 * 0.565) / (9 * 0.69)
+        view_width = height * self.camera_aspect
         left, right = center[0] - view_width / 2, center[0] + view_width / 2
         self.camera.set(xlim=(left, right), ylim=(bottom, bottom + height))
         sky = np.repeat(
@@ -907,6 +1126,41 @@ class _NominalFlightAnimationScene:
             self.replay.bases[: index + 1, 0] / 1000, self.replay.bases[: index + 1, 1] / 1000
         )
         self.marker.set_data([base[0] / 1000], [base[1] / 1000])
+        upper_sample = departure.sample(shown_time) if departure and not attached else None
+        self.upper_history.set_visible(upper_sample is not None)
+        self.upper_marker.set_visible(False)
+        self.upper_history.set_data([], [])
+        self.upper_marker.set_data([], [])
+        for plume in self.upper_plumes:
+            plume.set_visible(False)
+        if upper_sample is not None:
+            position, _, upper_theta, _, ignition = upper_sample
+            through = int(np.searchsorted(self.upper_path_times, shown_time, side="right"))
+            path = self.upper_path[:through]
+            in_domain = shown_time <= self.upper_path_times[-1]
+            if in_domain:
+                path = np.vstack((path, position))
+                self.upper_marker.set_data([position[0] / 1000], [position[1] / 1000])
+                self.upper_marker.set_visible(True)
+            self.upper_history.set_data(path[:, 0] / 1000, path[:, 1] / 1000)
+            upper_base, _ = departure.base(shown_time)
+            exhaust = -np.asarray((np.sin(upper_theta), np.cos(upper_theta)))
+            side = np.asarray((np.cos(upper_theta), -np.sin(upper_theta)))
+            flicker = 0.96 + 0.04 * np.sin(shown_time * 43)
+            for plume, scale in zip(self.upper_plumes, (1.2, 0.9, 0.5), strict=True):
+                width = 0.6 * np.sqrt(ignition) * scale
+                length = 11 * np.sqrt(ignition) * scale * flicker
+                local = np.asarray(
+                    (
+                        (-width, 0),
+                        (-width * 1.4, length * 0.2),
+                        (0, length),
+                        (width * 1.4, length * 0.2),
+                        (width, 0),
+                    )
+                )
+                plume.set_xy(upper_base + local[:, :1] * side + local[:, 1:] * exhaust)
+                plume.set_visible(ignition > 0.01 and in_domain)
         _, pressure, density = atmosphere(z, self.replay.settings.atmosphere)
         thrust = (
             control[0]
@@ -993,9 +1247,7 @@ class _NominalFlightAnimationScene:
         self.phase.set_text(phase_names.get(phase, phase))
         self.clock.set_text(f"T+ {shown_time:07.2f} s")
         self.camera_note.set_text(
-            "엔진 OFF · 접지 이후 고정 화면"
-            if contacted
-            else f"1단 하단 고도 {base[1]:,.1f} m · 기체 추적 카메라"
+            "엔진 OFF · 접지 이후 고정 화면" if contacted else f"1단 하단 고도 {base[1]:,.1f} m"
         )
         total_mass = mass + (self.replay.design["upper_mass_kg"] if attached else 0)
         q = np.interp(shown_time, self.replay.times, self.q)
@@ -1025,10 +1277,9 @@ class _NominalFlightAnimationScene:
             f"밀도 {density:.4f} kg/m³"
         )
         self.status.set_text(
-            "접지 순간의 계산값 · 스로틀은 원본 기록"
+            "접지 순간 기록값"
             if contacted
-            else f"짐벌 {np.rad2deg(control[1]):+.2f}° · "
-            f"RCS 토크 {self.rcs_torque_kn_m:+.1f} kN·m · 보간 재생"
+            else f"짐벌 {np.rad2deg(control[1]):+.2f}° · RCS 토크 {self.rcs_torque_kn_m:+.1f} kN·m"
         )
         if contacted:
             speed = max(abs(v[1]) for v in self.replay.contact_record["foot_velocities_m_s"])
@@ -1039,15 +1290,18 @@ class _NominalFlightAnimationScene:
                 "엔진 OFF · 재생 연출 / 접지 이후 거동 미평가"
             )
             self.footer.set_text(
-                "첫 접지 이후 상태 고정·엔진 OFF는 재생 연출 · "
-                "다리 강도/안정 기립 미평가 · 2단 궤도 미계산"
+                "접지 후 화면 고정·엔진 OFF는 연출 · 기립 미평가 · 2단 궤도 미계산"
             )
         elif attached:
-            self.event.set_text("1·2단 결합 · 원래 발사장을 회수 목표로 사용")
+            self.event.set_text("1·2단 결합")
         else:
             self.event.set_text(
                 f"분리 T+{self.replay.separation_s:.2f} s · 1단 귀환\n"
-                "분리 이후 2단의 비행은 표시하지 않음"
+                + (
+                    "2단 상승 연출 / 궤도 미계산"
+                    if departure is not None
+                    else "2단 초기 기록 없음 · 1단만 재생"
+                )
             )
         stage = {
             "ascent": 0,
@@ -1074,7 +1328,10 @@ class _NominalFlightFrameRenderer:
         self.artists = [
             scene.camera,
             scene.history,
+            scene.upper_history,
+            *([scene.overview_legend] if scene.overview_legend is not None else []),
             scene.marker,
+            scene.upper_marker,
             *scene.telemetry,
             scene.telemetry_labels[10],
             scene.telemetry_labels[11],
@@ -1112,8 +1369,10 @@ def save_nominal_flight_replay(
     preview: str | Path | None = None,
     width: int = 1920,
     end_hold_s: float = 4.0,
+    start_s: float | None = None,
+    end_s: float | None = None,
 ) -> Path:
-    """Render a stored ascent/separation/recovery flight at normal playback speed."""
+    """Render all or a selected interval of a stored flight at normal speed."""
     if type(fps) is not int or not 1 <= fps <= 60:
         raise ValueError("full-flight replay fps must be an integer in [1, 60]")
     if type(width) is not int or not 640 <= width <= 3840 or width % 32:
@@ -1125,6 +1384,14 @@ def save_nominal_flight_replay(
         or not 0 <= end_hold_s <= 30
     ):
         raise ValueError("replay end_hold_s must be a finite number in [0, 30]")
+    for value in (start_s, end_s):
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not np.isfinite(value)
+            or value < 0
+        ):
+            raise ValueError("replay interval bounds must be finite nonnegative seconds")
     destination = Path(path)
     if destination.suffix.lower() != ".mp4":
         raise ValueError("full-flight replay output must end in .mp4")
@@ -1146,10 +1413,16 @@ def save_nominal_flight_replay(
     with matplotlib.rc_context({"font.family": family, "axes.unicode_minus": False}):
         scene = _NominalFlightAnimationScene(flight, width=width)
         try:
-            frames = _nominal_flight_frame_times(scene.replay.times, fps)
+            start = scene.replay.times[0] if start_s is None else float(start_s)
+            end = scene.replay.times[-1] if end_s is None else float(end_s)
+            if not scene.replay.times[0] <= start < end <= scene.replay.times[-1]:
+                raise ValueError(
+                    "replay interval must lie inside the recorded flight with start < end"
+                )
+            frames = _nominal_flight_frame_times(np.asarray((start, end)), fps)
             hold_frames = int(np.ceil(end_hold_s * fps))
             if hold_frames:
-                frames = np.r_[frames, np.full(hold_frames, scene.replay.times[-1])]
+                frames = np.r_[frames, np.full(hold_frames, end)]
             destination.parent.mkdir(parents=True, exist_ok=True)
             with NamedTemporaryFile(
                 prefix=f".{destination.stem}-", suffix=".mp4", dir=destination.parent, delete=False
@@ -1159,7 +1432,7 @@ def save_nominal_flight_replay(
                 fps=fps,
                 codec="libx264",
                 bitrate=-1,
-                metadata={"title": "APR 100 - 2D first-stage recovery", "artist": "APR"},
+                metadata={"title": "DM100 - 2D first-stage recovery", "artist": "DM100"},
                 extra_args=[
                     "-crf",
                     "18",
@@ -1219,6 +1492,8 @@ def main(argv=None) -> int:
     parser.add_argument("--fps", type=int, default=24)
     parser.add_argument("--width", type=int, default=1920, help="640-3840 범위의 32배수")
     parser.add_argument("--end-hold", type=float, default=4.0, help="끝화면 유지 시간(0-30초)")
+    parser.add_argument("--start-time", type=float, help="Optional clip start in recorded seconds")
+    parser.add_argument("--end-time", type=float, help="Optional clip end in recorded seconds")
     args = parser.parse_args(argv)
     try:
         record = json.loads(args.replay.read_text(encoding="utf-8"))
@@ -1229,6 +1504,8 @@ def main(argv=None) -> int:
             preview=args.preview,
             width=args.width,
             end_hold_s=args.end_hold,
+            start_s=args.start_time,
+            end_s=args.end_time,
         )
     except (ValueError, KeyError, TypeError, OSError, RuntimeError) as error:
         parser.error(str(error))
