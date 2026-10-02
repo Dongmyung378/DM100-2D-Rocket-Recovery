@@ -1,4 +1,4 @@
-# DM100 - 2차원 로켓 자동 회수
+# DM100 - 2차원 로켓 발사 및 1단 회수
 
 [English](README.md) · [모델 명세](docs/spec.ko.md) · [분리 데모](docs/assets/flight.mp4)
 

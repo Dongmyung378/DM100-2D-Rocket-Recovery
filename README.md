@@ -1,4 +1,4 @@
-# DM100 - 2D Powered Landing Guidance
+# DM100 - 2D Rocket Launch and Recovery
 
 [한국어](README.ko.md) · [Model specification](docs/spec.md) · [Separation demo](docs/assets/flight.mp4)
 
