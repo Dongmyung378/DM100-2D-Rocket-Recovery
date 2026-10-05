@@ -63,7 +63,40 @@ Matplotlib/FFmpeg입니다. 외부 서비스나 프런트엔드 빌드 도구는
 ## 사용자 컴퓨터에서 실행
 
 검증한 개발 환경은 **Windows·Python 3.12.7**이며 Python 3.12.x가 필요합니다.
-저장소 폴더에서 실행합니다.
+저장소를 내려받거나 복제한 뒤 [launch-dm100.bat](launch-dm100.bat)를 더블클릭하세요.
+최초 실행 때 프로젝트용 `.venv`를 만들고 UI·영상 의존성과 프로젝트를 설치합니다.
+첫 설치와 환경 복구에는 인터넷이 필요하며, 정상적으로 준비한 환경은 다음 실행에서
+패키지를 다시 설치하지 않고 사용합니다.
+
+Python 3.12가 없으면 설치 방법을 안내하고 종료하며 Python을 자동 설치하지는
+않습니다. [공식 Windows 다운로드](https://www.python.org/downloads/windows/)에서
+Python 3.12를 설치한 뒤 실행기를 다시 실행하세요. 앱을 사용하는 동안 터미널을
+열어 두고 종료할 때 Ctrl+C를 누릅니다.
+
+앱을 열지 않고 실행 환경만 준비하려면 저장소 폴더에서 실행합니다.
+
+```powershell
+.\launch-dm100.bat --setup-only
+```
+
+실행기는 명시한 `DM100_PYTHON`, 정상인 기존 가상환경, Windows의 `py -3.12`,
+`PATH`의 `python`·`python3`, 현재 저장소의 `.local/uv-python` 순서로 Python을
+찾습니다. 모든 후보는 Python 3.12인지 확인하며, 명시한 `DM100_PYTHON`이 올바르지
+않으면 오류를 표시하고 종료합니다. 설치한 Python 경로를 직접 지정할 수도 있습니다.
+
+```powershell
+$env:DM100_PYTHON = "C:\Python312\python.exe" # 실제 설치한 Python 3.12 경로로 바꾸세요.
+.\launch-dm100.bat
+```
+
+가상환경과 편집 가능 설치에는 컴퓨터의 경로가 기록됩니다. 다른 사람에게 프로젝트를
+전달할 때 자신의 `.venv`를 함께 복사하지 마세요. 폴더를 이동·복사해 가상환경이
+실행되지 않거나 설치 경로가 이전 위치를 가리키면 기존 환경을
+`.local/environment-backups/`에 보관하고 현재 폴더에 맞게 새로 만듭니다. 저장한
+비행 결과는 유지합니다. 이전 환경의 기본 Python이 없어진 경우에는 별도로 정상
+동작하는 Python 3.12가 있어야 복구할 수 있습니다.
+
+수동 설치를 원하면 저장소 폴더에서 다음 명령을 실행합니다.
 
 ```powershell
 py -3.12 -m venv .venv
@@ -71,9 +104,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-설치 후 Windows에서는 [launch-dm100.bat](launch-dm100.bat)를 더블클릭해도 됩니다.
-앱을 사용하는 동안 터미널을 열어 두고 종료할 때 Ctrl+C를 누릅니다. 현재는
-Python으로 실행하는 프로그램이며 단독 실행파일은 아닙니다. 다른 운영체제는
+현재는 Python으로 실행하는 프로그램이며 단독 실행파일은 아닙니다. 다른 운영체제는
 실행 환경과 영상 글꼴을 별도로 확인해야 합니다.
 
 앱은 비어 있는 로컬 포트를 선택해 `127.0.0.1`에서 브라우저를 엽니다. 계산·결과·
@@ -93,7 +124,7 @@ Python으로 실행하는 프로그램이며 단독 실행파일은 아닙니다
 사용자 데이터 폴더입니다. 다른 위치를 지정하려면 다음처럼 실행합니다.
 
 ```powershell
-.\.venv\Scripts\python.exe -m powered_landing_guidance.local_app --output-dir artifacts/local-runs
+.\launch-dm100.bat --output-dir artifacts/local-runs
 ```
 
 ### 영상 생성은 시간이 더 걸립니다

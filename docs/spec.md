@@ -261,8 +261,15 @@ longer than flight calculation. Longer clips and higher resolutions add work;
 use a short 640 × 360 interval for a quick preview. The UI explains this before
 generation and while rendering. Keep the application open; recorded graphs and
 tables remain available. No fixed wait time or GPU-rendering speedup is promised.
-The local UI is a source-installed application; frozen executable distribution
-and validation on additional operating systems are separate work.
+The Windows `launch-dm100.bat` launcher locates a working Python 3.12 interpreter,
+creates an isolated `.venv` and installs the project with the `ui` and `video`
+extras. It reuses a healthy environment and preserves/rebuilds an unusable or
+relocated environment instead of trusting the presence of `python.exe`. First
+setup and repairs require internet access. `--setup-only` prepares the environment
+without opening the app; other arguments are forwarded to the local application.
+Python itself is a prerequisite, not an automatic download. The local UI remains
+a source-installed application; frozen executable distribution and validation on
+additional operating systems are separate work.
 
 ## Evidence and limitations
 

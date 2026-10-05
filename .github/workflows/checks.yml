@@ -36,5 +36,13 @@ jobs:
         run: python -m ruff format --check --no-cache .
       - name: Tests
         run: python -m pytest -q -p no:cacheprovider
+      - name: Prepare a fresh launcher environment
+        env:
+          DM100_NO_PAUSE: "1"
+        run: cmd /d /c "launch-dm100.bat --setup-only"
+      - name: Check the installed launcher
+        env:
+          DM100_NO_PAUSE: "1"
+        run: cmd /d /c "launch-dm100.bat --help"
       - name: Package
         run: python -m pip wheel . --no-deps --wheel-dir dist

@@ -67,7 +67,45 @@ declared inputs without historical local files.
 ## Run on your computer
 
 The verified development environment is **Windows with Python 3.12.7**. Python
-3.12.x is required. From the repository directory:
+3.12.x is required. Download or clone the repository, then double-click
+[launch-dm100.bat](launch-dm100.bat). The launcher prepares its own `.venv` and
+installs the project with its UI and video dependencies on first use. Initial
+setup and environment repair need an internet connection; a healthy installation
+is reused on later runs without reinstalling packages.
+
+If Python 3.12 is missing, the launcher explains how to install it and stops; it
+does not install Python automatically. Install Python 3.12 from the
+[official Windows downloads](https://www.python.org/downloads/windows/), then run
+the launcher again. Keep the terminal open while using the app; press Ctrl+C to
+stop it.
+
+To prepare the environment without opening the app, run from the repository
+directory:
+
+```powershell
+.\launch-dm100.bat --setup-only
+```
+
+The launcher checks `DM100_PYTHON` when explicitly set, an existing working virtual
+environment, the Windows `py -3.12` launcher, `python`/`python3` on `PATH`, and
+Python under this repository's `.local/uv-python`. Every candidate must be Python
+3.12. An invalid explicit `DM100_PYTHON` value stops with an error. To select an
+installed interpreter explicitly:
+
+```powershell
+$env:DM100_PYTHON = "C:\Python312\python.exe" # Replace with your actual Python 3.12 path.
+.\launch-dm100.bat
+```
+
+Python virtual environments and editable installs store local paths. Do not copy
+another computer's `.venv` when sharing the project. If a moved or copied folder
+contains an unusable environment or an installation pointing to its old location,
+the launcher preserves the old environment under `.local/environment-backups/`
+and creates a new one for the current folder. It leaves saved flight results in
+place. A separate working Python 3.12 installation is still needed if the previous
+environment's base Python is gone.
+
+For manual installation, run from the repository directory:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -75,10 +113,8 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-After installation, Windows users can instead double-click
-[launch-dm100.bat](launch-dm100.bat). Keep the terminal open while using the app;
-press Ctrl+C to stop it. This is a Python-source application, not a standalone
-executable. Additional operating systems need their own runtime and font checks.
+This is a Python-source application, not a standalone executable. Additional
+operating systems need their own runtime and font checks.
 
 The app opens a browser at `127.0.0.1` and selects a free local port. Calculations,
 results and rendering stay on your computer. No cloud account, external API,
@@ -97,7 +133,7 @@ original input snapshot; editing the form does not relabel an existing result.
 Results are saved in the local user-data directory by default. To choose a folder:
 
 ```powershell
-.\.venv\Scripts\python.exe -m powered_landing_guidance.local_app --output-dir artifacts/local-runs
+.\launch-dm100.bat --output-dir artifacts/local-runs
 ```
 
 ### Video generation takes longer
