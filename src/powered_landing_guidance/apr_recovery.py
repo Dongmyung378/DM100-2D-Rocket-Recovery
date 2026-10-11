@@ -18,6 +18,11 @@ import yaml
 from scipy.optimize import brentq
 
 from powered_landing_guidance.integrators import rk4_step
+from powered_landing_guidance.observation_models import (
+    ControllerOptions,
+    PlanarAttitudeEstimator,
+    SensorSettings,
+)
 from powered_landing_guidance.recovery_physics import (
     G0,
     R_AIR,
@@ -753,6 +758,8 @@ class AprFlight:
         separation_settings=None,
         ignition_settings=None,
         landing_gear=None,
+        sensor_settings=None,
+        controller_options=None,
     ):
         if fin_mode not in ("stowed", "active"):
             raise ValueError("fin_mode must be stowed or active")
@@ -760,6 +767,14 @@ class AprFlight:
         if not np.isfinite(integration_dt_s) or not 0 < integration_dt_s <= 0.02:
             raise ValueError("integration_dt_s must be within (0, 0.02]")
         self.nominal_design = Design()
+        self.sensor_settings = SensorSettings() if sensor_settings is None else sensor_settings
+        self.controller_options = (
+            ControllerOptions() if controller_options is None else controller_options
+        )
+        if not isinstance(self.sensor_settings, SensorSettings):
+            raise TypeError("Expected SensorSettings")
+        if not isinstance(self.controller_options, ControllerOptions):
+            raise TypeError("Expected ControllerOptions")
         self.feed_settings = FeedSettings() if feed_settings is None else feed_settings
         self.slosh_settings = SloshSettings() if slosh_settings is None else slosh_settings
         self.separation_settings = (
@@ -907,9 +922,15 @@ class AprFlight:
         self.entry_started_s = None
         self.minimum_control_torque_margin_nm = 1e12
         self.rng = np.random.default_rng(378)
+        self.sensor_rng = np.random.default_rng(9378)
+        self.sensor_sample_count = 0
+        self.sensor_dropout_count = 0
+        self.last_sensor_packet = None
         self.observations = deque(maxlen=self.disturbances.observation_delay_steps + 1)
         self.observation_times = deque(maxlen=self.observations.maxlen)
-        self.navigation_command_history = deque(maxlen=self.observations.maxlen + 1)
+        self.navigation_command_history = deque(
+            maxlen=self.observations.maxlen + self.sensor_settings.dropout_length_steps + 1
+        )
         self.action_queue = deque(
             [self.control] * (self.disturbances.action_delay_steps + 1),
             maxlen=self.disturbances.action_delay_steps + 1,
@@ -921,6 +942,9 @@ class AprFlight:
         self.observed_state = self.state.copy()
         self.angular_observation = None
         self.angular_torque_bias_nm = 0.0
+        self.attitude_estimator = PlanarAttitudeEstimator(
+            self.sensor_settings.attitude_error_deg, self.sensor_settings.gyro_error_deg_s
+        )
 
     @classmethod
     def from_separation(cls, state, *, time_s, **kwargs):
@@ -1601,7 +1625,11 @@ class AprFlight:
         aero, _, q, _ = self.loads(observed, predicted=True)
         mass = self.mass(observed, predicted=True)
         proper = np.asarray(acceleration, dtype=float) + [0, gravity(observed[1])]
-        if vertical_body and self.navigation_estimator.estimate is not None:
+        if (
+            vertical_body
+            and self.controller_options.translation_bias_compensation
+            and self.navigation_estimator.estimate is not None
+        ):
             settings = self.return_settings
             height = self.height(observed, predicted=True)
             blend = _smoothstep(
@@ -1965,6 +1993,9 @@ class AprFlight:
         Only nominal properties, forecast loads and measured actuator states are
         used. Staging impulses and pad support are not continuous disturbances.
         """
+        if not self.controller_options.torque_bias_compensation:
+            self.angular_torque_bias_nm = 0.0
+            return
         previous = self.angular_observation
         if (
             self.upper_attached
@@ -2049,11 +2080,36 @@ class AprFlight:
             error = self.rng.normal(size=2)
             error /= max(hypot(*error), 1e-12)
             raw[2:4] += error * sqrt(self.rng.random()) * errors.sensor_velocity_error_m_s
-        self.observations.append(raw)
-        self.observation_times.append(self.time_s)
+        sensors = self.sensor_settings
+        if sensors.angular_noise_enabled:
+            raw[4] += np.deg2rad(
+                sensors.attitude_bias_deg
+                + self.sensor_rng.uniform(-sensors.attitude_error_deg, sensors.attitude_error_deg)
+            )
+            raw[5] += np.deg2rad(
+                sensors.gyro_bias_deg_s
+                + self.sensor_rng.uniform(-sensors.gyro_error_deg_s, sensors.gyro_error_deg_s)
+            )
+        drop = (
+            sensors.dropout_period_steps > 0
+            and self.sensor_sample_count > 0
+            and self.sensor_sample_count % sensors.dropout_period_steps
+            < sensors.dropout_length_steps
+        )
+        self.sensor_sample_count += 1
+        if drop:
+            raw, sample_time = self.last_sensor_packet
+            self.sensor_dropout_count += 1
+        else:
+            sample_time = self.time_s
+            self.last_sensor_packet = (raw.copy(), sample_time)
+        self.observations.append(raw.copy())
+        self.observation_times.append(sample_time)
         self.navigation_command_history.append((self.time_s, self.control))
         measured = self.observations[0]
         measurement_time = self.observation_times[0]
+        if sensors.angular_noise_enabled and self.controller_options.attitude_filter:
+            measured = self.attitude_estimator.observe(measured, measurement_time)
         self.observe_angular_torque(measured, measurement_time)
         delay = max(0.0, self.time_s - measurement_time)
         acceleration = self.navigation_acceleration(measured, measurement_time)
@@ -2198,7 +2254,11 @@ class AprFlight:
                 self.phase = "coast"
                 self.boostback_completed = dict(time_s=self.time_s, state=self.state.tolist())
             else:
-                if self.time_s >= self.next_plan_s and self.boost_end_s - self.time_s > 0.5:
+                if (
+                    self.controller_options.boost_replanning
+                    and self.time_s >= self.next_plan_s
+                    and self.boost_end_s - self.time_s > 0.5
+                ):
                     self.plan_return(y)
                 if self.outcome != "running":
                     return 0.0, 0.0, 0.0, 0.0
@@ -2772,6 +2832,18 @@ class AprFlight:
             ascent_settings=asdict(self.ascent_settings),
             conditions=asdict(self.conditions),
             disturbances=asdict(self.disturbances),
+            sensor_settings=asdict(self.sensor_settings),
+            controller_options=asdict(self.controller_options),
+            sensor_diagnostics=dict(
+                generated_samples=self.sensor_sample_count,
+                dropped_packets=self.sensor_dropout_count,
+                estimated_gyro_bias_deg_s=(
+                    float(np.rad2deg(self.attitude_estimator.estimate[2]))
+                    if self.attitude_estimator.estimate is not None
+                    else None
+                ),
+                configured_bias_is_not_supplied_to_estimator=True,
+            ),
             integration_dt_s=self.integration_dt_s,
             criteria=criteria,
             mission_success=mission,

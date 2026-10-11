@@ -303,4 +303,6 @@ def test_default_paths_and_source_binding_are_tracked_current_files():
     assert replay.DEFAULT_SUITE.is_relative_to(Path(replay.ROOT))
     assert replay.DEFAULT_OUTPUT.is_relative_to(Path(replay.ROOT))
     assert all("revalidate_propellant" not in path for path in replay.SOURCE_PATHS)
-    assert len(replay.source_hashes()) == 10
+    hashes = replay.source_hashes()
+    assert set(hashes) == set(replay.SOURCE_PATHS)
+    assert "src/powered_landing_guidance/observation_models.py" in hashes

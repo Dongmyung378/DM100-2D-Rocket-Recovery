@@ -40,6 +40,7 @@ SOURCE_PATHS = (
     "src/powered_landing_guidance/recovery_physics.py",
     "src/powered_landing_guidance/vehicle_systems.py",
     "src/powered_landing_guidance/integrators.py",
+    "src/powered_landing_guidance/observation_models.py",
     "scripts/evaluate_operating_envelope.py",
     "configs/apr-operating-v1.yaml",
 )

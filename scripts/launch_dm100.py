@@ -146,6 +146,11 @@ def ensure_environment(project_root: Path, base_python: Path) -> Path:
             "pip",
             "install",
             "--disable-pip-version-check",
+            *(
+                ["--constraint", str(project_root / "requirements" / "constraints.txt")]
+                if (project_root / "requirements" / "constraints.txt").is_file()
+                else []
+            ),
             "-e",
             f"{project_root}[ui,video]",
         ],

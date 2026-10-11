@@ -161,6 +161,7 @@ def main(argv=None) -> int:
         ROOT / "src/powered_landing_guidance/apr_recovery.py",
         ROOT / "src/powered_landing_guidance/recovery_physics.py",
         ROOT / "src/powered_landing_guidance/integrators.py",
+        ROOT / "src/powered_landing_guidance/observation_models.py",
         ROOT / "src/powered_landing_guidance/vehicle_systems.py",
     )
 

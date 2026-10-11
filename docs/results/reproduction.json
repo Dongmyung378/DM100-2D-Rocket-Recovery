@@ -1,0 +1,137 @@
+{
+  "code_version": "1.1.0",
+  "scope": "Fresh Windows installation and Linux container on the same host; not independent external review",
+  "cases_per_environment": 3,
+  "environments": {
+    "windows": {
+      "python": "3.12.7",
+      "platform": "Windows 11 x86_64",
+      "software_tests_passed": 787,
+      "software_tests_skipped": 1,
+      "subtests_passed": 11,
+      "skip_reason": "Optional historical local regression artifact is absent from the clean source snapshot",
+      "launcher_setup_only_exit_code": 0
+    },
+    "linux": {
+      "python": "3.12.15",
+      "platform": "Linux-5.15.167.4-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+      "container_image": "python:3.12-slim",
+      "software_tests_passed": 787,
+      "software_tests_skipped": 1,
+      "subtests_passed": 11,
+      "skip_reason": "Optional historical local regression artifact is absent from the clean source snapshot",
+      "installation_exit_code": 0,
+      "numerical_reference_exit_code": 0,
+      "display_limitation": "Minimal image lacks Hangul fonts; install Noto Sans CJK for Korean replay labels"
+    }
+  },
+  "comparison": {
+    "representative_reproductions": 6,
+    "source_bundle_sha256": "dd7eeb69cb4d5a3b30b93b3bc03b6b80e738f4153b1614861c51ac83e041ac4f",
+    "all_acceptance_equal": true,
+    "all_within_declared_tolerances": true,
+    "declared_tolerances": {
+      "position_error_m": 0.001,
+      "vertical_foot_speed_m_s": 0.0001,
+      "horizontal_foot_speed_m_s": 0.0001,
+      "tilt_deg": 0.0001,
+      "contact_rate_deg_s": 0.0001,
+      "flight_time_s": 0.0001,
+      "main_remaining_kg": 0.01,
+      "rcs_remaining_kg": 0.01,
+      "peak_dynamic_pressure_pa": 1.0
+    },
+    "checks": [
+      {
+        "file": "windows-full.json",
+        "job_id": "development/development-000/full/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 0.0,
+          "vertical_foot_speed_m_s": 0.0,
+          "horizontal_foot_speed_m_s": 0.0,
+          "tilt_deg": 0.0,
+          "contact_rate_deg_s": 0.0,
+          "flight_time_s": 0.0,
+          "main_remaining_kg": 0.0,
+          "rcs_remaining_kg": 0.0,
+          "peak_dynamic_pressure_pa": 0.0
+        }
+      },
+      {
+        "file": "windows-raw.json",
+        "job_id": "development/development-000/raw-attitude/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 0.0,
+          "vertical_foot_speed_m_s": 0.0,
+          "horizontal_foot_speed_m_s": 0.0,
+          "tilt_deg": 0.0,
+          "contact_rate_deg_s": 0.0,
+          "flight_time_s": 0.0,
+          "main_remaining_kg": 0.0,
+          "rcs_remaining_kg": 0.0,
+          "peak_dynamic_pressure_pa": 0.0
+        }
+      },
+      {
+        "file": "windows-calm.json",
+        "job_id": "convergence/calm-reference/full/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 0.0,
+          "vertical_foot_speed_m_s": 0.0,
+          "horizontal_foot_speed_m_s": 0.0,
+          "tilt_deg": 0.0,
+          "contact_rate_deg_s": 0.0,
+          "flight_time_s": 0.0,
+          "main_remaining_kg": 0.0,
+          "rcs_remaining_kg": 0.0,
+          "peak_dynamic_pressure_pa": 0.0
+        }
+      },
+      {
+        "file": "linux-full.json",
+        "job_id": "development/development-000/full/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 1.3704315460216776e-15,
+          "vertical_foot_speed_m_s": 1.1102230246251565e-15,
+          "horizontal_foot_speed_m_s": 3.039235529911366e-15,
+          "tilt_deg": 1.9255430583342559e-16,
+          "contact_rate_deg_s": 2.1866189414687653e-15,
+          "flight_time_s": 5.684341886080802e-14,
+          "main_remaining_kg": 8.185452315956354e-12,
+          "rcs_remaining_kg": 8.526512829121202e-13,
+          "peak_dynamic_pressure_pa": 1.0913936421275139e-11
+        }
+      },
+      {
+        "file": "linux-raw.json",
+        "job_id": "development/development-000/raw-attitude/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 1.0064865607617435e-14,
+          "vertical_foot_speed_m_s": 1.4943601911454607e-13,
+          "horizontal_foot_speed_m_s": 3.907985046680551e-14,
+          "tilt_deg": 9.128114930589959e-15,
+          "contact_rate_deg_s": 1.1674688993323912e-13,
+          "flight_time_s": 4.547473508864641e-13,
+          "main_remaining_kg": 8.185452315956354e-12,
+          "rcs_remaining_kg": 4.746425474877469e-12,
+          "peak_dynamic_pressure_pa": 2.1827872842550278e-11
+        }
+      },
+      {
+        "file": "linux-calm.json",
+        "job_id": "convergence/calm-reference/full/dt-0.01",
+        "absolute_differences": {
+          "position_error_m": 8.422895627496763e-18,
+          "vertical_foot_speed_m_s": 1.3988810110276972e-14,
+          "horizontal_foot_speed_m_s": 3.530433324155924e-18,
+          "tilt_deg": 4.053515873754857e-20,
+          "contact_rate_deg_s": 9.420594560243922e-20,
+          "flight_time_s": 2.8421709430404007e-13,
+          "main_remaining_kg": 2.2737367544323206e-11,
+          "rcs_remaining_kg": 3.410605131648481e-13,
+          "peak_dynamic_pressure_pa": 0.0
+        }
+      }
+    ]
+  }
+}

@@ -1506,14 +1506,40 @@ def test_operating_manifest_is_versioned_for_the_100_t_model_and_eligible():
         assert abs(conditions.mean_wind(37100.0)) <= 20.0
 
 
+def assert_generated_cases_match_frozen_inputs(cases):
+    """Compare generated floats across libm implementations against exactly hashed frozen inputs."""
+    suite = json.loads(
+        (Path(__file__).resolve().parents[1] / "configs" / "apr-regression-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    reference = {}
+    for job in suite["jobs"]:
+        reference.setdefault(job["case"]["id"], job["case"])
+
+    def compare(actual, expected):
+        if isinstance(actual, dict):
+            assert actual.keys() == expected.keys()
+            for key in actual:
+                compare(actual[key], expected[key])
+        elif isinstance(actual, list | tuple):
+            assert len(actual) == len(expected)
+            for left, right in zip(actual, expected, strict=True):
+                compare(left, right)
+        elif isinstance(actual, float | np.floating):
+            assert actual == pytest.approx(expected, rel=2e-14, abs=1e-12)
+        else:
+            assert type(actual) is type(expected)
+            assert actual == expected
+
+    for case in cases:
+        compare(case, reference[case["id"]])
+
+
 def test_expanded_manifest_preserves_every_original_input_and_observation_identity():
     manifest = make_manifest()
-    assert _sha(manifest["development"][:85]) == (
-        "2dae66a1d08f34e5307d8e96b0a24a7604e3a58a96e006364a3a4c5f793f6d6e"
-    )
-    assert _sha(manifest["holdout"][:32]) == (
-        "8fa79f2b028c10436818ce89a27e876506c4deeee81ff02a0c0f40eaa932e59d"
-    )
+    assert_generated_cases_match_frozen_inputs(manifest["development"][:85])
+    assert_generated_cases_match_frozen_inputs(manifest["holdout"][:32])
     assert len(manifest["development"][85:117]) == 32
     groups = {case["group"] for case in manifest["holdout"][:64]}
     assert groups == {
@@ -1534,12 +1560,8 @@ def test_expanded_manifest_preserves_every_original_input_and_observation_identi
 
 def test_terminal_extension_preserves_all_prior_cases_before_adding_new_inputs():
     manifest = make_manifest()
-    assert _sha(manifest["development"][:117]) == (
-        "b31e46392b8ff6287d4eb1ddb5ba6528fe518454193fe5d517206b1cce8f54dd"
-    )
-    assert _sha(manifest["holdout"][:64]) == (
-        "98378cf330358fff660a13eec855777135a632d8cdde69c1cf7732ca421dfbc2"
-    )
+    assert_generated_cases_match_frozen_inputs(manifest["development"][:117])
+    assert_generated_cases_match_frozen_inputs(manifest["holdout"][:64])
     assert len(manifest["development"][117:]) == 16
     assert len(manifest["holdout"][64:]) == 8
 

@@ -49,7 +49,14 @@ def read_json(path):
 
 def write_json_new(path, value):
     with Path(path).open("x", encoding="utf-8") as stream:
-        json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
+        json.dump(
+            value,
+            stream,
+            ensure_ascii=False,
+            indent=2,
+            allow_nan=False,
+            default=lambda item: item.item(),
+        )
         stream.write("\n")
 
 

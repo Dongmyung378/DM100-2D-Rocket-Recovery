@@ -1,0 +1,451 @@
+{
+  "paired_comparisons": {
+    "ablation/no-replanning": {
+      "pairs": 12,
+      "full_only_pass": 2,
+      "other_only_pass": 0,
+      "both_pass": 10,
+      "neither_pass": 0,
+      "deltas": {
+        "position_error_m": {
+          "pairs_with_measurement": 10,
+          "median_full_minus_other": 0.0030406501457954285
+        },
+        "vertical_foot_speed_m_s": {
+          "pairs_with_measurement": 10,
+          "median_full_minus_other": -0.000719810448508662
+        },
+        "rcs_remaining_kg": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": 3.3198485616869675
+        }
+      }
+    },
+    "ablation/no-torque-bias": {
+      "pairs": 12,
+      "full_only_pass": 1,
+      "other_only_pass": 0,
+      "both_pass": 11,
+      "neither_pass": 0,
+      "deltas": {
+        "position_error_m": {
+          "pairs_with_measurement": 11,
+          "median_full_minus_other": 0.0006979816152440192
+        },
+        "vertical_foot_speed_m_s": {
+          "pairs_with_measurement": 11,
+          "median_full_minus_other": 0.0011019338323488004
+        },
+        "rcs_remaining_kg": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": -4.837778239315824
+        }
+      }
+    },
+    "ablation/no-translation-bias": {
+      "pairs": 12,
+      "full_only_pass": 1,
+      "other_only_pass": 0,
+      "both_pass": 11,
+      "neither_pass": 0,
+      "deltas": {
+        "position_error_m": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": 0.01137567644009162
+        },
+        "vertical_foot_speed_m_s": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": 0.015303544705939531
+        },
+        "rcs_remaining_kg": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": -4.551412002278298
+        }
+      }
+    },
+    "ablation/raw-attitude": {
+      "pairs": 12,
+      "full_only_pass": 0,
+      "other_only_pass": 0,
+      "both_pass": 12,
+      "neither_pass": 0,
+      "deltas": {
+        "position_error_m": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": 0.0003875071925489963
+        },
+        "vertical_foot_speed_m_s": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": -0.00028004404448933595
+        },
+        "rcs_remaining_kg": {
+          "pairs_with_measurement": 12,
+          "median_full_minus_other": 34.38322770478908
+        }
+      }
+    },
+    "sensor-holdout/raw-attitude": {
+      "pairs": 48,
+      "full_only_pass": 0,
+      "other_only_pass": 0,
+      "both_pass": 48,
+      "neither_pass": 0,
+      "deltas": {
+        "position_error_m": {
+          "pairs_with_measurement": 48,
+          "median_full_minus_other": 3.2974911827706723e-05
+        },
+        "vertical_foot_speed_m_s": {
+          "pairs_with_measurement": 48,
+          "median_full_minus_other": -0.00012029264225976721
+        },
+        "rcs_remaining_kg": {
+          "pairs_with_measurement": 48,
+          "median_full_minus_other": 24.836073645133567
+        }
+      }
+    }
+  },
+  "convergence": [
+    {
+      "case_id": "calm-reference",
+      "reference_integration_dt_s": 0.0025,
+      "control_dt_s": 0.02,
+      "same_declared_seeds": true,
+      "acceptance_consistent": true,
+      "all_accepted": true,
+      "differences": {
+        "0.01": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 1.701635409105841e-08,
+            "vertical_foot_speed_m_s": 1.155351244763736e-05,
+            "horizontal_foot_speed_m_s": 7.1138095066204795e-09,
+            "flight_time_s": 0.0005510624259841279,
+            "main_remaining_kg": 0.039885185471575824,
+            "rcs_remaining_kg": 0.0005548378265416432,
+            "peak_dynamic_pressure_pa": 0.1590420063221245
+          },
+          "within_declared_tolerances": true
+        },
+        "0.005": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 1.124734996434671e-08,
+            "vertical_foot_speed_m_s": 8.239603628723557e-06,
+            "horizontal_foot_speed_m_s": 4.66136556264213e-09,
+            "flight_time_s": 0.00037585377691584654,
+            "main_remaining_kg": 0.02246444786669599,
+            "rcs_remaining_kg": 0.0002688444257046285,
+            "peak_dynamic_pressure_pa": 0.1531796480412595
+          },
+          "within_declared_tolerances": true
+        }
+      },
+      "interpretation": "Finite step-size comparison, not an exact solution or continuous-envelope proof"
+    },
+    {
+      "case_id": "development-000",
+      "reference_integration_dt_s": 0.0025,
+      "control_dt_s": 0.02,
+      "same_declared_seeds": true,
+      "acceptance_consistent": true,
+      "all_accepted": true,
+      "differences": {
+        "0.01": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 1.8221278808412678e-05,
+            "vertical_foot_speed_m_s": 3.475141694675443e-05,
+            "horizontal_foot_speed_m_s": 3.9951130966962844e-05,
+            "flight_time_s": 0.0005789855440525571,
+            "main_remaining_kg": 0.040202003198828606,
+            "rcs_remaining_kg": 0.004893594593170292,
+            "peak_dynamic_pressure_pa": 0.0005535156451514922
+          },
+          "within_declared_tolerances": true
+        },
+        "0.005": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 4.6307483814941874e-06,
+            "vertical_foot_speed_m_s": 8.837901936398218e-06,
+            "horizontal_foot_speed_m_s": 1.0085141222700156e-05,
+            "flight_time_s": 0.00014690655581262035,
+            "main_remaining_kg": 0.011416811792514636,
+            "rcs_remaining_kg": 0.001312399296921285,
+            "peak_dynamic_pressure_pa": 0.0005197908030822873
+          },
+          "within_declared_tolerances": true
+        }
+      },
+      "interpretation": "Finite step-size comparison, not an exact solution or continuous-envelope proof"
+    },
+    {
+      "case_id": "development-001",
+      "reference_integration_dt_s": 0.0025,
+      "control_dt_s": 0.02,
+      "same_declared_seeds": true,
+      "acceptance_consistent": true,
+      "all_accepted": true,
+      "differences": {
+        "0.01": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 4.317224478980752e-06,
+            "vertical_foot_speed_m_s": 5.735588005428838e-06,
+            "horizontal_foot_speed_m_s": 2.739244343447078e-05,
+            "flight_time_s": 0.0001275925285995072,
+            "main_remaining_kg": 0.011727752054866869,
+            "rcs_remaining_kg": 0.0003750839093754621,
+            "peak_dynamic_pressure_pa": 0.00025582272064639255
+          },
+          "within_declared_tolerances": true
+        },
+        "0.005": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 2.1173749762126715e-06,
+            "vertical_foot_speed_m_s": 3.162125585154385e-06,
+            "horizontal_foot_speed_m_s": 1.3833557823771103e-05,
+            "flight_time_s": 6.418989210033033e-05,
+            "main_remaining_kg": 0.005311645883921301,
+            "rcs_remaining_kg": 0.00023331736500153966,
+            "peak_dynamic_pressure_pa": 0.0002709150248847436
+          },
+          "within_declared_tolerances": true
+        }
+      },
+      "interpretation": "Finite step-size comparison, not an exact solution or continuous-envelope proof"
+    },
+    {
+      "case_id": "development-002",
+      "reference_integration_dt_s": 0.0025,
+      "control_dt_s": 0.02,
+      "same_declared_seeds": true,
+      "acceptance_consistent": true,
+      "all_accepted": true,
+      "differences": {
+        "0.01": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 9.969407666343688e-07,
+            "vertical_foot_speed_m_s": 5.1751034438773935e-05,
+            "horizontal_foot_speed_m_s": 2.1963396479283493e-05,
+            "flight_time_s": 0.0006597078585173222,
+            "main_remaining_kg": 0.041337682103403495,
+            "rcs_remaining_kg": 0.0015682162380699083,
+            "peak_dynamic_pressure_pa": 0.0002821269335981924
+          },
+          "within_declared_tolerances": true
+        },
+        "0.005": {
+          "absolute_difference_from_finest": {
+            "position_error_m": 2.921556511298329e-07,
+            "vertical_foot_speed_m_s": 1.561156864038349e-05,
+            "horizontal_foot_speed_m_s": 6.756078673128248e-06,
+            "flight_time_s": 0.00019612634764598624,
+            "main_remaining_kg": 0.013624190137306869,
+            "rcs_remaining_kg": 0.0004838234578414813,
+            "peak_dynamic_pressure_pa": 0.00024995350031531416
+          },
+          "within_declared_tolerances": true
+        }
+      },
+      "interpretation": "Finite step-size comparison, not an exact solution or continuous-envelope proof"
+    }
+  ],
+  "sensitivity": [
+    {
+      "case_id": "sensitivity-thrust_scale-0.97",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 0.97,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": 1.3216596781634137e-05,
+        "vertical_foot_speed_m_s": -0.005378523019834658,
+        "main_remaining_kg": -739.0156183376321,
+        "rcs_remaining_kg": 3.815473221705531,
+        "peak_dynamic_pressure_pa": -115.10105650793776
+      }
+    },
+    {
+      "case_id": "calm-reference",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": 0.0,
+        "vertical_foot_speed_m_s": 0.0,
+        "main_remaining_kg": 0.0,
+        "rcs_remaining_kg": 0.0,
+        "peak_dynamic_pressure_pa": 0.0
+      }
+    },
+    {
+      "case_id": "sensitivity-drag_coefficient_scale-0.85",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 0.85,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": 3.632094068071578e-07,
+        "vertical_foot_speed_m_s": 0.00034070006972153344,
+        "main_remaining_kg": -73.04489129798549,
+        "rcs_remaining_kg": 1.0757543054511416,
+        "peak_dynamic_pressure_pa": 40.26686437626995
+      }
+    },
+    {
+      "case_id": "sensitivity-thrust_scale-1.03",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.03,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": -1.3942218750393843e-05,
+        "vertical_foot_speed_m_s": 0.0071916407446424024,
+        "main_remaining_kg": 713.8483076083985,
+        "rcs_remaining_kg": -1.086430798776064,
+        "peak_dynamic_pressure_pa": 115.15945073567855
+      }
+    },
+    {
+      "case_id": "sensitivity-drag_coefficient_scale-1.15",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.15,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": -4.0342837161655605e-07,
+        "vertical_foot_speed_m_s": -0.00035521321621256874,
+        "main_remaining_kg": 66.53534944294552,
+        "rcs_remaining_kg": -0.4141139067851327,
+        "peak_dynamic_pressure_pa": -30.3769459663381
+      }
+    },
+    {
+      "case_id": "sensitivity-inertia_scale-0.97",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 0.97,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": 2.920659035409286e-08,
+        "vertical_foot_speed_m_s": 2.098268391859115e-05,
+        "main_remaining_kg": -0.26632586649702716,
+        "rcs_remaining_kg": 0.6593896908653392,
+        "peak_dynamic_pressure_pa": -2.975203824462369e-05
+      }
+    },
+    {
+      "case_id": "sensitivity-inertia_scale-1.03",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.0,
+        "inertia_scale": 1.03,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": -3.633312704963822e-08,
+        "vertical_foot_speed_m_s": -2.6124007379557668e-05,
+        "main_remaining_kg": 0.24998666035753558,
+        "rcs_remaining_kg": -0.660302760322736,
+        "peak_dynamic_pressure_pa": 2.9812152206432074e-05
+      }
+    },
+    {
+      "case_id": "sensitivity-initial_mass_scale-0.99",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 0.99,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": -2.7654350737952763e-05,
+        "vertical_foot_speed_m_s": 0.013124915182903152,
+        "main_remaining_kg": 638.7306125709283,
+        "rcs_remaining_kg": 1.6183766410313183,
+        "peak_dynamic_pressure_pa": 50.14262385733309
+      }
+    },
+    {
+      "case_id": "sensitivity-initial_mass_scale-1.01",
+      "accepted": true,
+      "disturbances": {
+        "thrust_scale": 1.0,
+        "drag_coefficient_scale": 1.0,
+        "initial_mass_scale": 1.01,
+        "inertia_scale": 1.0,
+        "sensor_position_error_m": 0.0,
+        "sensor_velocity_error_m_s": 0.0,
+        "observation_delay_steps": 0,
+        "action_delay_steps": 0,
+        "engine_lag_s": 0.0
+      },
+      "deltas_from_nominal": {
+        "position_error_m": 3.0049413420824426e-05,
+        "vertical_foot_speed_m_s": -0.011688287434453049,
+        "main_remaining_kg": -634.438331004656,
+        "rcs_remaining_kg": -0.4642763260865763,
+        "peak_dynamic_pressure_pa": -46.00410701614237
+      }
+    }
+  ]
+}

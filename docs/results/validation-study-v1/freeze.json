@@ -1,0 +1,30 @@
+{
+  "manifest_sha256": "d6d408b4db3349e6066ca4b1df54a9ee775ef8db8bf9faacb995730f924bb4a0",
+  "source_hashes": {
+    "src/powered_landing_guidance/apr_recovery.py": "9b9a85d181d6c3a620b712a8776cad956da31bf05926b9bfe675f991fd88916e",
+    "src/powered_landing_guidance/recovery_physics.py": "85f28bc624705d48bb97cd3f30f4125c5fadc46a44a615f602059b7cd3cb2746",
+    "src/powered_landing_guidance/vehicle_systems.py": "06769fae3362d6f1e96122eae473eb01cf3fdee31399ac987871af02755f12a8",
+    "src/powered_landing_guidance/integrators.py": "8dea065422bbed25168f940786e92fe214bbd833b8460367a8dee6fa01f78fb5",
+    "src/powered_landing_guidance/observation_models.py": "178f77db500211c10560442e00fd30928e1fe01d7ad89b5c3ab8a079ab01544f",
+    "scripts/evaluate_study.py": "8e751b7f256602c81c401a22bc864e4f35c41e671891345f09132e438b1036be",
+    "scripts/validate_evidence.py": "f6b78c56958abbc4f4cad4754bd79517658d3f1ca0f2af609f4d96083915fd9b",
+    "configs/validation-study-v1.json": "5aba96f8a9877b194f91e5f2f94dd5a644ad832d694290c9085290db604e84dd",
+    "requirements/constraints.txt": "b08c26e32d2aa80a66d579d30134e62d7ca72e7c69e1836f709131900c99e5d0",
+    "pyproject.toml": "471c24cc10d2682c779f97e59401ebfa8660bff4836968f32ad51a0a6201b3ed"
+  },
+  "environment": {
+    "python": "3.12.7 (main, Oct 16 2024, 00:21:24) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "packages": {
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "PyYAML": "6.0.3",
+      "matplotlib": "3.11.2"
+    }
+  },
+  "created_utc": "2026-10-11T02:35:01Z",
+  "development_results_sha256": "894a9f35b68eb98245ef2442dcf3817102ac34fafc1f0e4c6c67ea68eaae5d9a",
+  "frozen_utc": "2026-10-11T02:47:44Z",
+  "holdout_inspected": false,
+  "acceptance_relaxed": false
+}

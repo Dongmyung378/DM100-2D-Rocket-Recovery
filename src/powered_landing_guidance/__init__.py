@@ -9,4 +9,4 @@ from powered_landing_guidance.apr_recovery import (
 )
 
 __all__ = ["AprConditions", "AprFlight", "Design", "RecoveryDisturbances", "load_apr_operating"]
-__version__ = "1.0.0"
+__version__ = "1.1.0"

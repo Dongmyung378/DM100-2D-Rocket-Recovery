@@ -1,11 +1,13 @@
 # 100 t first-stage recovery model
 
-[한국어](spec.ko.md) · [README](../README.md)
+[한국어](spec.ko.md) | [README](../README.md)
 
 This is a theoretical **2D software model**, not a flight-qualified vehicle.
 Root seed: **378**. The mission is launch, cold separation near 37 km and recovery
 of the first stage at the original pad. The upper assembly's 500 kg payload and
 700 km circular-orbit insertion are assumed; upper-stage flight is not integrated.
+
+Optional angular sensor errors, packet omissions, the attitude estimator and frozen evaluation assumptions are documented in [Validation design](validation.md). The default observation assumptions here continue to describe the existing operating interface and regression inputs.
 
 ## Vehicle inventory
 
@@ -41,7 +43,7 @@ These are concept allocations, not measured parts or qualified component designs
 | Sea-level thrust / Isp | 1.6 MN / 300 s |
 | Vacuum thrust / Isp | Approximately 1.76 MN / 330 s |
 | Throttle / gimbal travel | Ideal continuous 0-100% / ±6° |
-| RCS Isp / maximum torque | 220 s / 100,000 N·m |
+| RCS Isp / maximum torque | 220 s / 100,000 N m |
 | RCS type | Assumed chemical propulsion, not cold-gas nitrogen |
 | Main descent speed reference | 1.0 m/s |
 
@@ -191,12 +193,12 @@ overall success requires every applicable criterion.
 | Pre-contact flight requirement | Limit |
 |---|---:|
 | Maximum dynamic pressure | 30 kPa |
-| Ascent Q-alpha | 150 kPa·deg |
+| Ascent Q-alpha | 150 kPa deg |
 | Ascent angle of attack at q ≥10 kPa | 5° |
 | Ascent axial / recovery load | 3 / 5 g |
 | Declared absolute acceleration ceiling | 6 g |
 | Angular rate / angular acceleration | 15°/s / 5°/s² |
-| Equivalent-fin hinge moment | 5,000 N·m each |
+| Equivalent-fin hinge moment | 5,000 N m each |
 | Fin model domain | Mach ≤8, angle of attack ≤25° |
 | Gimbal | ±6° |
 
@@ -268,16 +270,22 @@ relocated environment instead of trusting the presence of `python.exe`. First
 setup and repairs require internet access. `--setup-only` prepares the environment
 without opening the app; other arguments are forwarded to the local application.
 Python itself is a prerequisite, not an automatic download. The local UI remains
-a source-installed application; frozen executable distribution and validation on
-additional operating systems are separate work.
+a source-installed application. Fresh Windows installation and Linux-container
+checks are recorded in [environment reproduction](results/reproduction.json).
+Korean replay labels on Linux require a Hangul font. Standalone executable
+distribution is outside the current release.
 
 ## Evidence and limitations
 
-The current design passed 205 development, 72 previously observed regression and
+The original design recorded 205 development, 72 previously observed regression and
 nine supplementary full-flight checks. The 277 primary and nine supplementary
 denominators remain separate. Minimum main/RCS remaining were 2,958.185391 /
 95.875194 kg; maximum RCS use was 204.124806 kg. Maximum foot vertical speed over
 all 286 checks, including a half-step case, was 1.2550572 m/s.
+
+The current repeated regression and newly frozen evaluation measurements are in
+[the numerical report](results.md). Original records and new evaluation
+populations have separate denominators.
 
 The tracked `configs/apr-regression-v1.json` preserves the 286 declared inputs,
 seed modes and integration steps for portable reruns. They are known regression

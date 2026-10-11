@@ -1,237 +1,225 @@
 # DM100 - 2D Rocket Launch and Recovery
 
-[한국어](README.ko.md) · [Model specification](docs/spec.md) · [Separation demo](docs/assets/flight.mp4)
+[한국어](README.ko.md) | [Recorded results](docs/results.md) | [Model specification](docs/spec.md)
 
-A completed **2D concept-simulation project** for launching a 100 t rocket,
-separating the upper stage and returning the first stage to its original pad.
-It combines a custom rigid-body plant, model-based return guidance, PID-style
-attitude feedback and a local, bilingual experiment interface.
+A **2D concept simulator** for launching a 100 t rocket, separating its upper
+stage near 37 km and returning the first stage to its original pad. A custom
+19-state rigid-body and propulsion plant connects model-based return guidance,
+PID-style attitude control, causal state estimation and first-contact acceptance.
+The local experiment interface supports English and Korean.
 
-![DM100 local experiment interface](docs/assets/ui.png)
+![Local experiment interface](docs/assets/ui.png)
 
-## What the project delivers
+## Implementation
 
-- Launch, cold staging near 37 km, boostback, entry and first-foot touchdown.
-- Variable mass, atmospheric flight, engine gimbal, RCS, fins and reduced-order
-  feed, pressurization, slosh and separation models.
-- Bounded weather and healthy-vehicle deviations, validated before calculation.
-- Separate mission, flight-safety and landing assessments with graphs, measured
-  results and explicit failed criteria.
-- Optional MP4 replay from the saved flight, without running the simulation again.
+- Launch, cold staging, boostback, atmospheric entry and first-foot touchdown.
+- Variable mass and inertia, engine gimbal, RCS and fins, with reduced-order feed,
+  pressurization, slosh and separation models.
+- Causal navigation and attitude estimation under bounded noise, bias, latency
+  and scheduled sensor packet omissions.
+- Frozen evaluation inputs, paired feature ablations, full-flight step-size
+  comparisons, parameter sensitivity and an independent integration reference.
+- Public per-flight evidence, standard-library result validators, telemetry
+  plots and optional MP4 replay from a saved trajectory.
 
-Built with Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JavaScript and
-Matplotlib/FFmpeg. No hosted service or frontend build toolchain is required.
+Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JavaScript and
+Matplotlib/FFmpeg. Guidance and estimation use explicit models; **this project
+does not train a machine-learning policy**.
 
-This is a **software concept model**, not a qualified rocket or a certified flight
-tool. Upper-stage delivery of a 500 kg payload to a theoretical 700 km circular
-orbit is assumed, not simulated or verified. The linked video is a short
-separation demonstration; a full replay can be generated in the local UI.
+## Measured results
 
-## Results
-
-The final 100 t design passed **286 known-condition full-flight regression checks**:
-
-| Test set | Passed / tested |
+| Evaluation population | Passed / attempted |
 |---|---:|
-| Development conditions | 205 / 205 |
-| Previously observed evaluation conditions, reused for regression | 72 / 72 |
-| Supplementary gust-exposure and half-step checks | 9 / 9 |
+| Known-condition regression | 286 / 286 |
+| New coupled conditions | 96 / 96 |
+| Extended sensors with estimator | 48 / 48 |
+| Same sensors with raw angular processing | 48 / 48 |
 
-The primary 277 and supplementary nine checks have separate denominators. These
-are not a fresh independent holdout and do not prove every continuous input
-combination. Acceptance requires mission completion, flight safety, touchdown and
-fuel-conservation checks together.
+For 48 matched pairs passing with both methods, median RCS consumption fell from 120.977 to 99.122 kg (18.07%).
 
-| Measurement across all 286 checks | Worst observed value | Requirement |
-|---|---:|---:|
-| Touchdown COM position error | 0.839 m | ≤2 m |
-| Foot vertical / horizontal speed | 1.2551 / 0.202 m/s | ≤1.5 / ≤0.5 m/s |
-| Touchdown tilt / angular rate | 0.0212° / 0.0226°/s | ≤3° / ≤0.5°/s |
-| Peak dynamic pressure | 28.949 kPa | ≤30 kPa |
-| Peak pre-contact angular acceleration | 3.780°/s² | ≤5°/s² |
-| Minimum main / RCS propellant remaining | 2,958 / 95.875 kg | >0 / ≥0 kg |
+The 286 known conditions measure regression. The 96 new coupled conditions and
+48 extended-sensor conditions were evaluated after the implementation was frozen.
+Each population has its own denominator. The paired sensor experiment compares
+the same inputs and seeds; it does not compare different evaluation populations.
+Sensor ranges are synthetic assumptions, not measured hardware specifications.
 
-Maxima are rounded upward and remaining propellant downward. The local UI was
-also checked with one actual calm full flight and optional MP4 generation. That
-flight reached first contact at **405.709 s**, with **1.005 m/s foot vertical
-speed**, **5,796 kg main propellant** and **262.546 kg RCS propellant** remaining.
-Software/API/browser checks are separate from the full-flight regression count.
+The [English report](docs/results.md) and [Korean report](docs/results.ko.md)
+include touchdown measurements, finite-sample intervals, feature ablations,
+numerical convergence and all failed outcomes. Success requires mission
+completion, flight safety, first-contact acceptance and fuel conservation.
 
-![Recorded calm-flight trajectory and telemetry](docs/assets/trajectory.png)
+![Recorded validation](docs/assets/validation.png)
 
-The fixed regression inputs are tracked in
-[configs/apr-regression-v1.json](configs/apr-regression-v1.json). Generated raw
-campaigns and personal notes are excluded from Git; a fresh clone can rerun the
-declared inputs without historical local files.
+Check the published evidence without installing dependencies or rerunning flights:
 
-## Run on your computer
+```bash
+python scripts/validate_evidence.py docs/results/validation-study-v1
+python -m scripts.validate_regression_evidence docs/results/regression-v1.1
+python -m scripts.check_source_binding docs/results/validation-study-v1/protocol.json docs/results/regression-v1.1/protocol.json docs/results/numerical-reference.json
+```
 
-The verified development environment is **Windows with Python 3.12.7**. Python
-3.12.x is required. Download or clone the repository, then double-click
-[launch-dm100.bat](launch-dm100.bat). The launcher prepares its own `.venv` and
-installs the project with its UI and video dependencies on first use. Initial
-setup and environment repair need an internet connection; a healthy installation
-is reused on later runs without reinstalling packages.
+These commands recompute aggregate values and check input, source and recorded
+result consistency. They do not certify the authenticity of physical data.
 
-If Python 3.12 is missing, the launcher explains how to install it and stops; it
-does not install Python automatically. Install Python 3.12 from the
-[official Windows downloads](https://www.python.org/downloads/windows/), then run
-the launcher again. Keep the terminal open while using the app; press Ctrl+C to
-stop it.
+## Run locally
 
-To prepare the environment without opening the app, run from the repository
-directory:
+Fresh installations were checked on **Windows with Python 3.12.7** and in a
+**Linux container with Python 3.12.15**, on the same host. Each passed 787 software
+tests and 11 subtests; one historical local-artifact test was skipped. This is
+environment reproduction, not an independent third-party review. Detailed
+versions and representative flight comparisons are in
+[reproduction.json](docs/results/reproduction.json).
+
+On Windows, install Python 3.12, extract the source ZIP or clone the repository,
+then double-click [launch-dm100.bat](launch-dm100.bat). The launcher prepares a
+local `.venv` with the tested dependency constraints. First setup requires an
+internet connection. A healthy environment is reused without reinstalling.
+The browser opens at `127.0.0.1`; keep the terminal open and use Ctrl+C to stop.
 
 ```powershell
+# Prepare the environment without opening the app.
 .\launch-dm100.bat --setup-only
 ```
 
-The launcher checks `DM100_PYTHON` when explicitly set, an existing working virtual
-environment, the Windows `py -3.12` launcher, `python`/`python3` on `PATH`, and
-Python under this repository's `.local/uv-python`. Every candidate must be Python
-3.12. An invalid explicit `DM100_PYTHON` value stops with an error. To select an
-installed interpreter explicitly:
+The launcher requires an existing Python 3.12 installation. It checks an explicit
+`DM100_PYTHON`, a working local environment, `py -3.12`, Python on `PATH`, and
+repository-local Python when available. An invalid explicit interpreter fails
+with an explanation. After a folder move, it preserves a broken environment in
+`.local/environment-backups/` and rebuilds for the current path.
 
-```powershell
-$env:DM100_PYTHON = "C:\Python312\python.exe" # Replace with your actual Python 3.12 path.
-.\launch-dm100.bat
-```
-
-Python virtual environments and editable installs store local paths. Do not copy
-another computer's `.venv` when sharing the project. If a moved or copied folder
-contains an unusable environment or an installation pointing to its old location,
-the launcher preserves the old environment under `.local/environment-backups/`
-and creates a new one for the current folder. It leaves saved flight results in
-place. A separate working Python 3.12 installation is still needed if the previous
-environment's base Python is gone.
-
-For manual installation, run from the repository directory:
+Manual installation from the repository root:
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[ui,video]"
+.\.venv\Scripts\python.exe -m pip install -c requirements/constraints.txt -e ".[ui,video]"
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-This is a Python-source application, not a standalone executable. Additional
-operating systems need their own runtime and font checks.
+On Linux, create a Python 3.12 virtual environment and run the equivalent commands:
 
-The app opens a browser at `127.0.0.1` and selects a free local port. Calculations,
-results and rendering stay on your computer. No cloud account, external API,
-analytics or CDN is used at runtime; the initial package installation needs an
-internet connection. English is the default and Korean is available in the UI.
-
-1. Keep the calm defaults or enter values within the displayed ranges.
-2. Run the flight. The app checks the complete input combination first.
-3. Inspect success/failure, graphs, acceptance tables and failed criteria. A
-   completed failed flight is distinct from an application execution error.
-4. For a successful flight, optionally generate and download an MP4.
-
-The vehicle, seed **378**, active fins and **0.01 s** integration step are fixed.
-An eligible input does not guarantee flight success. Every result keeps its
-original input snapshot; editing the form does not relabel an existing result.
-Results are saved in the local user-data directory by default. To choose a folder:
-
-```powershell
-.\launch-dm100.bat --output-dir artifacts/local-runs
+```bash
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -c requirements/constraints.txt -e ".[ui,video]"
+python -m powered_landing_guidance.local_app
 ```
 
-### Video generation takes longer
+Linux Korean replay labels need a Hangul font such as Noto Sans CJK. The minimal
+verification container lacked that font and emitted missing-glyph warnings;
+software checks and numerical calculations passed. Published validation figures
+use English labels. This is a Python-source application, not a standalone binary.
+Do not distribute a copied `.venv`.
 
-**MP4 rendering is CPU-intensive and can take substantially longer than the flight
-calculation.** A full recording contains thousands of frames; a higher resolution
-adds work. There is no guaranteed completion time. Keep the app open while it
-renders, and choose a short interval at 640 or 1280 pixels for a quick preview.
-Video generation only renders the saved flight; it does not change its result.
+Calculations, saved results and rendering run locally. Runtime uses no external
+API, account, analytics or CDN. English is the default interface language.
+
+1. Keep calm defaults or enter eligible weather and healthy-vehicle deviations.
+2. Run the flight and inspect mission, safety, touchdown and failed criteria.
+3. Optionally render an MP4 from a successful saved trajectory.
+
+An eligible input does not guarantee success. Execution errors are distinct from
+completed failed flights. Editing the form never changes a recorded input snapshot.
+The local UI retains its operating form; extended sensor settings and ablation
+switches are configured through the study manifest or Python API.
+
+Full MP4 generation is CPU-intensive and can take much longer than a flight.
+Choose a short time interval for a quick replay. Rendering never reruns or changes
+the numerical result. The [included video](docs/assets/flight.mp4) is a short
+separation demonstration.
 
 ## Vehicle and acceptance
 
-| Item | Final design |
+| Item | Model value |
 |---|---:|
 | Launch / first-stage wet mass | 100,000 / 82,500 kg |
-| First-stage dry mass, including fins and gear | 12,000 kg |
-| First-stage main / RCS propellant | 70,200 / 300 kg |
-| Upper dry mass / propellant / payload | 1,500 / 15,500 / 500 kg |
-| First-stage sea-level / vacuum thrust | 1,600 / approximately 1,760 kN |
-| First-stage sea-level / vacuum Isp | 300 / approximately 330 s |
-| Initial thrust-to-weight ratio | Approximately 1.63 |
-| Throttle / gimbal | Ideal continuous 0-100% / ±6° |
-| Cold separation gate | 37 ±1 km; ≥20,000 kg main propellant |
+| First-stage dry / main / RCS mass | 12,000 / 70,200 / 300 kg |
+| Upper dry / propellant / payload mass | 1,500 / 15,500 / 500 kg |
+| Sea-level / vacuum thrust | 1,600 / approximately 1,760 kN |
+| Sea-level / vacuum Isp | 300 / approximately 330 s |
+| Throttle / gimbal | Ideal continuous 0-100% / ±6 degrees |
+| Cold separation gate | 37 ±1 km; at least 20,000 kg main propellant |
 | Recovery target | Original launch pad |
 
-Landing is assessed at **first foot contact**: COM position error ≤2 m, foot
-vertical/horizontal speed ≤1.5/0.5 m/s, tilt ≤3°, angular rate ≤0.5°/s, main
-propellant >0 kg and RCS propellant ≥0 kg. Gear deployment, pad geometry and hull
-clearance must also pass. Legs are assumed adequate below the vertical-speed
-limit; contact strength and post-touchdown standing are not evaluated.
+Landing is evaluated at **first foot contact**: COM position error at most 2 m,
+foot vertical/horizontal speed at most 1.5/0.5 m/s, tilt at most 3 degrees,
+angular rate at most 0.5 degrees/s, positive main propellant and nonnegative RCS
+propellant. Gear deployment, pad geometry and hull clearance must also pass.
+Leg adequacy below the vertical-speed limit is assumed. The model does not test
+contact strength or post-touchdown standing.
 
-The [model specification](docs/spec.md) documents coordinates, all 19 states,
-environment ranges, observation assumptions, conservation and safety limits.
+The [model specification](docs/spec.md) documents coordinates, plant states,
+operating ranges, conservation and limits. The [validation protocol](docs/validation.md)
+defines the added sensor channels, estimator assumptions and experimental design.
 
-## Reproduce and test
+## Reproduce a flight or the complete study
 
-Run from the repository root with the installed virtual environment. Each flight
-or campaign needs a **new output directory**; existing results are not overwritten.
+Use a new output file or directory. Existing evidence is never overwritten.
 
-```powershell
-# Validate the example operating input without flying.
-.\.venv\Scripts\python.exe -m scripts.run_nominal_flight --conditions configs/apr-operating-v1.yaml --check-inputs
+```bash
+# One exact instrumented development case, including its original random streams.
+python -m scripts.reproduce_case --job-id development/development-000/full/dt-0.01 --output artifacts/reproduced-case.json
 
-# One calm launch-to-touchdown flight; saves result.json and trajectory.png.
-.\.venv\Scripts\python.exe -m scripts.run_nominal_flight --output-dir artifacts/nominal --progress
+# Independently integrate three smooth coupled-plant segments with SciPy DOP853.
+python -m scripts.check_numerical_reference --output artifacts/numerical-reference.json
 
-# Validate/hash the tracked regression inputs, then run the 286 checks.
-.\.venv\Scripts\python.exe -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/regression
-.\.venv\Scripts\python.exe -m scripts.evaluate_regression_suite --run all --workers 8 --output-dir artifacts/regression
+# Compare a newly reproduced case with its published result.
+python -m scripts.verify_reproduction --evidence-dir docs/results/validation-study-v1 artifacts/reproduced-case.json
+
+# Original 286 fixed regression inputs.
+python -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/regression
+python -m scripts.evaluate_regression_suite --run all --workers 4 --output-dir artifacts/regression
 ```
 
-The regression runner retains failed cases and execution errors. `--workers`
-sets independent CPU processes; reduce it for a smaller computer. NumPy/SciPy
-float64 is used; GPU acceleration is not implemented. Rerunning all flights is
-substantially slower than validating inputs.
+The complete new study has **305 attempted flights**, including development,
+paired sensor comparisons, ablations, convergence and sensitivity. See the
+[study commands](docs/validation.md#reproduce) to prepare inputs, complete
+development, freeze the source, execute each phase and export an evidence bundle.
+The full regression and study together contain 591 attempts with separate purposes.
+They are not 591 independent final-evaluation conditions.
 
-For a linked English/Korean report after those runs:
+Flights use CPU float64; no GPU implementation is provided. Full campaigns take
+substantial time. Set `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1` when using
+multiple workers, and choose a worker count appropriate to your computer.
 
-```powershell
-.\.venv\Scripts\python.exe -m scripts.present_validation_results --campaign-dir artifacts/regression --nominal-result artifacts/nominal/result.json --out-dir artifacts/report --language both
+## Software checks
+
+```bash
+python -m pip install -c requirements/constraints.txt -e ".[ui,video,dev]"
+python -m pytest -q -p no:cacheprovider
+python -m ruff check --no-cache .
+python -m ruff format --check --no-cache .
 ```
 
-Software tests cover physics, conservation, guidance, acceptance and the local
-UI/API. These checks do not execute the 286-flight campaign:
+Tests cover plant dynamics, conservation, guidance, estimator causality,
+acceptance, evidence tampering and the local API/UI. They are separate from
+full-flight campaigns. The [Windows/Linux CI workflow](.github/workflows/checks.yml)
+checks software, public evidence and packaging; it does not rerun every flight.
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[ui,video,dev]"
-.\.venv\Scripts\python.exe -m pytest -p no:cacheprovider
-.\.venv\Scripts\python.exe -m ruff check --no-cache .
-.\.venv\Scripts\python.exe -m ruff format --check --no-cache .
-```
-
-The v1.0.0 local verification passed **748 automated checks**, lint, formatting
-and an installed-wheel check. The [Windows CI workflow](.github/workflows/checks.yml)
-is configured to repeat the software checks and package build on pushes and pull
-requests; it does not automatically rerun the 286-flight campaign.
-
-## Repository structure
+## Repository map
 
 ```text
-.github/workflows/               Windows software checks and package build
-configs/                         Operating inputs and fixed regression manifest
-docs/                            Bilingual specification and curated demo assets
-scripts/                         Flight, regression and results-report commands
-src/powered_landing_guidance/     Plant, guidance, systems, local API/UI and replay
-tests/                           Physics, conservation, protocol and UI/API tests
-launch-dm100.bat                  Windows local-app launcher
+configs/                         Fixed operating, regression and study inputs
+docs/spec.md, spec.ko.md          Bilingual physical-model specification
+docs/validation.md, validation.ko.md  Experimental design and reproduction
+docs/results.md, results.ko.md    Generated numerical reports
+docs/results/                    Curated per-flight evidence and environment results
+docs/assets/                     Selected interface, trajectory, chart and demo assets
+requirements/constraints.txt     Tested dependency constraints
+scripts/                         Run, reproduce, validate and report commands
+src/powered_landing_guidance/     Plant, guidance, estimation and local API/UI
+tests/                           Software and evidence-integrity checks
+launch-dm100.bat                  Windows environment and app launcher
 ```
 
-`artifacts/` contains generated runs and `.local/` contains private notes; both
-are Git-ignored. The repository includes only selected presentation media.
+Raw campaigns in `artifacts/`, environments, caches and personal working notes
+are Git-ignored. Public documentation and curated validation evidence are tracked.
 
-## Scope boundaries
+## Scope
 
-The model has two translations and one planar rotation. Its components and
-coefficients are theoretical assumptions, not measured or qualified hardware.
-It does not resolve 3D flight, flexible structures, detailed fluid/thermal/plume
-effects or leg/pad material strength. The upper-stage departure in the video is
-an illustrative continuation, not an orbit solution. Exhaust hiding and the
-held pose after contact are presentation effects, not engine-shutdown or stable-
-standing dynamics. Finite synthetic success does not establish real-vehicle safety.
+This is a theoretical software concept model. It covers two translations and
+one planar rotation; coefficients are assumed rather than calibrated to hardware.
+Upper-stage delivery of a 500 kg payload to a 700 km circular orbit is assumed,
+not simulated. Flexible structures, detailed fluid/thermal/plume effects,
+leg/pad material strength, 3D flight and real-vehicle qualification are outside
+the model. The upper-stage continuation and held pose in replay are visualization
+effects. Finite synthetic success does not establish real-vehicle safety.

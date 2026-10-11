@@ -1,0 +1,53 @@
+{
+  "total": 286,
+  "completed": 286,
+  "accepted": 286,
+  "requirements_passed": 286,
+  "extrema": {
+    "position_error_m": {
+      "count": 286,
+      "min": 4.104591432992624e-09,
+      "max": 0.8383938103445018
+    },
+    "vertical_foot_speed_m_s": {
+      "count": 286,
+      "min": 0.7976118682192949,
+      "max": 1.2550571936103132
+    },
+    "horizontal_foot_speed_m_s": {
+      "count": 286,
+      "min": 3.744842642524727e-09,
+      "max": 0.20101961437306776
+    },
+    "tilt_deg": {
+      "count": 286,
+      "min": 7.348224177171502e-12,
+      "max": 0.021147992496158605
+    },
+    "contact_rate_deg_s": {
+      "count": 286,
+      "min": 5.102792557571297e-12,
+      "max": 0.022501195890790793
+    },
+    "main_remaining_kg": {
+      "count": 286,
+      "min": 2958.185390913437,
+      "max": 7024.125834470514
+    },
+    "rcs_remaining_kg": {
+      "count": 286,
+      "min": 95.87519392484504,
+      "max": 266.4336930599888
+    },
+    "peak_dynamic_pressure_pa": {
+      "count": 286,
+      "min": 23096.14306707763,
+      "max": 28948.285783092902
+    },
+    "peak_angular_acceleration_deg_s2": {
+      "count": 286,
+      "min": 2.4017709042376136,
+      "max": 3.779882088193646
+    }
+  }
+}

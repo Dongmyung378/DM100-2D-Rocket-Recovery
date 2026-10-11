@@ -1,0 +1,13 @@
+* text=auto
+*.py text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.bat text eol=crlf
+
+# Frozen records retain their exact bytes, including hashed development evidence.
+docs/results/** -text whitespace=cr-at-eol
+docs/results/**/*.jsonl -diff
