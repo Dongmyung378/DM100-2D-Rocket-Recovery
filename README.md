@@ -70,20 +70,29 @@ environment reproduction, not an independent third-party review. Detailed
 versions and representative flight comparisons are in
 [reproduction.json](docs/results/reproduction.json).
 
-On Windows, install Python 3.12, extract the source ZIP or clone the repository,
-then double-click [launch-dm100.bat](launch-dm100.bat). The launcher prepares a
-local `.venv` with the tested dependency constraints. First setup requires an
-internet connection. A healthy environment is reused without reinstalling.
+The runtime patch additionally checks managed Python 3.12.15 on Windows and Linux,
+including automatic setup, Korean H.264 video, the real local UI and dependency
+repair. See [runtime compatibility](docs/runtime.md) and its
+[recorded checks](docs/results/runtime-compatibility.json).
+
+On Windows x86-64, extract the source ZIP or clone the repository, then double-click
+[launch-dm100.bat](launch-dm100.bat). The launcher uses an existing Python 3.12 or
+downloads a project-local Python 3.12.15 automatically. It prepares a local `.venv`
+with complete runtime constraints. First setup requires internet access. A healthy
+environment is reused without reinstalling or accessing the network.
 The browser opens at `127.0.0.1`; keep the terminal open and use Ctrl+C to stop.
 
 ```powershell
 # Prepare the environment without opening the app.
 .\launch-dm100.bat --setup-only
+# Check the installed font and video encoder without starting the server.
+.\launch-dm100.bat --doctor
 ```
 
-The launcher requires an existing Python 3.12 installation. It checks an explicit
+The launcher checks an explicit
 `DM100_PYTHON`, a working local environment, `py -3.12`, Python on `PATH`, and
-repository-local Python when available. An invalid explicit interpreter fails
+repository-local Python when available, then prepares a managed runtime if needed.
+An invalid explicit interpreter fails
 with an explanation. After a folder move, it preserves a broken environment in
 `.local/environment-backups/` and rebuilds for the current path.
 
@@ -91,24 +100,23 @@ Manual installation from the repository root:
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -c requirements/constraints.txt -e ".[ui,video]"
+.\.venv\Scripts\python.exe -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video]"
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-On Linux, create a Python 3.12 virtual environment and run the equivalent commands:
+On Linux x86-64 with glibc 2.28 or newer, use the same automatic setup:
 
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
-python -m pip install -c requirements/constraints.txt -e ".[ui,video]"
-python -m powered_landing_guidance.local_app
+sh launch-dm100.sh
+sh launch-dm100.sh --setup-only
+sh launch-dm100.sh --doctor
 ```
 
-Linux Korean replay labels need a Hangul font such as Noto Sans CJK. The minimal
-verification container lacked that font and emitted missing-glyph warnings;
-software checks and numerical calculations passed. Published validation figures
-use English labels. This is a Python-source application, not a standalone binary.
-Do not distribute a copied `.venv`.
+The first managed Python download needs curl or wget and standard tar/sha256sum.
+Korean replay text uses the bundled Noto Sans KR font, with its OFL license. Video
+uses the FFmpeg executable shipped with the tested video dependency; no system
+font or FFmpeg installation is required. This is a Python-source application.
+Do not distribute a copied `.venv`; the launchers construct it at the current path.
 
 Calculations, saved results and rendering run locally. Runtime uses no external
 API, account, analytics or CDN. English is the default interface language.

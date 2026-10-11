@@ -67,20 +67,29 @@ Python 3.12.15 새 설치**를 검증했습니다. 각각 소프트웨어 검사
 건너뛰었습니다. 별도 환경에서의 재현이며 독립적인 제삼자 심사는 아닙니다.
 버전과 대표 비행의 비교는 [reproduction.json](docs/results/reproduction.json)에 있습니다.
 
-Windows에서 Python 3.12를 설치하고 소스 ZIP을 풀거나 저장소를 복제한 뒤
-[launch-dm100.bat](launch-dm100.bat)를 더블클릭합니다. 실행기는 검증한
-의존성 제약 조건으로 `.venv`를 준비합니다. 최초 설치에는 인터넷 연결이
-필요하며, 정상 환경은 재설치 없이 사용합니다. 브라우저는 `127.0.0.1`에서
+이후 실행 환경 보완에서는 Windows와 Linux의 관리형 Python 3.12.15로 자동
+설치, 한글 H.264 영상, 실제 로컬 UI와 의존성 복구를 검증했습니다.
+[실행 환경 안내](docs/runtime.ko.md)와
+[검증 기록](docs/results/runtime-compatibility.json)을 제공합니다.
+
+Windows x86-64에서 소스 ZIP을 풀거나 저장소를 복제한 뒤
+[launch-dm100.bat](launch-dm100.bat)를 더블클릭합니다. 기존 Python 3.12가
+없으면 프로젝트 폴더에 Python 3.12.15를 자동으로 준비하고, 검증한 전체
+런타임 의존성 버전으로 `.venv`를 구성합니다. 최초 설치에는 인터넷 연결이
+필요하며, 정상 환경은 재설치와 네트워크 접속 없이 사용합니다. 브라우저는 `127.0.0.1`에서
 열립니다. 터미널을 유지하고 종료할 때 Ctrl+C를 누릅니다.
 
 ```powershell
 # 앱을 열지 않고 실행 환경만 준비합니다.
 .\launch-dm100.bat --setup-only
+# 서버를 열지 않고 폰트와 영상 인코더를 확인합니다.
+.\launch-dm100.bat --doctor
 ```
 
-실행기는 기존 Python 3.12 설치를 사용합니다. 직접 지정한 `DM100_PYTHON`,
+실행기는 직접 지정한 `DM100_PYTHON`,
 정상 로컬 환경, `py -3.12`, `PATH`의 Python과 저장소 내부 Python을 확인합니다.
-명시한 인터프리터가 잘못되면 오류를 안내합니다. 폴더를 이동해 기존 환경을
+사용 가능한 설치가 없으면 관리형 Python을 준비합니다. 명시한 인터프리터가
+잘못되면 오류를 안내합니다. 폴더를 이동해 기존 환경을
 사용할 수 없으면 `.local/environment-backups/`에 보관한 뒤 현재 경로로
 재구성합니다.
 
@@ -88,24 +97,23 @@ Windows에서 Python 3.12를 설치하고 소스 ZIP을 풀거나 저장소를 �
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -c requirements/constraints.txt -e ".[ui,video]"
+.\.venv\Scripts\python.exe -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video]"
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-Linux에서는 Python 3.12 가상환경을 만들고 다음 명령을 실행합니다.
+glibc 2.28 이상인 Linux x86-64에서도 실행기가 Python과 가상환경을 준비합니다.
 
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
-python -m pip install -c requirements/constraints.txt -e ".[ui,video]"
-python -m powered_landing_guidance.local_app
+sh launch-dm100.sh
+sh launch-dm100.sh --setup-only
+sh launch-dm100.sh --doctor
 ```
 
-Linux에서 한국어 영상 자막을 표시하려면 Noto Sans CJK 등의 한글 글꼴이
-필요합니다. 최소 검증 컨테이너에는 이 글꼴이 없어 누락 경고가 발생했으나
-소프트웨어 검사와 수치 계산은 통과했습니다. 공개 검증 그래프는 영어
-표기를 사용합니다. 독립 실행 파일이 아닌 Python 소스 앱이므로 다른
-컴퓨터의 `.venv`를 복사해 배포하지 않습니다.
+Linux의 첫 Python 다운로드에는 curl 또는 wget과 표준 tar/sha256sum이 필요합니다.
+한글 영상에는 라이선스와 함께 동봉한 Noto Sans KR을 사용하고, 영상 인코딩에는
+검증한 의존성 패키지가 제공하는 FFmpeg를 사용합니다. 시스템에 한글 폰트나
+FFmpeg를 따로 설치할 필요가 없습니다. Python 소스 앱이므로 다른 컴퓨터의
+`.venv`를 복사하지 않고 실행기로 현재 경로에 환경을 구성합니다.
 
 계산, 결과 저장과 영상 생성은 로컬에서 수행합니다. 실행 중 외부 API,
 계정, 분석 도구나 CDN을 사용하지 않습니다.

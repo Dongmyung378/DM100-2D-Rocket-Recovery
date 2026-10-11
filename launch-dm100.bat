@@ -5,6 +5,7 @@ set "PYTHONUTF8=1"
 set "PYTHONDONTWRITEBYTECODE=1"
 
 if defined DM100_PYTHON goto custom_python
+if "%DM100_USE_MANAGED_PYTHON%"=="1" goto managed_python
 
 if exist ".venv\Scripts\python.exe" (
     ".venv\Scripts\python.exe" -I -X utf8 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1
@@ -44,11 +45,9 @@ for /d %%D in (".local\uv-python\cpython-3.12*-windows-*") do (
     )
 )
 
-echo DM100 needs Python 3.12.x on this computer.
-echo Install Python 3.12 from https://www.python.org/downloads/windows/
-echo Enable the Python launcher during installation, then run this file again.
-echo You can also set DM100_PYTHON to the full path of a Python 3.12 executable.
-goto failed
+:managed_python
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap_windows.ps1" %*
+goto result
 
 :custom_python
 "%DM100_PYTHON%" -I -X utf8 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1

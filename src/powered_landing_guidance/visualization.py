@@ -14,7 +14,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 matplotlib.use("Agg")
-from matplotlib import font_manager  # noqa: E402
 from matplotlib import pyplot as plt  # noqa: E402
 from matplotlib.animation import FFMpegWriter, writers  # noqa: E402
 from matplotlib.collections import LineCollection  # noqa: E402
@@ -22,13 +21,11 @@ from matplotlib.patches import Ellipse, FancyBboxPatch, Polygon, Rectangle  # no
 
 
 def _ffmpeg_available() -> bool:
-    if writers.is_available("ffmpeg"):
-        return True
     try:
-        from imageio_ffmpeg import get_ffmpeg_exe
+        from powered_landing_guidance.runtime_support import video_encoder_path
 
-        matplotlib.rcParams["animation.ffmpeg_path"] = get_ffmpeg_exe()
-    except (ImportError, RuntimeError):
+        matplotlib.rcParams["animation.ffmpeg_path"] = video_encoder_path()
+    except (ImportError, OSError, RuntimeError):
         return False
     return writers.is_available("ffmpeg")
 
@@ -855,6 +852,13 @@ class _NominalFlightAnimationScene:
             )
             self.timeline.append((card, text))
         self.update(self.replay.times[0])
+        from matplotlib.text import Text
+
+        from powered_landing_guidance.runtime_support import replay_font_family
+
+        family = replay_font_family()
+        for text_artist in self.fig.findobj(match=Text):
+            text_artist.set_fontfamily(family)
 
     def _draw_ground_facilities(self) -> None:
         """Illustrative background facilities; not simulated collision obstacles."""
@@ -1404,11 +1408,9 @@ def save_nominal_flight_replay(
         raise ValueError("full-flight replay preview must end in .png")
     if not _ffmpeg_available():
         raise RuntimeError("full-flight MP4 requires FFmpeg or the video extra")
-    fonts = font_manager.get_font_names()
-    family = next(
-        (name for name in ("Malgun Gothic", "Noto Sans CJK KR", "NanumGothic") if name in fonts),
-        "DejaVu Sans",
-    )
+    from powered_landing_guidance.runtime_support import replay_font_family
+
+    family = replay_font_family()
     temporary = None
     with matplotlib.rc_context({"font.family": family, "axes.unicode_minus": False}):
         scene = _NominalFlightAnimationScene(flight, width=width)

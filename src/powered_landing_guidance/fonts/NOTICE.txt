@@ -1,0 +1,6 @@
+Noto Sans KR Regular, original unmodified font.
+Copyright 2014-2021 Adobe (http://www.adobe.com/).
+Redistributed under the SIL Open Font License 1.1; see OFL.txt.
+Source: https://github.com/notofonts/noto-cjk/tree/523d033d6cb47f4a80c58a35753646f5c3608a78
+File: Sans/SubsetOTF/KR/NotoSansKR-Regular.otf
+SHA256: 69975a0ac8472717870aefeab0a4d52739308d90856b9955313b2ad5e0148d68

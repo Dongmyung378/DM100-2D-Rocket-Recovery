@@ -61,6 +61,22 @@ class LauncherTests(unittest.TestCase):
         with mock.patch.object(launcher.subprocess, "run", return_value=self.probe_result()):
             self.assertTrue(launcher.inspect_environment(self.venv_python, self.project_root))
 
+    def test_process_environment_cannot_redirect_packages_or_python(self):
+        contaminated = {
+            "PYTHONHOME": "wrong",
+            "PYTHONPATH": "wrong",
+            "PIP_TARGET": "wrong",
+            "PIP_PREFIX": "wrong",
+            "PIP_ROOT": "wrong",
+            "PIP_USER": "1",
+            "PIP_CONSTRAINT": "wrong",
+            "IMAGEIO_FFMPEG_EXE": "wrong",
+        }
+        with mock.patch.dict(os.environ, contaminated):
+            clean = launcher._process_env()
+        self.assertTrue(set(contaminated).isdisjoint(clean))
+        self.assertEqual(clean["MPLBACKEND"], "Agg")
+
     def test_missing_old_base_python_is_rejected(self):
         (self.project_root / ".venv" / "pyvenv.cfg").write_text(
             "home = C:\\Users\\old-owner\\Desktop\\DM100\\python\n"

@@ -2252,13 +2252,9 @@ def _synthetic_full_flight_record(base_height=20.0):
 
 
 def _replay_test_font_family():
-    from matplotlib import font_manager
+    from powered_landing_guidance.runtime_support import replay_font_family
 
-    fonts = font_manager.get_font_names()
-    return next(
-        (name for name in ("Malgun Gothic", "Noto Sans CJK KR", "NanumGothic") if name in fonts),
-        "DejaVu Sans",
-    )
+    return replay_font_family()
 
 
 def _synthetic_upper_departure_record():

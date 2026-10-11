@@ -19,13 +19,58 @@ import sys
 
 for name in ('numpy', 'scipy', 'yaml', 'matplotlib', 'fastapi', 'uvicorn', 'imageio_ffmpeg'):
     __import__(name)
+from pathlib import Path
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from powered_landing_guidance.runtime_support import check_runtime_assets
+
+expected = {}
+def read_constraints(path):
+    for line in path.read_text(encoding='utf8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('-c '):
+            read_constraints(path.parent / line[3:].strip())
+            continue
+        requirement = Requirement(line)
+        if requirement.marker and not requirement.marker.evaluate():
+            continue
+        expected[canonicalize_name(requirement.name)] = str(requirement.specifier)
+read_constraints(Path(sys.argv[1]))
+pending = [('powered-landing-guidance', {'', 'ui', 'video'})]
+seen = set()
+problems = []
+while pending:
+    name, extras = pending.pop()
+    key = (canonicalize_name(name), tuple(sorted(extras)))
+    if key in seen:
+        continue
+    seen.add(key)
+    dist = importlib.metadata.distribution(name)
+    if name != 'powered-landing-guidance':
+        if (key[0] not in expected
+                or not Requirement(name + expected[key[0]]).specifier.contains(dist.version)):
+            problems.append(name)
+    for declaration in dist.requires or []:
+        requirement = Requirement(declaration)
+        if (requirement.marker
+                and not any(requirement.marker.evaluate({'extra': extra}) for extra in extras)):
+            continue
+        version = importlib.metadata.version(requirement.name)
+        if requirement.specifier and not requirement.specifier.contains(version):
+            problems.append(requirement.name)
+        pending.append((requirement.name, {'', *requirement.extras}))
+assets = check_runtime_assets()
 spec = importlib.util.find_spec('powered_landing_guidance')
 print(json.dumps({
     'version': list(sys.version_info[:2]),
     'prefix': sys.prefix,
     'source': spec.origin if spec else None,
     'project_version': importlib.metadata.version('powered-landing-guidance'),
-    'dependencies': True,
+    'dependencies': not problems,
+    'problems': problems,
+    'assets': assets,
 }))
 """
 
@@ -35,7 +80,20 @@ class LauncherError(RuntimeError):
 
 
 def _process_env() -> dict[str, str]:
-    return {**os.environ, "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    blocked = {
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PIP_TARGET",
+        "PIP_PREFIX",
+        "PIP_ROOT",
+        "PIP_USER",
+        "PIP_CONSTRAINT",
+        "PIP_REQUIREMENT",
+        "PIP_NO_DEPS",
+        "IMAGEIO_FFMPEG_EXE",
+    }
+    clean = {key: value for key, value in os.environ.items() if key.upper() not in blocked}
+    return {**clean, "PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "MPLBACKEND": "Agg"}
 
 
 def _python_path(venv_dir: Path) -> Path:
@@ -66,7 +124,15 @@ def inspect_environment(venv_python: Path, project_root: Path) -> bool:
         with (project_root / "pyproject.toml").open("rb") as manifest:
             project_version = tomllib.load(manifest)["project"]["version"]
         result = subprocess.run(
-            [str(venv_python), "-I", "-X", "utf8", "-c", PROBE],
+            [
+                str(venv_python),
+                "-I",
+                "-X",
+                "utf8",
+                "-c",
+                PROBE,
+                str(project_root / "requirements/runtime-constraints.txt"),
+            ],
             cwd=project_root,
             env=_process_env(),
             capture_output=True,
@@ -146,9 +212,11 @@ def ensure_environment(project_root: Path, base_python: Path) -> Path:
             "pip",
             "install",
             "--disable-pip-version-check",
+            "--require-virtualenv",
+            "--no-user",
             *(
-                ["--constraint", str(project_root / "requirements" / "constraints.txt")]
-                if (project_root / "requirements" / "constraints.txt").is_file()
+                ["--constraint", str(project_root / "requirements" / "runtime-constraints.txt")]
+                if (project_root / "requirements" / "runtime-constraints.txt").is_file()
                 else []
             ),
             "-e",
@@ -169,7 +237,10 @@ def main(argv: list[str] | None = None, project_root: Path | None = None) -> int
     arguments = list(sys.argv[1:] if argv is None else argv)
     root = (Path(__file__).resolve().parents[1] if project_root is None else project_root).resolve()
     if sys.version_info[:2] != (3, 12):
-        print("DM100: Python 3.12.x is required. Run launch-dm100.bat.", file=sys.stderr)
+        print(
+            "DM100: Python 3.12.x is required. Run launch-dm100.bat or sh launch-dm100.sh.",
+            file=sys.stderr,
+        )
         return 1
     base_python = Path(getattr(sys, "_base_executable", None) or sys.executable).resolve()
     try:
@@ -184,9 +255,20 @@ def main(argv: list[str] | None = None, project_root: Path | None = None) -> int
             return result.returncode
         setup_only = "--setup-only" in arguments
         arguments = [argument for argument in arguments if argument != "--setup-only"]
+        doctor = "--doctor" in arguments
+        arguments = [argument for argument in arguments if argument != "--doctor"]
         python = ensure_environment(root, base_python)
+        if doctor:
+            return subprocess.run(
+                [str(python), "-I", "-X", "utf8", "-m", "powered_landing_guidance.runtime_support"],
+                cwd=root,
+                env=_process_env(),
+                check=False,
+            ).returncode
         if setup_only:
-            print("DM100: Environment ready. Run launch-dm100.bat to open the app.", flush=True)
+            print(
+                "DM100: Environment ready. Run the platform launcher to open the app.", flush=True
+            )
             return 0
         result = subprocess.run(
             [

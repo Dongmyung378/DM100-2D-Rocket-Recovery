@@ -1,0 +1,126 @@
+{
+  "numerical_revision": "1.1.0",
+  "runtime_patch_tag": "v1.1.0-runtime.1",
+  "verified_at_utc": "2026-10-11T06:39:05.480023+00:00",
+  "scope": "Fresh managed Windows and Linux runtimes on the same host, not external review",
+  "environments": {
+    "windows": {
+      "python": "3.12.15",
+      "software_tests_passed": 790,
+      "software_tests_skipped": 1,
+      "subtests_passed": 11,
+      "missing_glyph_warnings": 0,
+      "dependency_deprecation_warnings": 1,
+      "automatic_managed_python_setup_exit_code": 0,
+      "local_ui_http": 200,
+      "h264_video_bytes": 21120,
+      "video_api_available": true,
+      "font": "Noto Sans KR",
+      "h264_encoder": "ok",
+      "contaminated_environment_offline_reuse_exit_code": 0,
+      "steps": [
+        {
+          "step": "developer-dependencies",
+          "exit_code": 0
+        },
+        {
+          "step": "tests",
+          "exit_code": 0
+        },
+        {
+          "step": "real-ui-video-smoke",
+          "exit_code": 0
+        },
+        {
+          "step": "contaminated-offline-reuse",
+          "exit_code": 0
+        },
+        {
+          "step": "dependency-drift-repair",
+          "exit_code": 0
+        },
+        {
+          "step": "repaired-environment-doctor",
+          "exit_code": 0
+        }
+      ],
+      "dependency_drift_repair_exit_code": 0,
+      "moved_checkout_repair_exit_code": 0
+    },
+    "linux": {
+      "python": "3.12.15",
+      "software_tests_passed": 790,
+      "software_tests_skipped": 1,
+      "subtests_passed": 11,
+      "missing_glyph_warnings": 0,
+      "dependency_deprecation_warnings": 1,
+      "automatic_managed_python_setup_exit_code": 0,
+      "local_ui_http": 200,
+      "h264_video_bytes": 21120,
+      "video_api_available": true,
+      "font": "Noto Sans KR",
+      "h264_encoder": "ok",
+      "contaminated_environment_offline_reuse_exit_code": 0,
+      "steps": [
+        {
+          "step": "download-tools",
+          "exit_code": 0
+        },
+        {
+          "step": "no-python-bootstrap",
+          "exit_code": 0
+        },
+        {
+          "step": "developer-dependencies",
+          "exit_code": 0
+        },
+        {
+          "step": "tests",
+          "exit_code": 0
+        },
+        {
+          "step": "real-ui-video-smoke",
+          "exit_code": 0
+        },
+        {
+          "step": "contaminated-offline-reuse",
+          "exit_code": 0
+        },
+        {
+          "step": "wheel",
+          "exit_code": 0
+        },
+        {
+          "step": "wheel-environment",
+          "exit_code": 0
+        },
+        {
+          "step": "wheel-install",
+          "exit_code": 0
+        },
+        {
+          "step": "wheel-ui-video-smoke",
+          "exit_code": 0
+        }
+      ],
+      "installed_wheel_ui_http": 200,
+      "installed_wheel_korean_glyph_warnings": 0
+    }
+  },
+  "skip_reason": "Optional historical private local artifact is not shipped",
+  "dependency_warning": "Starlette test client warns that its existing httpx adapter is deprecated; no runtime execution failure",
+  "frozen_numerical_source_files_verified": 17,
+  "runtime_source_sha256": {
+    "MANIFEST.in": "090678d2880c4c72392da43821aa182afa6f9bee737a945e746e8891b63ee4a7",
+    "launch-dm100.bat": "36d12e663be64b1f10a863e7c12550e6644e220a79182cd41fc2a7e35c036b28",
+    "launch-dm100.sh": "9d7b9a5585bf7580f59dc60310102d867240ef8562833ed5c492d304334a59f3",
+    "requirements/runtime-constraints.txt": "ab7a3ade0c4b887e5718c6c98b792b778bc77d0d4ea4720bf3ff26a451bda6de",
+    "scripts/bootstrap_windows.ps1": "ed0dd72b829b454228b7eb63e739a027883a40e6e6e7e5f001aa571fa08a7eff",
+    "scripts/launch_dm100.py": "94ae6c3ace0ad5cf76a507f416593076fa8d62bfa8afdc9c76c7a06e63de7a2a",
+    "src/powered_landing_guidance/fonts/NOTICE.txt": "86fa6160786a6f8da2d22d64015c1f9b8972b8a51ba93c31512f1cda76289589",
+    "src/powered_landing_guidance/fonts/NotoSansKR-Regular.otf": "69975a0ac8472717870aefeab0a4d52739308d90856b9955313b2ad5e0148d68",
+    "src/powered_landing_guidance/fonts/OFL.txt": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
+    "src/powered_landing_guidance/runtime_support.py": "497be56330c0dadb46604950720c9521eb283496a2b6d8c9e0f5a20a26893a8c",
+    "src/powered_landing_guidance/visualization.py": "34b771397cf8a8a03b54e34dc40c85e368ad7b97e5256438b4086fc565b25bc8"
+  }
+}

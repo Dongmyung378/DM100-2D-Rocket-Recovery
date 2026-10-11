@@ -2,6 +2,17 @@
 
 [한국어](CHANGELOG.ko.md)
 
+## Runtime patch: v1.1.0-runtime.1
+
+Automatic project-local Python setup on Windows and Linux, complete application
+runtime constraints, dependency version repair and a diagnostic command.
+Ship the unmodified Korean font and its license in source archives and wheels,
+and use the packaged FFmpeg encoder. Fresh managed environments each passed
+790 tests and 11 subtests, including Korean rendering with missing-glyph warnings
+treated as failures. Real UI and H.264 smoke checks, offline reuse, Windows
+dependency drift and folder relocation repair passed. Frozen numerical source
+and acceptance results remain unchanged. See [runtime checks](docs/runtime.md).
+
 ## 1.1.0
 
 Adds a causal attitude and gyro-bias estimator, bounded synthetic angular sensor

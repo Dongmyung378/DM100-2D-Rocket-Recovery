@@ -5,6 +5,10 @@
 *.md text eol=lf
 *.toml text eol=lf
 *.txt text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.otf -text
+*.in text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
 *.bat text eol=crlf

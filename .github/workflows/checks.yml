@@ -33,13 +33,13 @@ jobs:
           python-version-file: .python-version
           cache: pip
       - name: Install
-        run: python -m pip install -c requirements/constraints.txt -e ".[ui,video,dev]"
+        run: python -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video,dev]"
       - name: Lint
         run: python -m ruff check --no-cache .
       - name: Formatting
         run: python -m ruff format --check --no-cache .
       - name: Tests
-        run: python -m pytest -q -p no:cacheprovider
+        run: python -m pytest -q -p no:cacheprovider -W "error:Glyph .*missing from font:UserWarning"
       - name: Validate published evidence
         run: |
           python scripts/validate_evidence.py docs/results/validation-study-v1
@@ -58,3 +58,10 @@ jobs:
         run: cmd /d /c "launch-dm100.bat --help"
       - name: Package
         run: python -m pip wheel . --no-deps --wheel-dir dist
+      - name: Verify bundled wheel assets
+        run: python -m scripts.check_runtime_package dist
+      - name: Check Linux launcher
+        if: runner.os == 'Linux'
+        run: |
+          sh launch-dm100.sh --setup-only
+          sh launch-dm100.sh --doctor
