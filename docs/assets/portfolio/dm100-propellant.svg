@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="850" viewBox="0 0 1200 850" role="img" aria-labelledby="title desc">
+<title id="title">동일 센서 조건의 RCS 추진제 소모량</title>
+<desc id="desc">같은 입력과 시드를 사용하고 두 처리 방식이 모두 통과한 48쌍을 비교했습니다. 기존 처리 중앙값은 120.977kg이며 자세 추정 적용 중앙값은 99.122kg입니다.</desc>
+<style>text{font-family:'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;font-variant-numeric:tabular-nums} .axis{fill:#B2C4CC}</style>
+<rect x="0" y="0" width="1200" height="850" fill="#111D25" rx="0" stroke-width="1"/>
+<text x="48" y="64" fill="#EDF4F4" font-size="36" font-weight="750" text-anchor="start">동일 조건의 RCS 추진제 소모량 비교</text>
+<text x="48" y="104" fill="#B2C4CC" font-size="22" font-weight="400" text-anchor="start">같은 입력과 시드의 48쌍. 모든 점은 두 방식이 모두 성공한 비행 한 쌍입니다.</text>
+<line x1="120.0" y1="182" x2="120.0" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="660.0" x2="598" y2="660.0" stroke="#2B414C" stroke-width="1"/>
+<text x="120.0" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">0</text>
+<text x="106" y="667.0" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">0</text>
+<line x1="199.66666666666666" y1="182" x2="199.66666666666666" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="580.3333333333334" x2="598" y2="580.3333333333334" stroke="#2B414C" stroke-width="1"/>
+<text x="199.66666666666666" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">30</text>
+<text x="106" y="587.3333333333334" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">30</text>
+<line x1="279.3333333333333" y1="182" x2="279.3333333333333" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="500.6666666666667" x2="598" y2="500.6666666666667" stroke="#2B414C" stroke-width="1"/>
+<text x="279.3333333333333" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">60</text>
+<text x="106" y="507.6666666666667" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">60</text>
+<line x1="359.0" y1="182" x2="359.0" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="421.0" x2="598" y2="421.0" stroke="#2B414C" stroke-width="1"/>
+<text x="359.0" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">90</text>
+<text x="106" y="428.0" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">90</text>
+<line x1="438.66666666666663" y1="182" x2="438.66666666666663" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="341.33333333333337" x2="598" y2="341.33333333333337" stroke="#2B414C" stroke-width="1"/>
+<text x="438.66666666666663" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">120</text>
+<text x="106" y="348.33333333333337" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">120</text>
+<line x1="518.3333333333334" y1="182" x2="518.3333333333334" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="261.66666666666663" x2="598" y2="261.66666666666663" stroke="#2B414C" stroke-width="1"/>
+<text x="518.3333333333334" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">150</text>
+<text x="106" y="268.66666666666663" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">150</text>
+<line x1="598.0" y1="182" x2="598.0" y2="660" stroke="#2B414C" stroke-width="1"/>
+<line x1="120" y1="182.0" x2="598" y2="182.0" stroke="#2B414C" stroke-width="1"/>
+<text x="598.0" y="691" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="middle">180</text>
+<text x="106" y="189.0" fill="#B2C4CC" font-size="21" font-weight="400" text-anchor="end">180</text>
+<line x1="120" y1="660" x2="598" y2="182" stroke="#7E949E" stroke-width="2" stroke-dasharray="8 7"/>
+<circle cx="408.64279525036494" cy="384.72289257033447" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="509.9855529621397" cy="392.4123239224558" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="494.40813572401856" cy="368.0871037897786" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="530.0568778429395" cy="356.6212383653553" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="439.8639512989674" cy="438.5182194382478" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="321.2912375131051" cy="489.3932083421789" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="473.88291282548005" cy="377.7937771294892" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="438.52782300854534" cy="448.45505714677006" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="489.9319854022335" cy="392.467180809709" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="403.5355509942065" cy="386.52084447852747" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="444.44480520514776" cy="366.8722281298317" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="464.9017578631205" cy="402.63018992678195" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="492.99211832382866" cy="337.8802029920368" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="379.17823268887537" cy="412.279006388872" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="458.52376888451886" cy="388.6808555659383" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="358.0417875648103" cy="442.973747274458" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="442.65675537549043" cy="408.2058523222966" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="432.7222505657574" cy="441.66508390903925" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="474.71611672190323" cy="391.25446103473763" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="468.95956553115764" cy="330.0299310125765" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="348.1199598701238" cy="479.7707311382455" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="360.9119662139288" cy="448.95008307429214" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="384.4187365392467" cy="469.1146417289913" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="453.2021951047654" cy="424.5166856305117" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="358.17299630807804" cy="460.7685235047139" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="425.87472061707547" cy="438.71244582473184" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="466.3893874284045" cy="395.99522701876253" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="532.7650286825708" cy="368.128713574402" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="412.7952390822491" cy="437.1266002694564" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="411.0654671223326" cy="367.89048248440156" r="6" fill="#E19D62" stroke-width="1" opacity="0.9"/>
+<circle cx="437.59175214195255" cy="398.8075834890043" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="529.2362313957753" cy="290.60829116711074" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="413.4572752487829" cy="394.2449355499878" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="444.17968160792134" cy="410.22148964508307" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="489.7084824723341" cy="398.0606778830246" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="396.0338886845943" cy="415.27111385247514" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="540.0165837550683" cy="371.19482867170893" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="474.1008716620712" cy="397.55745946934513" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="430.9745178005921" cy="413.7280044419935" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="297.63165610106944" cy="497.06213050209817" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="517.2377098337781" cy="354.4600907171436" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="425.79803253690284" cy="364.90120405350143" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="432.63766142479466" cy="351.4768339486023" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="507.325098912903" cy="372.9370573868588" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="443.31515408512973" cy="368.76603293638186" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="544.4705855419743" cy="281.8749008868143" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="379.95270462560404" cy="444.85976759026437" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<circle cx="359.5146852675904" cy="473.1921618886107" r="6" fill="#48B7C8" stroke-width="1" opacity="0.9"/>
+<text x="48" y="151" fill="#48B7C8" font-size="23" font-weight="400" text-anchor="start">자세 추정 적용 (kg)</text>
+<text x="359.0" y="738" fill="#C88253" font-size="24" font-weight="400" text-anchor="middle">기존 처리 (kg)</text>
+<rect x="675" y="174" width="472" height="522" fill="#182A35" rx="20" stroke="#2B414C" stroke-width="1"/>
+<text x="702" y="221" fill="#EDF4F4" font-size="29" font-weight="700" text-anchor="start">RCS 소모량 중앙값</text>
+<text x="704" y="275" fill="#B2C4CC" font-size="23" font-weight="400" text-anchor="start">기존 처리</text>
+<text x="704" y="329" fill="#C88253" font-size="42" font-weight="750" text-anchor="start">120.977 kg</text>
+<text x="704" y="389" fill="#B2C4CC" font-size="23" font-weight="400" text-anchor="start">자세 추정 적용</text>
+<text x="704" y="443" fill="#48B7C8" font-size="42" font-weight="750" text-anchor="start">99.122 kg</text>
+<line x1="704" y1="471" x2="1117" y2="471" stroke="#2B414C" stroke-width="2"/>
+<text x="704" y="537" fill="#48B7C8" font-size="45" font-weight="750" text-anchor="start">18.07% 감소</text>
+<text x="704" y="583" fill="#EDF4F4" font-size="24" font-weight="400" text-anchor="start">48쌍 중 47쌍에서 소모량 감소</text>
+<text x="704" y="632" fill="#B2C4CC" font-size="22" font-weight="400" text-anchor="start">대각선 아래: 추정 적용 후 감소</text>
+<text x="704" y="662" fill="#B2C4CC" font-size="22" font-weight="400" text-anchor="start">대각선 위: 추정 적용 후 증가</text>
+<text x="48" y="790" fill="#B2C4CC" font-size="20" font-weight="400" text-anchor="start">18.07%는 두 중앙값의 비율입니다. 각 비행의 절감률 평균이나 실물 로켓의 절감률이 아닙니다.</text>
+<text x="48" y="819" fill="#B2C4CC" font-size="20" font-weight="400" text-anchor="start">선언한 합성 센서 범위의 비교입니다. 모든 착륙 지표가 개선된 것은 아닙니다.</text>
+<metadata>{"project_id": "project-03", "visual_data_sha256": "c614a9eca20b3a0cd989a58d6677af8e708ac94818f418c2832210cc70908b2d", "generated_from_published_measurements": true}</metadata>
+</svg>

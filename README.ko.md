@@ -56,7 +56,7 @@ python -m scripts.validate_regression_evidence docs/results/regression-v1.1
 python -m scripts.check_source_binding docs/results/validation-study-v1/protocol.json docs/results/regression-v1.1/protocol.json docs/results/numerical-reference.json
 ```
 
-두 명령은 입력과 소스, 저장된 결과의 일관성을 검사하고 요약 수치를
+세 명령은 입력과 소스, 저장된 결과의 일관성을 검사하고 요약 수치를
 다시 계산합니다. 실제 물리 데이터의 진위를 인증하는 검사는 아닙니다.
 
 ## 로컬 실행

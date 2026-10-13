@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "status": "generated_from_published_measurements",
+  "visual_data_sha256": "c614a9eca20b3a0cd989a58d6677af8e708ac94818f418c2832210cc70908b2d",
+  "project_ids": [
+    "project-03"
+  ],
+  "files": [
+    {
+      "filename": "dm100-thumbnail.svg",
+      "project_id": "project-03",
+      "bytes": 11714,
+      "sha256": "dc221af643e53a1e4c819424d9d3b8ca23c9c6d4d50df5fcaaf2fe04a309a6b4"
+    },
+    {
+      "filename": "dm100-validation.svg",
+      "project_id": "project-03",
+      "bytes": 3978,
+      "sha256": "10a731261280327c4216642c8068a576b6a71e517090327d630c86cdfd633314"
+    },
+    {
+      "filename": "dm100-propellant.svg",
+      "project_id": "project-03",
+      "bytes": 11336,
+      "sha256": "edb52dbd8edb8fc07fed53906ff05bc25863c9024fd90b1b3a44b66219053791"
+    },
+    {
+      "filename": "dm100-trajectory.svg",
+      "project_id": "project-03",
+      "bytes": 11336,
+      "sha256": "5dd2e14f3f02a984aad494a11cac6f80768c0da0eaaf82a8ed8ff4e25cd0e5ad"
+    }
+  ],
+  "network_or_model_execution_performed": false,
+  "source_paths_read": false
+}
