@@ -132,8 +132,8 @@ switches are configured through the study manifest or Python API.
 
 Full MP4 generation is CPU-intensive and can take much longer than a flight.
 Choose a short time interval for a quick replay. Rendering never reruns or changes
-the numerical result. The [included video](docs/assets/flight.mp4) is a short
-separation demonstration.
+the numerical result. Watch the [full-flight video](https://drive.google.com/file/d/113QhNrm8Xrtc6MbekIDKgZg-NYdMrChc/view?usp=sharing)
+from launch and stage separation through first-stage return and landing.
 
 ## Vehicle and acceptance
 
