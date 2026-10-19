@@ -167,7 +167,12 @@ def render(evidence, regression_dir, output):
                 else " | [Protocol](validation.md) | [Evidence](results/validation-study-v1/)"
             ),
             "",
-            "![Recorded validation](assets/validation.png)",
+            (
+                "![평가 집단별 기준 충족 결과](assets/portfolio/ko/dm100-validation.svg)\n\n"
+                "![동일 조건의 RCS 추진제 소모량 비교](assets/portfolio/ko/dm100-propellant.svg)"
+                if korean
+                else "![Recorded validation](assets/validation.png)"
+            ),
             "",
             "| 평가 집단 | 통과 / 실행 |" if korean else "| Population | Passed / attempted |",
             "|---|---:|",

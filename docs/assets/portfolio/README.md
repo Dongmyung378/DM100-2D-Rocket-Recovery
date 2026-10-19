@@ -2,19 +2,20 @@
 
 [English](README.md) | [한국어](README.ko.md)
 
-These Korean-labelled SVGs are the presentation assets used on the portfolio site. Their values come from the retained experiment records referenced, with checksums, in `visual-data.json`. They do not change trained models, data splits, selection decisions or scientific reports. Read the main project documentation for scope and limitations.
+The figures below use English labels. The [Korean guide](README.ko.md) links to Korean figures with the same layout refinements. Both versions use the retained measurements referenced, with checksums, in `visual-data.json`. Translation does not change plotted trajectories, measured values, evaluation populations or scientific reports.
 
-The renderer uses Python's standard library and the embedded display data only. Regenerating these visuals does not rerun a model or verify its scientific evaluation.
+Both renderers use Python's standard library. The first regenerates the preserved Korean display figures from embedded data; the second creates English and Korean reading copies and checks that plotted geometry is unchanged. Neither reruns a flight or verifies its scientific evaluation.
 
 ```bash
 python docs/assets/portfolio/render_visuals.py --input docs/assets/portfolio/visual-data.json --output docs/assets/portfolio
+python docs/assets/portfolio/render_localized.py
 ```
 
-`visual-receipt.json` binds the generated SVG bytes to the display data. The source-download ZIP includes these exact site assets. The website's technical diagrams describe implemented processing steps; they are not new benchmark results.
+`visual-receipt.json` binds the preserved Korean SVG bytes to the display data. Each language directory contains `localization-receipt.json` with source and output hashes and geometry checks. Download ZIPs remain versioned snapshots; these documentation additions do not replace them or introduce new benchmark results.
 
 ## Figures
 
-- [dm100-thumbnail.svg](dm100-thumbnail.svg)
-- [dm100-validation.svg](dm100-validation.svg)
-- [dm100-propellant.svg](dm100-propellant.svg)
-- [dm100-trajectory.svg](dm100-trajectory.svg)
+- [Launch and recovery overview](en/dm100-thumbnail.svg)
+- [Separate evaluation populations](en/dm100-validation.svg)
+- [Matched RCS propellant comparison](en/dm100-propellant.svg)
+- [Recorded reference trajectory](en/dm100-trajectory.svg)

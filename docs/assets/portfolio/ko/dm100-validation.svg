@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc" xml:lang="ko">
+<title id="title">목적이 다른 세 평가 집단의 통과 결과</title>
+<desc id="desc">기존 조건 회귀 검증 286개, 새로운 복합 조건 96개와 센서 확장 조건 48개는 서로 다른 집단입니다. 모든 실행이 선언한 합성 모델의 기준을 통과했습니다.</desc>
+<style>text{font-family:'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;font-variant-numeric:tabular-nums} .axis{fill:#B2C4CC}</style>
+<rect x="0" y="0" width="1200" height="620" fill="#111D25" rx="0" stroke-width="1" />
+<text x="48" y="64" fill="#EDF4F4" font-size="36" font-weight="750" text-anchor="start">평가 집단별 기준 충족 결과</text>
+<text x="48" y="104" fill="#B2C4CC" font-size="22" font-weight="400" text-anchor="start">같은 100%라도 집단의 조건과 분모가 다릅니다. 서로 합쳐 하나의 최종 성공률로 표시하지 않습니다.</text>
+<rect x="48" y="157" width="352" height="337" fill="#182A35" rx="20" stroke="#2B414C" stroke-width="1" />
+<text x="74" y="209" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">기존 조건</text>
+<text x="74" y="248" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">회귀 검증</text>
+<text x="224" y="358" fill="#8FA6B1" font-size="60" font-weight="750" text-anchor="middle">286/286</text>
+<text x="224" y="403" fill="#B2C4CC" font-size="23" font-weight="400" text-anchor="middle">기준 통과 / 실행</text>
+<rect x="74" y="442" width="300" height="10" fill="#263D49" rx="5" stroke-width="1" />
+<rect x="74" y="442" width="300.0" height="10" fill="#8FA6B1" rx="5" stroke-width="1" />
+<text x="373" y="475" fill="#8FA6B1" font-size="23" font-weight="700" text-anchor="end">100%</text>
+<rect x="424" y="157" width="352" height="337" fill="#182A35" rx="20" stroke="#2B414C" stroke-width="1" />
+<text x="450" y="209" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">새로운</text>
+<text x="450" y="248" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">복합 조건</text>
+<text x="600" y="358" fill="#C88253" font-size="60" font-weight="750" text-anchor="middle">96/96</text>
+<text x="600" y="403" fill="#B2C4CC" font-size="23" font-weight="400" text-anchor="middle">기준 통과 / 실행</text>
+<rect x="450" y="442" width="300" height="10" fill="#263D49" rx="5" stroke-width="1" />
+<rect x="450" y="442" width="300.0" height="10" fill="#C88253" rx="5" stroke-width="1" />
+<text x="749" y="475" fill="#C88253" font-size="23" font-weight="700" text-anchor="end">100%</text>
+<rect x="800" y="157" width="352" height="337" fill="#182A35" rx="20" stroke="#2B414C" stroke-width="1" />
+<text x="826" y="209" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">센서 오차와</text>
+<text x="826" y="248" fill="#EDF4F4" font-size="28" font-weight="700" text-anchor="start">자세 추정기</text>
+<text x="976" y="358" fill="#48B7C8" font-size="60" font-weight="750" text-anchor="middle">48/48</text>
+<text x="976" y="403" fill="#B2C4CC" font-size="23" font-weight="400" text-anchor="middle">기준 통과 / 실행</text>
+<rect x="826" y="442" width="300" height="10" fill="#263D49" rx="5" stroke-width="1" />
+<rect x="826" y="442" width="300.0" height="10" fill="#48B7C8" rx="5" stroke-width="1" />
+<text x="1125" y="475" fill="#48B7C8" font-size="23" font-weight="700" text-anchor="end">100%</text>
+<text x="48" y="589" fill="#B2C4CC" font-size="20" font-weight="400" text-anchor="start">모든 수치는 선언된 합성 조건에서의 관측 결과입니다. 연속 입력 전체의 성공이나 실제 기체 안전성을 보장하지 않습니다.</text>
+<metadata>{"project_id": "project-03", "visual_data_sha256": "c614a9eca20b3a0cd989a58d6677af8e708ac94818f418c2832210cc70908b2d", "generated_from_published_measurements": true}</metadata>
+</svg>

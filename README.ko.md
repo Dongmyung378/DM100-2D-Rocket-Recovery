@@ -10,6 +10,8 @@
 
 ![로컬 실험 화면](docs/assets/ui.png)
 
+실제 실행 화면은 영어 UI로 촬영했습니다. 앱의 오른쪽 위에서 한국어로 전환할 수 있습니다.
+
 ## 구현한 기능
 
 - 발사, 콜드 단 분리, 귀환 연소, 대기권 재진입과 최초 접지 계산
@@ -46,7 +48,9 @@ Matplotlib/FFmpeg를 사용했습니다. 명시적인 모델로 유도와 상태
 정리했습니다. 임무 완료, 비행 안전, 최초 접지와 추진제 보존 검사를
 모두 충족해야 성공으로 판정합니다.
 
-![기록된 검증 결과](docs/assets/validation.png)
+![평가 집단별 기준 충족 결과](docs/assets/portfolio/ko/dm100-validation.svg)
+
+![동일 조건의 RCS 추진제 소모량 비교](docs/assets/portfolio/ko/dm100-propellant.svg)
 
 의존성 설치나 비행 재실행 없이 공개 기록을 확인할 수 있습니다.
 
