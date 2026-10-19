@@ -23,6 +23,11 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def text_sha256(path: Path) -> str:
+    """Hash UTF-8 source text with LF line endings across Git checkouts."""
+    return sha256(path.read_text(encoding="utf-8").encode("utf-8"))
+
+
 def geometry(root: ET.Element) -> list:
     return [
         (node.tag, sorted(node.attrib.items()))
@@ -103,7 +108,7 @@ def render_language(language: str, labels: dict, labels_path: Path) -> int:
             {
                 "source": source.name,
                 "output": language + "/" + source.name,
-                "source_sha256": sha256(raw),
+                "source_sha256": text_sha256(source),
                 "output_sha256": sha256(result),
                 "geometry_unchanged": True,
                 "numeric_labels_unchanged": numeric,
@@ -115,11 +120,14 @@ def render_language(language: str, labels: dict, labels_path: Path) -> int:
         "schema_version": 1,
         "language": language,
         "scope": "Display-label translation only; no simulation or evaluation",
-        "translation_sha256": sha256(labels_path.read_bytes()),
+        "source_hash_policy": "UTF-8 text with LF line endings",
+        "translation_sha256": text_sha256(labels_path),
         "files": records,
     }
     (output / "localization-receipt.json").write_text(
-        json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(receipt, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     return len(records)
 

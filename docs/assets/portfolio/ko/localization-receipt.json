@@ -2,6 +2,7 @@
   "schema_version": 1,
   "language": "ko",
   "scope": "Display-label translation only; no simulation or evaluation",
+  "source_hash_policy": "UTF-8 text with LF line endings",
   "translation_sha256": "0ca40f86cd0f0fac29c64dab33747ef81ed60ab407c48493b3e11d8a3bd36729",
   "files": [
     {
