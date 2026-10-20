@@ -6,6 +6,22 @@ The evidence distinguishes repeatable software behavior, numerical accuracy,
 performance inside a declared synthetic distribution and physical-model validity.
 Passing one of these checks does not establish the others.
 
+## How to read the experiments
+
+A scenario specifies weather, vehicle assumptions and sensor behavior. A seed
+sets the starting point for repeatable random draws, while the manifest records
+the exact inputs and variants to run. A paired comparison executes both methods
+under the same declared inputs and random streams. This controls the comparison
+conditions even though each controller's decisions can lead to different flight
+paths and measurement times.
+
+An **ablation** removes a feature while keeping the other declared settings fixed
+to examine that feature's contribution. A **step-size comparison** makes the
+physics calculation's time increments smaller to check whether the answer
+remains within the declared tolerance. **Sensitivity analysis** instead changes
+a model assumption, such as thrust or drag, to inspect its effect on the result.
+These experiments answer different questions and are reported separately.
+
 ## Evaluation populations
 
 The original 286 inputs in `configs/apr-regression-v1.json` remain unchanged.
@@ -52,7 +68,18 @@ sampling recipe. They are not confidence bounds for rocket reliability.
 Metric summaries include every completed flight with that measurement, including
 failed flights. Contact-only metrics report their own measurement counts.
 
+A Wilson interval expresses uncertainty from a finite set of successes and
+failures. Even a sample with no observed failures leaves uncertainty about the
+underlying success rate. Its interpretation remains limited to the declared
+synthetic sampling assumptions.
+
 ## Added instrumentation
+
+Attitude is the vehicle's orientation, and a gyro measures how quickly it rotates.
+Noise changes between measurements; bias shifts readings persistently in one
+direction. A sensor packet carries a measurement and its timestamp. Packet
+omission means a scheduled observation is unavailable, so reusing an old value
+must not be mistaken for obtaining a fresh measurement.
 
 Position and velocity noise, latency and a causal navigation estimator already
 existed. The new experiment adds the following synthetic channels:

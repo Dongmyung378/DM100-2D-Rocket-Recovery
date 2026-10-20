@@ -8,6 +8,20 @@ stage near 37 km and returning the first stage to its original pad. A custom
 PID-style attitude control, causal state estimation and first-contact acceptance.
 The local experiment interface supports English and Korean.
 
+To use the simulator, choose weather and vehicle conditions, run a flight, and
+inspect its path, fuel use and landing checks. Stage separation detaches the lower
+booster from the upper stage; the recovery calculation follows that booster back
+to the launch pad.
+
+Here, a **plant** is the simulated vehicle and its physics. Its state variables
+describe quantities such as position, velocity, rotation and remaining propellant.
+Guidance chooses the return path, while PID-style feedback control corrects the
+difference between the desired and measured orientation. **Causal estimation**
+uses measurements available so far,
+rather than giving the controller future observations or the simulator's hidden
+true state. **RCS**, the reaction control system, uses small thrusters to rotate
+the vehicle; its consumption is the propellant those thrusters use.
+
 ![Local experiment interface](docs/assets/ui.png)
 
 ## Implementation
@@ -28,6 +42,13 @@ does not train a machine-learning policy**.
 
 ## Measured results
 
+A passed flight meets the declared mission, safety, first-contact and propellant
+criteria together. **Regression** checks repeat known inputs to see whether
+working behavior is retained. **Coupled conditions** combine disturbances such as
+wind, vehicle variation and delays. The sensor comparison runs each declared
+condition with both measurement-processing methods, allowing their outcomes to
+be compared on matching inputs.
+
 | Evaluation population | Passed / attempted |
 |---|---:|
 | Known-condition regression | 286 / 286 |
@@ -42,6 +63,13 @@ The 286 known conditions measure regression. The 96 new coupled conditions and
 Each population has its own denominator. The paired sensor experiment compares
 the same inputs and seeds; it does not compare different evaluation populations.
 Sensor ranges are synthetic assumptions, not measured hardware specifications.
+
+A **seed** fixes the starting point of a random-number generator, so the declared
+noise sequences can be repeated. Freezing the implementation means recording the
+version and settings before seeing the final outcomes. The **median** is the
+middle value after sorting the measurements: lower RCS consumption indicates
+less attitude-control propellant used in this comparison, not improvement in
+every landing metric.
 
 The [English report](docs/results.md) and [Korean report](docs/results.ko.md)
 include touchdown measurements, finite-sample intervals, feature ablations,
@@ -136,6 +164,13 @@ the numerical result. Watch the [full-flight video](https://drive.google.com/fil
 from launch and stage separation through first-stage return and landing.
 
 ## Vehicle and acceptance
+
+Wet mass includes propellant; dry mass excludes it. Isp (specific impulse)
+describes thrust relative to propellant flow, while gimbal angle describes how
+far the engine can tilt its thrust direction. Cold separation means the stages
+separate without a continuing main-engine burn at the separation event. COM
+means the vehicle's center of mass. These terms describe the simulated vehicle
+and acceptance checks below.
 
 | Item | Model value |
 |---|---:|
