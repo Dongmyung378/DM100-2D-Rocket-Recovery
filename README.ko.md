@@ -1,128 +1,87 @@
-# DM100 - 2차원 로켓 발사와 회수
+# DM100 - 2차원 SpaceX 방식 로켓 발사와 1단 재사용 귀환
 
-[English](README.md) | [검증 결과](docs/results.ko.md) | [모델 명세](docs/spec.ko.md)
+[English](README.md) | [검증 결과](docs/results.ko.md) | [모델 명세](docs/spec.ko.md) | [검증 설계](docs/validation.ko.md) | [로드맵](docs/roadmap.ko.md)
 
-총질량 100톤 로켓의 발사, 약 37 km에서의 단 분리, 1단의 발사장 귀환을
-계산하는 **2차원 개념 시뮬레이터**입니다. 직접 구현한 19개 상태 변수의
-강체 운동과 추진 시스템에 모델 기반 귀환 유도, PID 계열 자세 제어,
-인과적 상태 추정과 최초 접지 판정을 연결했습니다. 로컬 실험 화면은
-영어를 기본으로 제공하며 한국어로 전환할 수 있습니다.
+총질량 100톤 2단 로켓의 발사, 약 37 km에서의 콜드 단 분리, 그리고 **SpaceX(Falcon 9)
+방식의 1단 발사장 귀환(RTLS)**을 계산하는 **2차원 개념 시뮬레이터**입니다.
+분리 직후 저동압 플립, 부스트백 연소, 짧은 재진입 연소(MECO-2) 뒤
+**무동력 격자핀 활강(9.6–14.5 km, 스로틀 명령 0%)**, **3→1엔진 최소 스로틀
+수직 호버슬램(Hoverslam)**, 그리고 **접지 후 5초 무동력 착륙다리 접촉·직립
+안정성 동역학**까지 전 과정을 `Plant ↔ Forces ↔ GNC` 경계가 분리된 단일 엔진으로
+모델링합니다.
 
-날씨와 기체 조건을 입력해 비행을 실행하면 궤적과 추진제 소모량, 착륙 기준의
-충족 여부를 확인할 수 있습니다. 단 분리는 로켓의 아래쪽 추진부와 위쪽 단이
-떨어지는 과정이며, 회수 계산은 분리된 아래쪽 추진부가 발사장으로 돌아오는
-비행을 다룹니다.
-
-상태 변수는 위치와 속도, 회전과 추진제 잔량처럼 기체의 상태를 나타내는 값입니다.
-유도는 귀환 경로를 정하고, PID 계열 제어는 목표 자세와 측정 자세의 차이를
-줄이는 피드백으로 기체 방향을 조절합니다.
-**인과적 상태 추정**은 현재까지 얻은 관측을 사용한다는 뜻으로, 제어기에
-미래 관측이나 시뮬레이터만 알고 있는 실제 상태를 제공하지 않습니다.
-**RCS는 작은 보조 추력기로 기체 방향을 바꾸는 자세 제어 장치**이며,
-RCS 소모량은 이 장치가 사용한 추진제의 양입니다.
+오프라인 로컬 브라우저 실험 화면은 영어를 기본으로 제공하며 한국어로 전환할 수 있고,
+**인터랙티브 2D 실시간 리플레이**와 **50 Hz 3D 리플레이 JSON(ENU + 단위 쿼터니언)**
+내보내기, 선택적 H.264 MP4 영상 렌더링을 지원합니다.
 
 ![로컬 실험 화면](docs/assets/ui.png)
 
-실제 실행 화면은 영어 UI로 촬영했습니다. 앱의 오른쪽 위에서 한국어로 전환할 수 있습니다.
+실제 실행 화면은 영어 UI로 촬영했으며, 앱 오른쪽 위에서 한국어로 전환할 수 있습니다.
 
-## 구현한 기능
+## 구현한 물리·유도·제어 기능
 
-- 발사, 콜드 단 분리, 귀환 연소, 대기권 재진입과 최초 접지 계산
-- 질량과 관성 변화, 엔진 짐벌, RCS와 핀, 단순화한 추진제 공급과 가압,
-  액체 추진제 흔들림과 분리 충격량 모델
-- 잡음, 편향, 지연과 예정된 센서 패킷 누락을 고려한 항법 및 자세 추정
-- 평가 입력과 소스 동결, 동일 조건의 기능 제거 실험, 전체 비행의 적분
-  간격 비교, 매개변수 민감도와 독립 적분기 비교
-- 비행별 공개 기록, 표준 라이브러리 기반 결과 검증기, 측정값 그래프와
-  저장한 궤적을 사용하는 선택적 MP4 재생
+- **SpaceX 7단계 RTLS 비행**: `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
+- **물리 모델**: 가변 질량·관성, 역방향 하강 둔체 항력($C_{D,\text{descent}} = 1.65$),
+  격자핀 유효 받음각 및 힌지 모멘트 한계, **3기 엔진 클러스터(엔진당 최소 스로틀 44%,
+  최대 재점화 3회)**, 단순화한 추진제 공급·가압·슬로싱·단 분리 충격량 모델,
+  **접지 후 5초 스프링-댐퍼·쿨롱 마찰 착륙다리 동역학**
+- **인과적 항법·자세 추정**: 잡음, 편향, 관측/명령 지연, 엔진 응답 지연, 예정된 센서
+  패킷 누락 하의 인과적 추정기(미래 관측·숨겨진 실제 상태 미사용)
+- **강인 RTLS 유도 및 제어 할당**:
+  - 무동력 활강 중 인과적 가속도 바이어스로부터 대기 항력·밀도 배율을 실시간 추정하는
+    온라인 IIP 예측기(`_predict_rtls_iip`)
+  - 유한 각가속도(`2.15 deg/s²`) 복귀 변위를 해석적으로 적분하는 제로-틸트 예측기
+    (`_predict_zero_tilt_state`)
+  - 3엔진 Stage A 전환 선행 예측 + 1엔진 Stage B 잔여 시간 기반 무오버슈트 속도 상한
+  - 잡음 내성 결정론적 수직 정렬 래치(`h ≤ 21.5 m`), 짐벌 스텝 제한 및 구간 일치형
+    우선순위 제어 할당(격자핀 → TVC 짐벌 → RCS), 볼록 최적화(LP) 종말 참조 플래너
+- **도구 및 인터페이스**: Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JS,
+  Matplotlib/FFmpeg. 명시적 물리·GNC 모델을 사용하며 **머신러닝 정책을 학습하지 않습니다.**
 
-Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JavaScript와
-Matplotlib/FFmpeg를 사용했습니다. 명시적인 모델로 유도와 상태 추정을
-수행하며, **머신러닝 정책을 학습하는 프로젝트는 아닙니다.**
+## 전체 487케이스 검증 결과
 
-## 측정 결과
+극한 경계 및 100% 동시 최악 조합 **32개 극한 엣지 케이스**, 기존 검증 연구 입력
+**169개**(`configs/validation-study-v1.json`), 기존 회귀 스위트 **286개**
+(`configs/apr-regression-v1.json`)를 단일 병렬 실행으로 검증했습니다
+([validation-487.json](docs/results/validation-487.json), 상세 분석: [검증 결과 보고서](docs/results.ko.md)).
 
-통과한 비행은 정해 둔 임무와 안전, 최초 접지 및 추진제 기준을 모두 충족한
-비행입니다. **회귀 검증**은 이미 확인한 입력을 다시 실행해 동작이 유지되는지
-살펴보는 검사입니다. **복합 조건**은 바람과 기체 편차, 지연처럼 비행을 방해하는
-조건을 함께 적용한 상황입니다. 센서 비교는 같은 입력을 두 처리 방식으로
-각각 실행해 성공 여부와 추진제 소모량의 차이를 확인합니다.
+| 평가 집단 | 통과 / 실행 | 주추진제 잔량 (kg) | 최대 위치 오차 (m) | 최대 동압 (kPa) | 최대 각가속도 (deg/s²) | 무동력 활강 (km) | 5초 직립 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 극한 엣지 케이스 (`edge-cases`) | **32 / 32 (100%)** | 9,343 – 10,287 | 1.766 | 29.61 | 4.32 | 9.6 – 14.3 | 32 / 32 |
+| 개발 조건 (`development`) | **16 / 16 (100%)** | 9,505 – 10,020 | 0.313 | 28.37 | 3.61 | 11.4 – 13.6 | 16 / 16 |
+| 복합 홀드아웃 (`holdout`) | **96 / 96 (100%)** | 9,294 – 10,172 | 0.610 | 29.44 | 4.21 | 11.2 – 13.6 | 96 / 96 |
+| 확장 센서 홀드아웃 (`sensor-holdout`) | **57 / 57 (100%)** | 9,406 – 10,113 | 0.436 | 28.99 | 4.14 | 11.2 – 13.6 | 57 / 57 |
+| 회귀 스위트 (`regression`, 3개 분할 합산) | **286 / 286 (100%)** | 9,385 – 10,301 | 1.975 | 28.96 | 4.36 | 10.5 – 14.5 | 286 / 286 |
+| **합계** | **487 / 487 (100.0%)** | **9,294 – 10,301** | **1.975** | **29.61** | **4.36** | **9.6 – 14.5** | **487 / 487** |
 
-| 평가 집단 | 통과 / 실행 |
-|---|---:|
-| 기존 조건 회귀 검증 | 286 / 286 |
-| 새로운 복합 조건 | 96 / 96 |
-| 센서 오차와 자세 추정기 | 48 / 48 |
-| 동일 센서 조건과 기존 처리 | 48 / 48 |
+전 487케이스 지표 요약:
+- **접지 위치 오차**: `0.000–1.975 m` (중앙값 **`0.024 m`**, 한계 `≤ 2.0 m`)
+- **발 수직 / 수평 속도**: `0.159–1.430 m/s` (`≤ 1.5`) / `0.000–0.481 m/s` (`≤ 0.5`)
+- **접지 기울기 / 각속도**: `≤ 0.078°` (`≤ 3.0°`) / `≤ 0.147 deg/s` (`≤ 0.5 deg/s`)
+- **최대 각가속도 / 동압 / 회수 하중**: `≤ 4.36 deg/s²` (`≤ 5.0`) / `≤ 29.61 kPa` (`≤ 30.0`) / `≤ 4.86 g` (`≤ 5.0`)
+- **주추진제 / RCS 잔량 중앙값**: **`9,772.0 kg`** / **`252.2 kg`** (재점화 `3/3`)
+- **5초 무동력 착륙다리 직립**: **487 / 487 (100.0%)** (`다리 압축 ≤ 0.278 m`, `접촉 하중 ≤ 1.98 g`)
 
-두 방식 모두 기준을 충족한 동일 조건 48쌍에서 RCS 소모량 중앙값은 120.977 kg에서 99.122 kg으로 18.07% 감소했습니다.
+대표 시나리오의 50 Hz 3D 리플레이 JSON(UE5·MuJoCo 연동용, ENU 미터 + 단위 쿼터니언 `wxyz`)을
+[calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) 및
+[example_weather_replay_50hz.json](docs/results/replays/example_weather_replay_50hz.json)에
+함께 제공합니다.
 
-기존 286개 조건은 회귀 검증입니다. 새로운 복합 조건 96개와 센서 확장
-조건 48개는 구현을 동결한 뒤 평가했습니다. 각 집단의 분모를 구분하며,
-센서 처리 방식은 입력과 시드가 같은 조건끼리 비교합니다. 센서 오차의
-범위는 실제 부품에서 측정한 사양이 아닌 합성 모델의 가정입니다.
+## 로컬 브라우저 실행
 
-**시드**는 무작위 값을 만드는 순서의 시작값으로, 같은 잡음 생성 조건을
-다시 실행하는 데 사용합니다. 구현 동결은 최종 결과를 보기 전에 코드 버전과
-설정을 기록해 고정하는 과정입니다. **중앙값**은 측정값을 크기순으로 나열했을 때
-가운데에 해당하는 값입니다. 이 비교에서 RCS 소모량이 작다는 것은 자세 제어에
-추진제를 덜 사용했다는 뜻이며, 모든 착륙 지표가 좋아졌다는 의미는 아닙니다.
-
-[영어 결과 보고서](docs/results.md)와 [한국어 결과 보고서](docs/results.ko.md)에
-접지 수치, 유한 표본의 구간, 기능 제거 실험, 수치 수렴과 실패 결과를
-정리했습니다. 임무 완료, 비행 안전, 최초 접지와 추진제 보존 검사를
-모두 충족해야 성공으로 판정합니다.
-
-![평가 집단별 기준 충족 결과](docs/assets/portfolio/ko/dm100-validation.svg)
-
-![동일 조건의 RCS 추진제 소모량 비교](docs/assets/portfolio/ko/dm100-propellant.svg)
-
-의존성 설치나 비행 재실행 없이 공개 기록을 확인할 수 있습니다.
-
-```bash
-python scripts/validate_evidence.py docs/results/validation-study-v1
-python -m scripts.validate_regression_evidence docs/results/regression-v1.1
-python -m scripts.check_source_binding docs/results/validation-study-v1/protocol.json docs/results/regression-v1.1/protocol.json docs/results/numerical-reference.json
-```
-
-세 명령은 입력과 소스, 저장된 결과의 일관성을 검사하고 요약 수치를
-다시 계산합니다. 실제 물리 데이터의 진위를 인증하는 검사는 아닙니다.
-
-## 로컬 실행
-
-같은 컴퓨터에서 **Windows의 Python 3.12.7 새 설치**와 **Linux 컨테이너의
-Python 3.12.15 새 설치**를 검증했습니다. 각각 소프트웨어 검사 787개와
-하위 검사 11개를 통과했고, 과거 로컬 기록을 필요로 하는 검사 1개는
-건너뛰었습니다. 별도 환경에서의 재현이며 독립적인 제삼자 심사는 아닙니다.
-버전과 대표 비행의 비교는 [reproduction.json](docs/results/reproduction.json)에 있습니다.
-
-이후 실행 환경 보완에서는 Windows와 Linux의 관리형 Python 3.12.15로 자동
-설치, 한글 H.264 영상, 실제 로컬 UI와 의존성 복구를 검증했습니다.
-[실행 환경 안내](docs/runtime.ko.md)와
-[검증 기록](docs/results/runtime-compatibility.json)을 제공합니다.
-
-Windows x86-64에서 소스 ZIP을 풀거나 저장소를 복제한 뒤
-[launch-dm100.bat](launch-dm100.bat)를 더블클릭합니다. 기존 Python 3.12가
-없으면 프로젝트 폴더에 Python 3.12.15를 자동으로 준비하고, 검증한 전체
-런타임 의존성 버전으로 `.venv`를 구성합니다. 최초 설치에는 인터넷 연결이
-필요하며, 정상 환경은 재설치와 네트워크 접속 없이 사용합니다. 브라우저는 `127.0.0.1`에서
-열립니다. 터미널을 유지하고 종료할 때 Ctrl+C를 누릅니다.
+Windows x86-64에서는 저장소를 복제하거나 ZIP을 푼 뒤 [launch-dm100.bat](launch-dm100.bat)를
+실행합니다. 기존 Python 3.12가 없으면 프로젝트 내부에 Python 3.12.15와 `.venv`를
+자동 구성하며, 정상 환경은 네트워크 접속 없이 재사용합니다.
+브라우저는 `127.0.0.1`에서 열리며, 터미널에서 `Ctrl+C`로 종료합니다.
+상세 환경 호환성은 [실행 환경 안내](docs/runtime.ko.md)를 참고하세요.
 
 ```powershell
-# 앱을 열지 않고 실행 환경만 준비합니다.
+# 실행 환경만 준비하거나 폰트·영상 인코더 상태를 점검합니다.
 .\launch-dm100.bat --setup-only
-# 서버를 열지 않고 폰트와 영상 인코더를 확인합니다.
 .\launch-dm100.bat --doctor
 ```
 
-실행기는 직접 지정한 `DM100_PYTHON`,
-정상 로컬 환경, `py -3.12`, `PATH`의 Python과 저장소 내부 Python을 확인합니다.
-사용 가능한 설치가 없으면 관리형 Python을 준비합니다. 명시한 인터프리터가
-잘못되면 오류를 안내합니다. 폴더를 이동해 기존 환경을
-사용할 수 없으면 `.local/environment-backups/`에 보관한 뒤 현재 경로로
-재구성합니다.
-
-저장소 루트에서 수동으로 설치할 수도 있습니다.
+수동 설치 및 실행:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -130,7 +89,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
-glibc 2.28 이상인 Linux x86-64에서도 실행기가 Python과 가상환경을 준비합니다.
+Linux x86-64(glibc 2.28 이상):
 
 ```bash
 sh launch-dm100.sh
@@ -138,126 +97,79 @@ sh launch-dm100.sh --setup-only
 sh launch-dm100.sh --doctor
 ```
 
-Linux의 첫 Python 다운로드에는 curl 또는 wget과 표준 tar/sha256sum이 필요합니다.
-한글 영상에는 라이선스와 함께 동봉한 Noto Sans KR을 사용하고, 영상 인코딩에는
-검증한 의존성 패키지가 제공하는 FFmpeg를 사용합니다. 시스템에 한글 폰트나
-FFmpeg를 따로 설치할 필요가 없습니다. Python 소스 앱이므로 다른 컴퓨터의
-`.venv`를 복사하지 않고 실행기로 현재 경로에 환경을 구성합니다.
+계산, 결과 저장과 영상 생성은 모두 로컬 오프라인 환경에서 수행하며 외부 API나 CDN을
+사용하지 않습니다.
 
-계산, 결과 저장과 영상 생성은 로컬에서 수행합니다. 실행 중 외부 API,
-계정, 분석 도구나 CDN을 사용하지 않습니다.
+1. 프리셋 7종(무풍, 복합 기상, 극한 전단풍·돌풍, 극한 Max-Q, 극한 중량·저추력 등) 또는 사용자 조건을 선택합니다.
+2. 비행을 실행한 뒤 **인터랙티브 2D 실시간 리플레이**(재생/일시정지, 타임라인 스크러버, 0.5×–20× 배속, 단계 바로가기, 격자핀·짐벌 플룸·RCS·착륙다리 압축 HUD), `활강·제어` 그래프, SpaceX 단계별 연료 분석표, 접지 및 5초 직립 판정표를 확인합니다.
+3. 성공한 비행에서 선택적 MP4 영상 렌더링 또는 **50 Hz 3D 리플레이 JSON(`replay_3d.json`)** 다운로드를 수행할 수 있습니다.
 
-1. 무풍 기본값을 유지하거나 허용된 날씨와 정상 기체 편차를 입력합니다.
-2. 비행을 실행하고 임무, 안전, 접지 결과와 실패 항목을 확인합니다.
-3. 성공한 비행은 저장한 궤적으로 MP4 영상을 생성할 수 있습니다.
+## CLI 비행 실행 및 487케이스 재현
 
-입력이 유효하더라도 비행 성공을 보장하지 않습니다. 실행 오류와 정상적으로
-완료된 실패 비행을 구분하며, 입력 화면을 바꿔도 저장된 입력은 유지됩니다.
-로컬 화면에는 기존 운용 입력을 제공하고, 확장 센서와 기능 제거 설정은
-실험 명세 또는 Python API에서 지정합니다.
+```bash
+# 단일 대표 비행 실행 및 50 Hz 3D 리플레이 JSON 내보내기
+python scripts/run_flight.py --scenario calm --export-replay artifacts/calm_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather --export-replay artifacts/example_weather_replay_50hz.json
 
-전체 MP4 생성은 CPU 작업량이 커 비행 계산보다 오래 걸릴 수 있습니다.
-빠르게 확인하려면 짧은 구간을 선택합니다. 영상 생성은 계산 결과를 변경하거나
-비행을 재실행하지 않습니다. [전체 비행 영상](https://drive.google.com/file/d/113QhNrm8Xrtc6MbekIDKgZg-NYdMrChc/view?usp=sharing)에서
-발사와 단 분리부터 1단 귀환과 착륙까지 확인할 수 있습니다.
+# 극한 엣지 32케이스 빠른 검증 또는 전체 487케이스 병렬 검증
+python scripts/evaluate_validation.py --suite edge-cases --workers 8
+python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+```
 
-## 기체와 판정 기준
+CPU `float64` 연산을 사용하며, 다중 프로세스 실행 시 `OPENBLAS_NUM_THREADS=1`,
+`OMP_NUM_THREADS=1` 설정을 권장합니다.
 
-초기 질량은 추진제를 포함한 값이고, 건조 질량은 추진제를 제외한 값입니다.
-비추력은 추진제 유량에 비해 어느 정도의 추력을 내는지 나타내며, 짐벌 각도는
-엔진을 기울여 추력 방향을 바꿀 수 있는 범위입니다. 콜드 분리는 주 엔진의
-연소를 멈춘 상태에서 단을 분리하는 방식입니다. 질량중심은 기체 질량의
-분포를 대표하는 위치입니다.
+## 기체 제원 및 판정 기준
 
 | 항목 | 모델 값 |
 |---|---:|
 | 발사 질량 / 1단 초기 질량 | 100,000 / 82,500 kg |
 | 1단 건조 / 주 추진제 / RCS 질량 | 12,000 / 70,200 / 300 kg |
 | 2단 건조 / 추진제 / 탑재체 질량 | 1,500 / 15,500 / 500 kg |
-| 해면 / 진공 추력 | 1,600 / 약 1,760 kN |
+| 해면 / 진공 추력 (3기 클러스터 합산) | 1,600 / 약 1,760 kN |
 | 해면 / 진공 비추력 | 300 / 약 330 s |
-| 추력 조절 / 짐벌 | 이상적 연속 0–100% / ±6도 |
+| 추력 조절 / 엔진 재점화 / 짐벌 | 엔진당 최소 44% (3→1 호버슬램) / 최대 3회 / ±6도 |
 | 콜드 분리 조건 | 37 ±1 km, 주 추진제 20,000 kg 이상 |
-| 회수 목표 | 원래 발사장 |
+| 접지 판정 기준 (최초 접지) | 위치 오차 ≤ 2 m, 발 수직 ≤ 1.5 m/s, 발 수평 ≤ 0.5 m/s, 기울기 ≤ 3°, 각속도 ≤ 0.5°/s |
+| 접지 후 안정화 기준 | 엔진 OFF 5초 착륙다리 동역학 직립 유지, 압축 ≤ 0.90 m, 하중 ≤ 4.0 g |
 
-착륙은 **다리 끝점이 처음 지면에 닿는 순간** 평가합니다. 질량중심 위치
-오차는 2 m 이하, 다리 끝점 수직과 수평 속도는 각각 1.5와 0.5 m/s 이하,
-자세는 3도 이하, 각속도는 0.5도/s 이하이며 주 추진제는 양수, RCS 추진제는
-음수가 아니어야 합니다. 다리 전개, 발사대 내부 접지와 기체 지면 여유도
-충족해야 합니다. 수직 속도 기준 안에서 다리가 충분하다고 가정하며 접촉
-강도와 착륙 후 직립 안정성은 평가하지 않습니다.
-
-[모델 명세](docs/spec.ko.md)는 좌표계, 상태 변수, 운용 범위와 보존 및
-제한 조건을 설명합니다. [검증 설계](docs/validation.ko.md)는 확장 센서,
-추정기 가정과 실험 구성을 설명합니다.
-
-## 비행 및 전체 실험 재현
-
-새 출력 파일이나 폴더를 사용합니다. 기존 기록은 덮어쓰지 않습니다.
-
-```bash
-# 원래 입력과 시드로 센서 확장 개발 조건 하나를 재현합니다.
-python -m scripts.reproduce_case --job-id development/development-000/full/dt-0.01 --output artifacts/reproduced-case.json
-
-# SciPy DOP853과 결합 물리 모델의 짧고 매끄러운 세 구간을 비교합니다.
-python -m scripts.check_numerical_reference --output artifacts/numerical-reference.json
-
-# 재현한 비행을 공개 기록과 비교합니다.
-python -m scripts.verify_reproduction --evidence-dir docs/results/validation-study-v1 artifacts/reproduced-case.json
-
-# 기존 286개 고정 조건의 회귀 검증을 실행합니다.
-python -m scripts.evaluate_regression_suite --prepare --output-dir artifacts/regression
-python -m scripts.evaluate_regression_suite --run all --workers 4 --output-dir artifacts/regression
-```
-
-새 실험은 개발, 센서 처리 비교, 기능 제거, 수렴과 민감도를 포함한
-**305회 비행**입니다. [전체 실행 명령](docs/validation.ko.md#재현)으로
-입력 준비, 개발 검증, 소스 동결, 각 단계의 실행과 공개 기록 추출을 진행합니다.
-기존 회귀 검증까지 합하면 목적이 다른 591회 실행이며, 독립 최종 평가
-조건이 591개라는 의미는 아닙니다.
-
-CPU의 float64 연산을 사용하며 GPU 구현은 제공하지 않습니다. 전체 실험에는
-상당한 시간이 필요합니다. 여러 프로세스를 사용하면 `OPENBLAS_NUM_THREADS=1`과
-`OMP_NUM_THREADS=1`을 지정하고 컴퓨터에 맞는 작업자 수를 선택합니다.
+자세한 좌표계, 상태 변수, 운용 범위와 보존 검사는 [모델 명세](docs/spec.ko.md)와
+[검증 설계](docs/validation.ko.md)를 참고하세요.
 
 ## 소프트웨어 검사
 
 ```bash
-python -m pip install -c requirements/constraints.txt -e ".[ui,video,dev]"
+python -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video,dev]"
 python -m pytest -q -p no:cacheprovider
 python -m ruff check --no-cache .
 python -m ruff format --check --no-cache .
 ```
 
-물리 모델, 보존 법칙, 유도, 추정기의 인과성, 성공 판정, 기록 변조와
-로컬 API 및 화면을 검사합니다. 전체 비행 평가와는 별개입니다.
-[Windows와 Linux CI](.github/workflows/checks.yml)는 소프트웨어, 공개 기록과
-패키지를 검사하며 모든 비행을 자동으로 반복하지 않습니다.
+물리 모델, 보존 법칙, RTLS 유도·할당, 추정기 인과성, 50 Hz 리플레이 JSON,
+로컬 API 및 UI를 검사합니다. [Windows·Linux CI](.github/workflows/checks.yml)가
+매 커밋마다 소프트웨어 테스트, 검증 JSON 무결성, 실행기 및 패키지를 자동 확인합니다.
 
 ## 저장소 구성
 
 ```text
-configs/                         운용, 회귀 검증과 새 실험의 고정 입력
-docs/spec.md, spec.ko.md          영어와 한국어 물리 모델 명세
+configs/                          운용, 회귀(286) 및 검증 연구(169) 고정 입력
+docs/spec.md, spec.ko.md          영어·한국어 물리 모델 명세
 docs/validation.md, validation.ko.md  검증 설계와 재현 명령
-docs/results.md, results.ko.md    기록에서 생성한 수치 보고서
-docs/results/                    비행별 공개 기록과 환경 재현 결과
-docs/assets/                     화면, 궤적, 검증 그래프와 시연 자료
-requirements/constraints.txt     검증한 의존성 제약 조건
-scripts/                         실행, 재현, 검증과 보고서 생성 명령
-src/powered_landing_guidance/     물리 모델, 유도, 추정과 로컬 API 및 화면
-tests/                           소프트웨어와 기록 일관성 검사
-launch-dm100.bat                  Windows 환경 준비와 앱 실행기
+docs/results.md, results.ko.md    487케이스 검증 및 개선 사항 보고서
+docs/roadmap.ko.md                2D RTLS → 3D MuJoCo → UE5 확장 로드맵
+docs/results/                     validation-487.json 및 50 Hz 3D 리플레이 JSON
+docs/assets/                      로컬 UI 스크린샷 및 시각화 자료
+requirements/                     검증한 런타임·개발 의존성 제약 조건
+scripts/                          단일 비행 CLI(run_flight.py), 487케이스 평가기(evaluate_validation.py)
+src/powered_landing_guidance/     공통 물리, SpaceX RTLS 엔진(rtls/), 로컬 API 및 인터랙티브 UI
+tests/                            물리, RTLS 유도·제어, 추정기, 로컬 UI 자동 테스트
+launch-dm100.bat / .sh            Windows·Linux 자동 환경 준비 및 앱 실행기
 ```
-
-`artifacts/`의 원본 실행 폴더, 환경, 캐시와 개인 작업 기록은 Git에서
-제외합니다. 공개 설명 문서와 선별한 검증 기록은 저장소에 포함합니다.
 
 ## 적용 범위
 
-이론적 소프트웨어 개념 모델로 수평과 수직 이동, 평면 내 회전을 다룹니다.
-계수는 실물 측정으로 보정하지 않았습니다. 2단의 500 kg 탑재체와 700 km
-원궤도 진입은 가정이며 계산하지 않습니다. 유연 구조, 상세 유체와 열 및
-플룸, 다리와 발사대 재료 강도, 3차원 비행과 실제 비행 인증은 범위 밖입니다.
-영상의 2단 이동과 접지 후 고정 자세는 시각적 연출입니다. 유한한 합성
-조건의 성공은 실제 기체의 안전성을 입증하지 않습니다.
+이론적 소프트웨어 2차원 개념 모델로 수평·수직 이동과 평면 내 회전을 다룹니다.
+계수는 실물 측정으로 보정하지 않았으며, 2단의 궤도 진입은 계산하지 않습니다.
+유연 구조, 상세 열·유체·플룸, 재료 강도, 3차원 비행과 실기 인증은 범위 밖입니다.
+3차원 6-DOF 물리(MuJoCo)와 시네마틱 시각화(Unreal Engine 5)는 별도의 신규 3D
+저장소에서 이어서 진행합니다([로드맵](docs/roadmap.ko.md)).

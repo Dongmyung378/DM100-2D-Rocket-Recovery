@@ -35,10 +35,12 @@ from uuid import uuid4
 
 from powered_landing_guidance.apr_recovery import (
     FINS,
+    OPERATING_SCOPE,
     PHYSICS,
     SAFETY,
+    STATE_NAMES,
+    SYSTEMS_MODEL_VERSION,
     AprConditions,
-    AprFlight,
     Design,
     RecoveryDisturbances,
 )
@@ -116,7 +118,7 @@ _PROFILE_KEYS = {
     "pressure_profile",
 }
 _RUN_ID = re.compile(r"^[0-9a-f]{32}$")
-_FILE_NAMES = frozenset({"result.json", "trajectory.png", "flight.mp4"})
+_FILE_NAMES = frozenset({"result.json", "trajectory.png", "flight.mp4", "replay_3d.json"})
 _FAILURE_LABELS = {
     "dynamic_pressure": ("동압 한계 초과", "Dynamic pressure limit exceeded"),
     "ascent_q_alpha": ("상승 동압·받음각 한계 초과", "Ascent q-alpha limit exceeded"),
@@ -208,6 +210,15 @@ _FAILURE_LABELS = {
         "결과 수치의 유효성 기준 미충족",
         "Result metrics contain invalid numeric values",
     ),
+    "leg_stroke": ("착륙다리 압축 한계 초과", "Landing-leg stroke limit exceeded"),
+    "leg_force": ("착륙다리 하중 한계 초과", "Landing-leg force limit exceeded"),
+    "contact_load_g": ("접지 구조 하중 한계 초과", "Contact structural load limit exceeded"),
+    "engine_off_standing": (
+        "접지 후 무동력 직립 안정 미충족",
+        "Post-contact engine-off standing stability failed",
+    ),
+    "tip_over": ("접지 후 기체 전도 발생", "Vehicle tipped over after contact"),
+    "standing_unstable": ("접지 후 직립 안정화 실패", "Post-contact upright settling failed"),
     "inconsistent_acceptance": (
         "결과 판정 정보 불일치",
         "Acceptance result is internally inconsistent",
@@ -538,6 +549,7 @@ def _chart_data(raw: dict, maximum: int = 1200) -> dict:
     for index in selected:
         step = steps[index]
         state = step["state"]
+        ctrl = step.get("control")
         samples.append(
             dict(
                 time_s=step["time_s"],
@@ -548,7 +560,14 @@ def _chart_data(raw: dict, maximum: int = 1200) -> dict:
                 vz_m_s=state[3],
                 attitude_deg=math.degrees(state[4]),
                 angular_rate_deg_s=math.degrees(state[5]),
+                gear_extension=state[8] if len(state) > 8 else 0.0,
+                fin_deflection_deg=math.degrees(state[9]) if len(state) > 9 else 0.0,
+                fin_extension=state[10] if len(state) > 10 else 0.0,
+                gimbal_deg=math.degrees(state[11]) if len(state) > 11 else 0.0,
                 throttle=step.get("engine_throttle", state[12] if len(state) > 12 else None),
+                rcs_torque_knm=(ctrl[2] / 1000.0) if ctrl and len(ctrl) > 2 else 0.0,
+                active_engines=step.get("active_engines"),
+                leg_stroke_m=step.get("leg_stroke_m", 0.0),
                 main_propellant_kg=state[6],
                 rcs_propellant_kg=state[7],
                 mass_kg=step.get("mass_kg"),
@@ -753,6 +772,43 @@ def summarize_result(raw: dict, job_id: str) -> dict:
         criteria.get("fin_hinge"),
         "flight",
     )
+    if raw.get("landing_assessment") == "contact_dynamics":
+        pc = raw.get("post_contact") or {}
+        pc_limits = raw.get("contact_limits") or {
+            "max_leg_stroke_m": 0.85,
+            "max_leg_force_n": 450_000.0,
+            "max_contact_load_g": 4.5,
+        }
+        metric(
+            "leg_stroke",
+            "최대 착륙다리 압축",
+            "Peak leg stroke",
+            pc.get("max_leg_stroke_m"),
+            pc_limits["max_leg_stroke_m"],
+            "m",
+            criteria.get("leg_stroke"),
+            "post_contact",
+        )
+        metric(
+            "leg_force",
+            "최대 착륙다리 하중",
+            "Peak leg force",
+            (pc["max_leg_force_n"] / 1000.0) if pc.get("max_leg_force_n") is not None else None,
+            pc_limits["max_leg_force_n"] / 1000.0,
+            "kN",
+            criteria.get("leg_force"),
+            "post_contact",
+        )
+        metric(
+            "contact_load_g",
+            "최대 접지 구조 하중",
+            "Peak contact load",
+            pc.get("max_contact_load_g"),
+            pc_limits["max_contact_load_g"],
+            "g",
+            criteria.get("contact_load_g"),
+            "post_contact",
+        )
     failures = list(raw.get("failures", []))
     failed_criteria = []
     for key, passed in criteria.items():
@@ -814,11 +870,17 @@ def summarize_result(raw: dict, job_id: str) -> dict:
     integrity_errors = _failure_labels([], integrity_keys)
     failure_labels = _failure_labels(failures, failed_criteria + integrity_keys)
     base = f"/api/runs/{job_id}/files"
+    files_map = dict(
+        result_json=f"{base}/result.json",
+        trajectory_png=f"{base}/trajectory.png",
+        replay_3d_json=f"{base}/replay_3d.json",
+    )
     return _json_value(
         dict(
             success=bool(engine_accepted and category_passed and contact_finite and result_valid),
             result_valid=result_valid,
             integrity_errors=integrity_errors,
+            landing_assessment=raw.get("landing_assessment", "contact_dynamics"),
             simulated_acceptance_passed=bool(raw.get("simulated_acceptance_passed", False)),
             mission_success=bool(raw.get("mission_success", False)),
             flight_safety=bool(raw.get("flight_safety", False)),
@@ -837,8 +899,13 @@ def summarize_result(raw: dict, job_id: str) -> dict:
             main_propellant_remaining_kg=raw.get("main_propellant_remaining_kg"),
             rcs_propellant_remaining_kg=raw.get("rcs_propellant_remaining_kg"),
             contact_time_s=contact["time_s"] if contact else None,
+            restarts_used=raw.get("restarts_used"),
+            convex_reference_feasible=raw.get("convex_reference_feasible"),
+            peak_fin_deflection_deg=raw.get("peak_fin_deflection_deg"),
+            post_contact=raw.get("post_contact"),
+            phases=raw.get("phases"),
             charts=_chart_data(raw),
-            files=dict(result_json=f"{base}/result.json", trajectory_png=f"{base}/trajectory.png"),
+            files=files_map,
             description=raw.get("description"),
             assessment_scope=raw.get("assessment_scope"),
             conditions=raw.get("conditions"),
@@ -898,16 +965,231 @@ def _source_hashes() -> dict[str, str]:
     }
 
 
+def _run_rtls_flight(
+    conditions: AprConditions,
+    disturbances: RecoveryDisturbances,
+    progress,
+    cancel,
+    replay_path: Path,
+) -> dict:
+    """Run DM100 SpaceX-style RTLS flight and return a UI/video-compatible record."""
+    from powered_landing_guidance.rtls import PlantConfig, RtlsFlight
+
+    flight = RtlsFlight(
+        conditions=conditions,
+        disturbances=disturbances,
+        plant_config=PlantConfig(
+            landing_mode="contact_dynamics",
+            record_replay=True,
+            seed=378,
+            sensor_seed=1378,
+        ),
+    )
+    plant = flight.plant
+    controller = flight.controller
+    dt_ctrl = flight.guidance_settings.control_dt_s
+    deadline_s = plant.config.deadline_s
+    steps: list[dict] = []
+    next_step_s = 0.0
+    next_progress_s = 0.0
+    sep_state_snapshot: list[float] | None = None
+    sep_impulse_snapshot: dict | None = None
+    contact_state_snapshot: list[float] | None = None
+    max_alt = 0.0
+
+    def record_step(cmd, q_pa: float) -> None:
+        st = plant.state
+        contact_sample = plant._last_contact_sample
+        stroke = max(contact_sample.left_stroke_m, contact_sample.right_stroke_m)
+        steps.append(
+            dict(
+                time_s=plant.time_s,
+                phase=plant.phase,
+                state=st.tolist(),
+                control=[
+                    float(cmd.throttle_cmd),
+                    float(cmd.gimbal_rad),
+                    float(cmd.rcs_torque_nm),
+                    float(cmd.fin_deflection_rad),
+                ],
+                engine_throttle=float(st[12]),
+                active_engines=int(plant.active_engines),
+                leg_stroke_m=float(stroke),
+                mass_kg=float(plant._total_mass(st)),
+                dynamic_pressure_pa=float(q_pa),
+            )
+        )
+
+    while not plant.done:
+        if cancel.is_set():
+            raise InterruptedError("Calculation stopped because the application closed.")
+        prev_upper = plant.upper_attached
+        prev_td = plant.touchdown_time_s
+        telemetry = plant.telemetry()
+        command = controller.step(telemetry)
+        plant.step(command, dt_ctrl)
+        st = plant.state
+        if float(st[1]) > max_alt:
+            max_alt = float(st[1])
+        q_now = plant.replay_frames[-1].dynamic_pressure_pa if plant.replay_frames else 0.0
+
+        if prev_upper and not plant.upper_attached:
+            sep_state_snapshot = st.tolist()
+            if plant.upper_state is not None:
+                sep_impulse_snapshot = dict(
+                    upper_position_m=[
+                        float(plant.upper_state["pos"][0]),
+                        float(plant.upper_state["pos"][1]),
+                    ],
+                    upper_velocity_m_s=[
+                        float(plant.upper_state["vel"][0]),
+                        float(plant.upper_state["vel"][1]),
+                    ],
+                    upper_angular_rate_rad_s=float(plant.upper_state["omega"]),
+                )
+            record_step(command, q_now)
+        elif prev_td is None and plant.touchdown_time_s is not None:
+            contact_state_snapshot = st.tolist()
+            record_step(command, q_now)
+        elif plant.time_s >= next_step_s - 1e-9 or plant.done:
+            if not steps or plant.time_s > steps[-1]["time_s"] + 1e-9:
+                record_step(command, q_now)
+            next_step_s = plant.time_s + 0.2
+
+        if plant.time_s >= next_progress_s - 1e-9 or plant.done:
+            next_progress_s = plant.time_s + 1.0
+            progress(
+                type(
+                    "_Prog",
+                    (),
+                    dict(phase=plant.phase, time_s=plant.time_s, deadline_s=deadline_s),
+                )()
+            )
+
+    summary = plant.summary()
+    flight.last_result = summary
+    flight.export_replay(
+        replay_path,
+        metadata={"engine": "dm100_rtls", "seed": 378},
+    )
+
+    fc = summary.get("first_contact")
+    contact_out = None
+    if fc is not None:
+        contact_out = dict(
+            time_s=fc["time_s"],
+            state=contact_state_snapshot or plant.state.tolist(),
+            foot_positions_m=fc["foot_positions_m"],
+            foot_velocities_m_s=fc["foot_velocities_m_s"],
+            criteria=fc["criteria"],
+        )
+
+    sep = summary.get("separation")
+    sep_out = None
+    if sep is not None:
+        sep_out = dict(
+            time_s=sep["time_s"],
+            state=sep_state_snapshot or (steps[0]["state"] if steps else plant.state.tolist()),
+            checks_before_separation=sep["checks_before_separation"],
+            impulse_model=sep_impulse_snapshot,
+        )
+
+    criteria = summary["criteria"]
+    mission_ok = bool(criteria.get("separation"))
+    flight_safety_keys = (
+        "dynamic_pressure",
+        "ascent_q_alpha",
+        "ascent_high_q_alpha",
+        "ascent_axial_g",
+        "flight_load_g",
+        "angular_rate",
+        "angular_acceleration",
+        "gimbal",
+        "fin_hinge",
+        "fin_model_envelope",
+        "mass_balance",
+        "helium_mass_balance",
+        "feed_inventory",
+        "feed_supply",
+        "slosh_model_domain",
+    )
+    flight_safe = all(criteria.get(k) is True for k in flight_safety_keys)
+    landing_ok = bool(
+        criteria.get("touchdown")
+        and criteria.get("leg_stroke") is True
+        and criteria.get("leg_force") is True
+        and criteria.get("contact_load_g") is True
+        and criteria.get("engine_off_standing") is True
+    )
+    passed = bool(summary["requirements_passed"])
+    failures = [] if passed else ([summary["outcome"]] if summary["outcome"] != "landed" else [])
+    return dict(
+        description=(
+            "DM100 SpaceX RTLS 2D 모델 (플립·부스트백·단축 재진입·무동력 격자핀 활강·"
+            "3→1 최소 스로틀 호버슬램·접지 후 5초 착륙다리 직립 동역학)"
+        ),
+        environment_version=OPERATING_SCOPE,
+        systems_model_version=SYSTEMS_MODEL_VERSION,
+        landing_assessment="contact_dynamics",
+        assessment_scope=dict(
+            flight_safety="through_post_contact_settling",
+            contact_structural_dynamics=True,
+            post_contact_settling=True,
+            settle_duration_s=flight.contact_settings.settle_duration_s,
+            vertical_touchdown_speed_limit_m_s=PHYSICS.acceptance.max_vertical_foot_speed_m_s,
+        ),
+        state_names=list(STATE_NAMES),
+        seed=378,
+        integration_dt_s=0.01,
+        design=asdict(flight.design) | {"launch_mass_kg": flight.design.launch_mass_kg},
+        physics=asdict(PHYSICS),
+        safety_limits=asdict(SAFETY),
+        fin_settings=asdict(flight.fins),
+        contact_limits=asdict(flight.contact_settings),
+        conditions=asdict(conditions),
+        disturbances=asdict(disturbances),
+        criteria=criteria,
+        mission_success=mission_ok,
+        flight_safety=flight_safe,
+        landing_success=landing_ok,
+        simulated_acceptance_passed=passed,
+        outcome=summary["outcome"],
+        failures=failures,
+        separation=sep_out,
+        contact=contact_out,
+        post_contact=summary["post_contact"],
+        phases=summary["phases"],
+        restarts_used=summary["restarts_used"],
+        convex_reference_feasible=bool(
+            controller.convex_solution is not None and controller.convex_solution.feasible
+        ),
+        time_s=summary["flight_time_s"],
+        final_state=plant.state.tolist(),
+        main_propellant_used_kg=summary["main_used_kg"],
+        rcs_propellant_used_kg=summary["rcs_used_kg"],
+        main_propellant_remaining_kg=summary["main_remaining_kg"],
+        rcs_propellant_remaining_kg=summary["rcs_remaining_kg"],
+        max_dynamic_pressure_pa=summary["peak_dynamic_pressure_pa"],
+        max_ascent_q_alpha_kpa_deg=summary["peak_q_alpha_kpa_deg"],
+        max_angular_rate_deg_s=summary["peak_angular_rate_deg_s"],
+        max_angular_acceleration_deg_s2=summary["peak_angular_acceleration_deg_s2"],
+        max_flight_load_g=summary["peak_recovery_g"],
+        max_gimbal_deg=summary["peak_gimbal_deg"],
+        max_fin_hinge_nm=summary["peak_fin_hinge_nm"],
+        peak_fin_deflection_deg=summary["peak_fin_deflection_deg"],
+        peak_leg_stroke_m=summary["post_contact"]["max_leg_stroke_m"],
+        peak_leg_force_n=summary["post_contact"]["max_leg_force_n"],
+        max_contact_load_g=summary["post_contact"]["max_contact_load_g"],
+        max_altitude_m=max_alt,
+        steps=steps,
+    )
+
+
 def _run_flight_worker(settings: dict, directory: str, messages, cancel) -> None:
     try:
         hashes_before = _source_hashes()
         conditions, disturbances = build_conditions(settings)
-        flight = AprFlight(
-            conditions=conditions,
-            disturbances=disturbances,
-            fin_mode="active",
-            integration_dt_s=0.01,
-        )
+        destination = Path(directory)
 
         def progress(current):
             if cancel.is_set():
@@ -924,7 +1206,13 @@ def _run_flight_worker(settings: dict, directory: str, messages, cancel) -> None
                 )
             )
 
-        raw = flight.run(progress=progress)
+        raw = _run_rtls_flight(
+            conditions,
+            disturbances,
+            progress,
+            cancel,
+            destination / "replay_3d.json",
+        )
         hashes_after = _source_hashes()
         raw["local_app_provenance"] = dict(
             created_at_utc=datetime.now(UTC).isoformat(),
@@ -933,7 +1221,6 @@ def _run_flight_worker(settings: dict, directory: str, messages, cancel) -> None
             source_sha256_after=hashes_after,
             source_unchanged=hashes_before == hashes_after,
         )
-        destination = Path(directory)
         summary = summarize_result(raw, destination.name)
         raw["local_app_result_validation"] = dict(
             result_valid=summary["result_valid"],
@@ -1335,6 +1622,77 @@ def create_app(output_dir: Path | None = None, manager: JobManager | None = None
                     label=dict(ko="돌풍 조건", en="Gust condition"),
                     settings=DEFAULTS | dict(gust_amplitude_m_s=2, gust_start_s=240),
                 ),
+                dict(
+                    id="example_weather",
+                    label=dict(ko="복합 기상 + 지연 (표준)", en="Combined weather + delays"),
+                    settings=DEFAULTS
+                    | dict(
+                        ground_wind_m_s=3,
+                        upper_wind_m_s=18,
+                        vertical_wind_m_s=1.5,
+                        gust_amplitude_m_s=0.5,
+                        gust_start_s=40,
+                        gust_duration_s=120,
+                        density_scale=1.05,
+                        thrust_scale=0.99,
+                        drag_coefficient_scale=1.1,
+                        initial_mass_scale=1.005,
+                        inertia_scale=1.01,
+                        sensor_position_error_m=1.5,
+                        sensor_velocity_error_m_s=0.75,
+                        observation_delay_steps=1,
+                        action_delay_steps=1,
+                        engine_lag_s=0.02,
+                    ),
+                ),
+                dict(
+                    id="extreme_shear_gust",
+                    label=dict(
+                        ko="극한 전단풍 + 활강 5 m/s 돌풍", en="Extreme shear + 5 m/s glide gust"
+                    ),
+                    settings=DEFAULTS
+                    | dict(
+                        ground_wind_m_s=-8,
+                        upper_wind_m_s=20,
+                        forecast_error_m_s=-2,
+                        gust_amplitude_m_s=5,
+                        gust_period_s=15,
+                        gust_start_s=320,
+                        gust_duration_s=120,
+                        gust_altitude_center_m=6000,
+                        gust_altitude_half_width_m=5000,
+                    ),
+                ),
+                dict(
+                    id="extreme_maxq",
+                    label=dict(
+                        ko="극한 Max-Q 경계 (고밀도·저항력·고추력)",
+                        en="Extreme Max-Q boundary corner",
+                    ),
+                    settings=DEFAULTS
+                    | dict(
+                        density_scale=1.1,
+                        drag_coefficient_scale=0.85,
+                        thrust_scale=1.03,
+                        initial_mass_scale=0.99,
+                        inertia_scale=0.97,
+                    ),
+                ),
+                dict(
+                    id="extreme_heavy",
+                    label=dict(ko="극한 중량·저추력 경계", en="Extreme heavy low-thrust corner"),
+                    settings=DEFAULTS
+                    | dict(
+                        density_scale=0.9,
+                        drag_coefficient_scale=0.85,
+                        thrust_scale=0.97,
+                        initial_mass_scale=1.01,
+                        inertia_scale=1.03,
+                        ground_wind_m_s=-6,
+                        upper_wind_m_s=-18,
+                        vertical_wind_m_s=-3,
+                    ),
+                ),
             ],
         )
 
@@ -1398,6 +1756,7 @@ def create_app(output_dir: Path | None = None, manager: JobManager | None = None
             raise HTTPException(404, detail="File is not ready.")
         media = {
             "result.json": "application/json",
+            "replay_3d.json": "application/json",
             "trajectory.png": "image/png",
             "flight.mp4": "video/mp4",
         }[filename]

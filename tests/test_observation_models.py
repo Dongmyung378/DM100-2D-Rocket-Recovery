@@ -5,8 +5,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from powered_landing_guidance.apr_recovery import AprFlight
 from powered_landing_guidance.observation_models import PlanarAttitudeEstimator, SensorSettings
+from powered_landing_guidance.rtls import PlantConfig, RtlsFlight
 
 
 def test_gyro_bias_is_identified_without_access_to_true_state_or_configured_bias():
@@ -58,26 +58,29 @@ def test_wrapped_angle_measurements_preserve_continuous_rotation():
 
 
 def test_dropped_packet_retains_timestamp_and_does_not_read_current_plant_state():
-    flight = AprFlight(
-        sensor_settings=SensorSettings(dropout_period_steps=20, dropout_length_steps=2)
+    flight = RtlsFlight(
+        sensor_settings=SensorSettings(dropout_period_steps=20, dropout_length_steps=2),
+        plant_config=PlantConfig(record_replay=False),
     )
+    plant = flight.plant
+    last_pkt = None
     for index in range(20):
-        flight.time_s = index * 0.02
-        flight.observe_control_state()
-    timestamp = flight.observation_times[-1]
-    packet = flight.observations[-1].copy()
-    earlier_drops = flight.sensor_dropout_count
-    flight.state[4] = 0.2
+        plant.time_s = index * 0.02
+        last_pkt = plant.telemetry()
+    assert last_pkt is not None
+    timestamp = last_pkt.measurement_time_s
+    earlier_drops = plant.sensor_dropout_count
+    plant.state[4] = 0.2
     for index in (20, 21):
-        flight.time_s = index * 0.02
-        flight.observe_control_state()
-        assert flight.observation_times[-1] == timestamp
-        assert np.array_equal(flight.observations[-1], packet)
-    assert flight.sensor_dropout_count - earlier_drops == 2
-    flight.time_s = 0.44
-    flight.observe_control_state()
-    assert flight.observation_times[-1] == pytest.approx(0.44)
-    assert flight.observations[-1][4] == pytest.approx(0.2)
+        plant.time_s = index * 0.02
+        pkt = plant.telemetry()
+        assert pkt.measurement_time_s == timestamp
+        assert pkt.theta_rad == last_pkt.theta_rad
+    assert plant.sensor_dropout_count - earlier_drops == 2
+    plant.time_s = 0.44
+    recovered = plant.telemetry()
+    assert recovered.measurement_time_s == pytest.approx(0.44)
+    assert recovered.theta_rad == pytest.approx(0.2)
 
 
 @pytest.mark.parametrize(

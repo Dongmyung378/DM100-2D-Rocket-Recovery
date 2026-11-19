@@ -2,9 +2,9 @@
 
 [한국어](runtime.ko.md) | [Project](../README.md)
 
-The runtime patch keeps the frozen numerical source and results unchanged while
-automating installation and providing the application's font and video encoder.
-The numerical revision remains 1.1.0. The patch release tag is `v1.1.0-runtime.1`.
+DM100 automatically prepares and verifies an isolated Python 3.12 environment,
+bundled Korean font (Noto Sans KR), and H.264 video encoder (`imageio-ffmpeg`)
+on Windows and Linux without requiring system packages or administrator access.
 
 ## Supported automatic setup
 
@@ -13,11 +13,11 @@ The numerical revision remains 1.1.0. The patch release tag is `v1.1.0-runtime.1
 - Use `--setup-only` to prepare dependencies, or `--doctor` to check runtime assets.
 
 No GPU, system FFmpeg, system Korean font or administrator installation is needed.
-An existing Python 3.12 is reused. Otherwise the launchers download uv 0.13.0,
-verify the official archive and executable SHA256 values, then install Python
-3.12.15 inside `.local/uv-python/` without changing shell profiles or the Windows
+An existing Python 3.12 is reused. Otherwise the launchers download `uv`, verify
+the official archive and executable SHA256 values, then install Python 3.12.15
+inside `.local/uv-python/` without changing shell profiles or the Windows
 registry. First setup and environment repair need internet access and a writable
-project folder. Linux's first download uses curl or wget and tar/sha256sum.
+project folder. Linux's first download uses `curl` or `wget` and `tar`/`sha256sum`.
 
 The Python launcher validates the isolated environment, current source path,
 application version and every active runtime dependency against
@@ -44,11 +44,4 @@ The [recorded compatibility checks](results/runtime-compatibility.json) cover
 fresh managed Windows and Linux Python 3.12.15 environments, Korean and space
 characters in checkout paths, local HTTP startup, Korean H.264 generation,
 contaminated environment variables, offline reuse, dependency drift repair and
-installed wheel assets. Missing-glyph warnings are treated as test failures.
-The Windows and Linux environments run on the same host; this is environment
-verification, not external review. An optional historical artifact test remains
-skipped because those private old records are not distributed.
-
-The frozen full-flight evidence still binds to the same 17 source files. This
-patch does not reinterpret the historical environment in `reproduction.json`;
-the new compatibility record describes the subsequent runtime verification.
+installed wheel assets. Missing-glyph warnings are treated as test failures in CI.

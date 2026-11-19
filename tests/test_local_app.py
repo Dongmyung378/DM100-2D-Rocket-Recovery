@@ -929,15 +929,18 @@ def test_worker_runs_fixed_engine_once_and_persists_exact_raw_values(
     captured = []
     preserved = deepcopy(saved_flight)
 
-    class RecordedFlight:
-        def __init__(self, **kwargs):
-            captured.append(kwargs)
+    def recorded_rtls_flight(conditions, disturbances, progress, cancel, replay_path):
+        captured.append(
+            {
+                "conditions": conditions,
+                "disturbances": disturbances,
+                "replay_path": replay_path,
+            }
+        )
+        progress(SimpleNamespace(phase="landing_burn", time_s=400.0, deadline_s=520.0))
+        return deepcopy(saved_flight)
 
-        def run(self, *, progress):
-            progress(SimpleNamespace(phase="landing", time_s=400.0, deadline_s=600.0))
-            return deepcopy(saved_flight)
-
-    monkeypatch.setattr(local_app, "AprFlight", RecordedFlight)
+    monkeypatch.setattr(local_app, "_run_rtls_flight", recorded_rtls_flight)
     monkeypatch.setattr(local_app, "_save_plot", lambda raw, path: path.write_bytes(b"trajectory"))
     directory = tmp_path / JOB_ID
     directory.mkdir()
@@ -947,8 +950,7 @@ def test_worker_runs_fixed_engine_once_and_persists_exact_raw_values(
     assert first["kind"] == "progress"
     assert final["kind"] == "completed"
     assert len(captured) == 1
-    assert captured[0]["fin_mode"] == "active"
-    assert captured[0]["integration_dt_s"] == 0.01
+    assert captured[0]["replay_path"] == directory / "replay_3d.json"
     assert isinstance(captured[0]["conditions"], AprConditions)
     assert isinstance(captured[0]["disturbances"], RecoveryDisturbances)
     persisted = json.loads((directory / "result.json").read_text(encoding="utf-8"))
@@ -979,10 +981,10 @@ def test_video_worker_reads_saved_json_and_never_invokes_the_engine(
         calls.append((raw, destination, kwargs))
         destination.write_bytes(b"rendered fixture")
 
-    def no_new_flight(**kwargs):
+    def no_new_flight(*args, **kwargs):
         pytest.fail("Video rendering attempted a new flight")
 
-    monkeypatch.setattr(local_app, "AprFlight", no_new_flight)
+    monkeypatch.setattr(local_app, "_run_rtls_flight", no_new_flight)
     monkeypatch.setattr(visualization, "save_nominal_flight_replay", render)
     messages = MemoryQueue()
     params = {"start_s": 95.0, "end_s": 96.0, "width": 640}

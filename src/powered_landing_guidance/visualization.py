@@ -174,7 +174,7 @@ class _NominalFlightReplay:
             flight.get("environment_version") != OPERATING_SCOPE
             or flight.get("systems_model_version") != "apr_100t_coupled_systems_v2"
             or flight.get("state_names") != list(STATE_NAMES)
-            or flight.get("landing_assessment") != "kinematic_touchdown"
+            or flight.get("landing_assessment") not in ("kinematic_touchdown", "contact_dynamics")
         ):
             raise ValueError("unsupported current 100 t flight format or state order")
         steps = flight["steps"]
@@ -1243,10 +1243,14 @@ class _NominalFlightAnimationScene:
             "boostback": "귀환 · 역추진",
             "coast": "관성 비행 · 공력핀 보조",
             "entry": "대기 진입 · 감속",
+            "entry_burn": "단축 재진입 연소 · MECO-2",
+            "aero_glide": "무동력 격자핀 활강 (엔진 OFF)",
             "landing": "착륙 · 주엔진 제동",
+            "landing_burn": "호버슬램 착륙 연소 (3→1)",
             "alignment": "수평 · 자세 정렬",
             "approach": "최종 접근",
             "touchdown": "첫 접지 · 비행 기록 종료",
+            "touchdown_settle": "엔진 OFF · 접지 후 직립 안정화",
         }
         self.phase.set_text(phase_names.get(phase, phase))
         self.clock.set_text(f"T+ {shown_time:07.2f} s")
@@ -1289,13 +1293,25 @@ class _NominalFlightAnimationScene:
             speed = max(abs(v[1]) for v in self.replay.contact_record["foot_velocities_m_s"])
             passed = self.replay.flight.get("simulated_acceptance_passed") is True
             heading = "접지 조건 통과" if passed else f"판정: {self.replay.flight.get('outcome')}"
-            self.event.set_text(
-                f"{heading} · 발 수직속력 {speed:.3f} m/s\n"
-                "엔진 OFF · 재생 연출 / 접지 이후 거동 미평가"
-            )
-            self.footer.set_text(
-                "접지 후 화면 고정·엔진 OFF는 연출 · 기립 미평가 · 2단 궤도 미계산"
-            )
+            is_contact_dyn = self.replay.flight.get("landing_assessment") == "contact_dynamics"
+            if is_contact_dyn:
+                pc = self.replay.flight.get("post_contact") or {}
+                stable_txt = "직립 안정 통과" if pc.get("standing_stable") else "직립 안정 미충족"
+                self.event.set_text(
+                    f"{heading} · 발 수직속력 {speed:.3f} m/s\n"
+                    f"엔진 OFF · 5초 착륙다리 동역학 ({stable_txt})"
+                )
+                self.footer.set_text(
+                    "DM100 SpaceX RTLS · 접지 후 5초 물리 안정화 평가 · 2단 궤도 미계산"
+                )
+            else:
+                self.event.set_text(
+                    f"{heading} · 발 수직속력 {speed:.3f} m/s\n"
+                    "엔진 OFF · 재생 연출 / 접지 이후 거동 미평가"
+                )
+                self.footer.set_text(
+                    "접지 후 화면 고정·엔진 OFF는 연출 · 기립 미평가 · 2단 궤도 미계산"
+                )
         elif attached:
             self.event.set_text("1·2단 결합")
         else:
@@ -1313,10 +1329,14 @@ class _NominalFlightAnimationScene:
             "boostback": 2,
             "coast": 2,
             "entry": 3,
+            "entry_burn": 3,
+            "aero_glide": 3,
             "landing": 4,
+            "landing_burn": 4,
             "alignment": 4,
             "approach": 4,
             "touchdown": 5,
+            "touchdown_settle": 5,
         }.get(phase, 0)
         for i, (card, text) in enumerate(self.timeline):
             card.set_facecolor("#173e46" if i <= stage else "#102636")
