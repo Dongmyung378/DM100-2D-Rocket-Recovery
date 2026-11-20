@@ -158,9 +158,10 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict) -> str:
 <circle cx="{sx(bb_f):.1f}" cy="{sy(bb_f):.1f}" r="6" fill="#9AB8C9" stroke="#EDF4F4" stroke-width="2"/>
 <text x="{sx(bb_f) - 18:.1f}" y="{sy(bb_f) - 14:.1f}" font-size="20" fill="#B8D0DF" font-weight="700" text-anchor="end">플립 · 부스트백</text>
 <circle cx="{sx(glide_f):.1f}" cy="{sy(glide_f):.1f}" r="7" fill="#48B7C8" stroke="#EDF4F4" stroke-width="2"/>
-<text x="{sx(glide_f) + 18:.1f}" y="{sy(glide_f) - 10:.1f}" font-size="21" fill="#59CBE0" font-weight="750">무동력 활강 (13.5→1.1 km)</text>
+<line x1="{sx(glide_f) + 6:.1f}" y1="{sy(glide_f):.1f}" x2="{max(px0 + 22, sx(glide_f) + 26):.1f}" y2="{sy(glide_f) - 18:.1f}" stroke="#59CBE0" stroke-width="1.5"/>
+<text x="{max(px0 + 28, sx(glide_f) + 32):.1f}" y="{sy(glide_f) - 12:.1f}" font-size="20" fill="#59CBE0" font-weight="750">무동력 활강 (13.5→1.1 km)</text>
 <circle cx="{sx(land_f):.1f}" cy="{sy(land_f):.1f}" r="7" fill="#6BCB8B" stroke="#EDF4F4" stroke-width="2"/>
-<text x="{sx(land_f) + 18:.1f}" y="{sy(land_f) + 6:.1f}" font-size="20" fill="#7BE09C" font-weight="750">3→1 호버슬램 · 발사장 착륙</text>
+<text x="{px0 + 28:.1f}" y="{py1 - 12:.1f}" font-size="20" fill="#7BE09C" font-weight="750">3→1 호버슬램 · 발사장 착륙</text>
 <text x="1116" y="646" font-size="22" fill="#B2C4CC" text-anchor="end">수평 거리 (km)</text>
 
 <rect x="48" y="688" width="1104" height="48" rx="12" fill="#1D3340"/>
@@ -207,7 +208,7 @@ def render_validation_svg(summary: dict) -> str:
         ("최대 각가속도 (≤ 5.0°/s²)", "peak_accel_deg_s2", 5.0, "°/s²"),
         ("착륙다리 압축 (≤ 0.90 m)", "max_leg_stroke_m", 0.9, "m"),
     ]
-    bx0, bw = 340.0, 620.0
+    bx0, bw = 315.0, 510.0
     bars = []
     for i, (label, key, lim, unit) in enumerate(metrics):
         vals = np.array([r[key] for r in rows], dtype=float)
@@ -222,7 +223,7 @@ def render_validation_svg(summary: dict) -> str:
             f'<rect x="{bx0:.0f}" y="{y}" width="{wmx:.1f}" height="18" rx="6" fill="#C88253" opacity="0.45"/>'
             f'<rect x="{bx0:.0f}" y="{y}" width="{w95:.1f}" height="18" rx="6" fill="#48B7C8" opacity="0.80"/>'
             f'<rect x="{bx0:.0f}" y="{y}" width="{w50:.1f}" height="18" rx="6" fill="#6BCB8B"/>'
-            f'<text x="{bx0 + bw + 16:.0f}" y="{y + 15}" font-size="16" fill="#B2C4CC">'
+            f'<text x="{bx0 + bw + 14:.0f}" y="{y + 14}" font-size="15" fill="#C6D7DF">'
             f"p50 {p50:.3f} · p95 {p95:.3f} · max {mx:.3f}{unit}</text>"
         )
 
@@ -412,16 +413,19 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
 <rect x="614" y="130" width="538" height="500" rx="16" fill="#152631" stroke="#2B4250"/>
 <text x="638" y="168" font-size="21" fill="#EDF4F4" font-weight="700">동압 (kPa) 및 주엔진 스로틀 (%) 프로파일</text>
 <rect x="{gx0:.1f}" y="{ry0:.0f}" width="{gx1 - gx0:.1f}" height="{ry1 - ry0:.0f}" fill="#48B7C8" opacity="0.16"/>
-<text x="{(gx0 + gx1) / 2:.1f}" y="{ry0 + 24:.0f}" font-size="15" fill="#59CBE0" font-weight="700" text-anchor="middle">무동력 활강</text>
+<text x="{(gx0 + gx1) / 2:.1f}" y="{ry0 + 54:.0f}" font-size="15" fill="#59CBE0" font-weight="700" text-anchor="middle">무동력 활강</text>
 {"".join(r_grid)}
 <line x1="{rx0:.0f}" y1="{y_q30:.1f}" x2="{rx1:.0f}" y2="{y_q30:.1f}" stroke="#E07A5F" stroke-width="1.6" stroke-dasharray="6 4"/>
-<text x="{rx1 - 6:.0f}" y="{y_q30 - 6:.1f}" font-size="15" fill="#E07A5F" text-anchor="end">동압 한계 30 kPa</text>
+<text x="{rx0 + 180:.0f}" y="{y_q30 - 7:.1f}" font-size="15" fill="#E07A5F" font-weight="600" text-anchor="start">동압 한계 30 kPa</text>
 <polyline points="{_polyline(thr_pts)}" fill="none" stroke="#C88253" stroke-width="2.4" opacity="0.90"/>
 <polyline points="{_polyline(q_pts)}" fill="none" stroke="#48B7C8" stroke-width="3.0"/>
 <text x="899" y="616" font-size="18" fill="#B2C4CC" text-anchor="middle">비행 시간 (s)</text>
 
 <rect x="48" y="646" width="1104" height="38" rx="10" fill="#1C3340"/>
-<text x="72" y="671" font-size="17" fill="#DCE8EC">● 주황: 상승 / 스로틀(%)  ● 시안: 무동력 격자핀 활강 / 동압(kPa)  ● 녹색: 3→1 호버슬램  ● 점선: 복합 기상 궤적</text>
+<circle cx="76" cy="665" r="6" fill="#C88253"/><text x="90" y="671" font-size="17" fill="#DCE8EC">상승 / 스로틀(%)</text>
+<circle cx="280" cy="665" r="6" fill="#48B7C8"/><text x="294" y="671" font-size="17" fill="#DCE8EC">무동력 격자핀 활강 / 동압(kPa)</text>
+<circle cx="595" cy="665" r="6" fill="#6BCB8B"/><text x="609" y="671" font-size="17" fill="#DCE8EC">3→1 호버슬램</text>
+<line x1="760" y1="665" x2="790" y2="665" stroke="#EDF4F4" stroke-width="2.2" stroke-dasharray="5 4"/><text x="802" y="671" font-size="17" fill="#DCE8EC">복합 기상 궤적</text>
 </svg>
 """
 

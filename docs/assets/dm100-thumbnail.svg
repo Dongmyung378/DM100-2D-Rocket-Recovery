@@ -30,9 +30,10 @@
 <circle cx="988.7" cy="363.6" r="6" fill="#9AB8C9" stroke="#EDF4F4" stroke-width="2"/>
 <text x="970.7" y="349.6" font-size="20" fill="#B8D0DF" font-weight="700" text-anchor="end">플립 · 부스트백</text>
 <circle cx="483.6" cy="523.2" r="7" fill="#48B7C8" stroke="#EDF4F4" stroke-width="2"/>
-<text x="501.6" y="513.2" font-size="21" fill="#59CBE0" font-weight="750">무동력 활강 (13.5→1.1 km)</text>
+<line x1="489.6" y1="523.2" x2="509.6" y2="505.2" stroke="#59CBE0" stroke-width="1.5"/>
+<text x="515.6" y="511.2" font-size="20" fill="#59CBE0" font-weight="750">무동력 활강 (13.5→1.1 km)</text>
 <circle cx="481.3" cy="562.5" r="7" fill="#6BCB8B" stroke="#EDF4F4" stroke-width="2"/>
-<text x="499.3" y="568.5" font-size="20" fill="#7BE09C" font-weight="750">3→1 호버슬램 · 발사장 착륙</text>
+<text x="508.0" y="554.0" font-size="20" fill="#7BE09C" font-weight="750">3→1 호버슬램 · 발사장 착륙</text>
 <text x="1116" y="646" font-size="22" fill="#B2C4CC" text-anchor="end">수평 거리 (km)</text>
 
 <rect x="48" y="688" width="1104" height="48" rx="12" fill="#1D3340"/>
