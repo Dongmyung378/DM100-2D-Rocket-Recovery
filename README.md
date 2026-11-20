@@ -1,10 +1,10 @@
-# DM100 - 2D SpaceX-Style Rocket Launch and First-Stage Recovery
+# DM100 - 2D RTLS-Style Rocket Launch and First-Stage Recovery
 
 [한국어](README.ko.md) | [Recorded results](docs/results.md) | [Model specification](docs/spec.md) | [Validation protocol](docs/validation.md) | [Roadmap (KO)](docs/roadmap.ko.md)
 
 A **2D concept simulator** for launching a 100 t two-stage rocket, cold-separating
 near 37 km, and returning the first-stage booster to its launch pad using a
-**SpaceX (Falcon 9)-style RTLS profile**. Built on a single unified engine with
+**reusable RTLS profile**. Built on a single unified engine with
 decoupled `Plant ↔ Forces ↔ GNC` interfaces (`rtls/`), DM100 simulates low-q
 flip, boostback, short entry burn (MECO-2), **unpowered grid-fin aerodynamic
 glide (9.6–14.5 km, 0% commanded throttle)**, **3→1 min-throttle vertical
@@ -19,7 +19,7 @@ export (ENU meters + unit quaternion `wxyz`)**, and optional H.264 MP4 rendering
 
 ## Physics, Guidance, and Control Features
 
-- **7-Phase SpaceX RTLS Mission**: `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
+- **7-Phase Reusable RTLS Mission**: `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
 - **Vehicle & Contact Physics**: variable mass and inertia, tail-first blunt-base
   descent drag ($C_{D,\text{descent}} = 1.65$), grid-fin effective angle of attack
   and hinge torque limits, **3-engine cluster (44% per-engine throttle floor,
@@ -69,9 +69,9 @@ Aggregate highlights across all 487 flights:
 
 ![487-case validation and safety margin distribution](docs/assets/dm100-validation.svg)
 
-![SpaceX RTLS phase propellant budget](docs/assets/dm100-propellant.svg)
+![Reusable RTLS phase propellant budget](docs/assets/dm100-propellant.svg)
 
-![SpaceX RTLS trajectory and unpowered glide profile](docs/assets/dm100-trajectory.svg)
+![Reusable RTLS trajectory and unpowered glide profile](docs/assets/dm100-trajectory.svg)
 
 Canonical 50 Hz 3D replay exports (ENU meters + unit quaternion `wxyz`, ready for
 UE5 / MuJoCo) are provided in
@@ -112,7 +112,7 @@ All calculations, saved artifacts, and rendering run locally offline with zero
 external APIs or CDNs:
 
 1. Select one of 7 built-in presets (calm, coupled weather, extreme shear/gust, extreme Max-Q, heavy low-thrust, etc.) or custom eligible parameters.
-2. Run a flight and inspect the **interactive 2D live flight replay** (play/pause, timeline scrubber, 0.5×–20× speed, phase jump buttons, live grid-fin/plume/RCS/leg-stroke HUD), `Glide & Control` plots, SpaceX phase fuel table, and mission/safety/touchdown/5 s standing checks.
+2. Run a flight and inspect the **interactive 2D live flight replay** (play/pause, timeline scrubber, 0.5×–20× speed, phase jump buttons, live grid-fin/plume/RCS/leg-stroke HUD), `Glide & Control` plots, RTLS phase fuel table, and mission/safety/touchdown/5 s standing checks.
 3. Optionally render an H.264 MP4 replay or download the **50 Hz 3D replay JSON (`replay_3d.json`)**.
 
 ## CLI Flights and 487-Case Reproduction
@@ -172,7 +172,7 @@ docs/results/                     validation-487.json and 50 Hz 3D replay JSONs
 docs/assets/                      Local UI screenshot and visual assets
 requirements/                     Tested runtime & dev dependency constraints
 scripts/                          Flight CLI (run_flight.py) and 487-case evaluator (evaluate_validation.py)
-src/powered_landing_guidance/     Shared physics, SpaceX RTLS engine (rtls/), local API & UI
+src/powered_landing_guidance/     Shared physics, Reusable RTLS engine (rtls/), local API & UI
 tests/                            Physics, RTLS GNC, estimator, and local UI test suites
 launch-dm100.bat / .sh            Windows & Linux auto-setup and app launchers
 ```

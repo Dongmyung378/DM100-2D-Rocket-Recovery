@@ -3,13 +3,13 @@
 [한국어](validation.ko.md) | [Model specification](spec.md) | [Recorded results](results.md) | [README](../README.md)
 
 This document describes the **487-case full-envelope validation design** and
-reproduction commands for the DM100 2D SpaceX-style RTLS simulator.
+reproduction commands for the DM100 2D Reusable RTLS simulator.
 
 ---
 
 ## 1. Causality & Plant/GNC Isolation
 
-- `SpaceXRtlsController` receives only delayed, noisy, dropout-affected `TelemetryPacket` measurements together with forecast atmosphere and forecast wind.
+- `RtlsController` receives only delayed, noisy, dropout-affected `TelemetryPacket` measurements together with forecast atmosphere and forecast wind.
 - Hidden plant perturbations (`density_scale`, `drag_coefficient_scale`, `thrust_scale`, `initial_mass_scale`, `inertia_scale`, true gusts, and true IMU biases) remain strictly encapsulated inside `Plant2D`.
 - All adaptive compensations (navigation acceleration bias estimation, causal online glide drag-scale estimation, torque-bias estimation, and gyro-bias estimation) operate strictly causally from past telemetry.
 

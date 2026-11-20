@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX RTLS 비행 궤적 및 동압·스로틀 프로파일</title>
+<title id="title">DM100 RTLS 비행 궤적 및 동압·스로틀 프로파일</title>
 <desc id="desc">무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 3회 재점화 스로틀 펄스, 47초 무동력 격자핀 활강 구간 및 동압 한계(30 kPa) 준수 결과입니다.</desc>
 <style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.mono{font-family:Consolas,'Courier New',monospace}</style>
 <rect width="1200" height="700" fill="#111D25"/>
-<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">SpaceX RTLS 궤적 및 무동력 활강·동압 프로파일</text>
+<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">RTLS 궤적 및 무동력 활강·동압 프로파일</text>
 <text x="48" y="96" font-size="20" fill="#A9BFC9">무풍 기준(실선)과 복합 기상(점선) 비교 · 재점화 3회(부스트백·재진입·착륙)와 47초 무동력 활강 구간 확인</text>
 
 <rect x="48" y="130" width="538" height="500" rx="16" fill="#152631" stroke="#2B4250"/>

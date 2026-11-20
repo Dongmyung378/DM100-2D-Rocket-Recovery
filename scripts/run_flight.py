@@ -1,4 +1,4 @@
-"""Run a DM100 2D SpaceX-style RTLS flight (Flip -> Boostback -> Entry -> Glide -> Hoverslam).
+"""Run a DM100 2D Reusable RTLS flight (Flip -> Boostback -> Entry -> Glide -> Hoverslam).
 
 Outputs phase-by-phase telemetry, propellant accounting, post-touchdown landing-leg
 standing stability, and optionally exports a 50 Hz ENU + unit-quaternion replay file
@@ -47,7 +47,7 @@ def _load_scenario(
 
 def _format_report(result: dict, scenario_label: str) -> str:
     lines = [
-        f"=== DM100 SpaceX RTLS Flight Report ({scenario_label}) ===",
+        f"=== DM100 Reusable RTLS Flight Report ({scenario_label}) ===",
         (
             f"Outcome: {result['outcome']} | Passed: {result['requirements_passed']} | "
             f"Failed: {result['failed_criteria']} | Wall time: {result['wall_seconds']:.2f} s"

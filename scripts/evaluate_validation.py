@@ -1,4 +1,4 @@
-"""Comprehensive validation and extreme edge-case evaluator for DM100 SpaceX RTLS.
+"""Comprehensive validation and extreme edge-case evaluator for DM100 Reusable RTLS.
 
 Supports:
   - --suite edge-cases       : 32 adversarial boundary corners (including 100%-limit nightmares)

@@ -1,4 +1,4 @@
-# DM100 2D SpaceX RTLS Model Specification
+# DM100 2D Reusable RTLS Model Specification
 
 [한국어](spec.ko.md) | [README](../README.md) | [Validation design](validation.md) | [Recorded results](results.md)
 

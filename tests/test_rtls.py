@@ -1,4 +1,4 @@
-"""Unit and integration tests for DM100 SpaceX-style RTLS recovery."""
+"""Unit and integration tests for DM100 Reusable RTLS recovery."""
 
 from __future__ import annotations
 
@@ -23,10 +23,10 @@ from powered_landing_guidance.rtls import (
     PlantConfig,
     PriorityControlAllocator,
     RtlsAerodynamics,
+    RtlsController,
     RtlsFinSettings,
     RtlsFlight,
     RtlsPropulsionSettings,
-    SpaceXRtlsController,
     TelemetryPacket,
     WindLUT,
     compute_body_aero,
@@ -281,14 +281,14 @@ def test_strict_causality_controller_ignores_hidden_density_scale() -> None:
     # Build two controllers with identical forecast conditions except hidden density_scale
     c_nom = AprConditions(density_scale=1.0)
     c_hidden = AprConditions(density_scale=1.10)
-    ctrl_a = SpaceXRtlsController(
+    ctrl_a = RtlsController(
         design=RtlsFlight().design,
         conditions=c_nom,
         aero=RtlsAerodynamics(),
         fins=RtlsFinSettings(),
         propulsion=RtlsPropulsionSettings(),
     )
-    ctrl_b = SpaceXRtlsController(
+    ctrl_b = RtlsController(
         design=RtlsFlight().design,
         conditions=c_hidden,
         aero=RtlsAerodynamics(),
@@ -335,7 +335,7 @@ def test_rtls_calm_end_to_end_and_replay_export(tmp_path: Path) -> None:
     assert res["post_contact"]["standing_stable"] is True
     assert res["convex_reference_feasible"] is True
 
-    # Verify true SpaceX unpowered grid-fin aerodynamic glide (>99% engine-off, tail-off only)!
+    # Verify true unpowered grid-fin aerodynamic glide (>99% engine-off, tail-off only)!
     ag = res["phases"]["aero_glide"]
     assert ag["active_fraction"] < 0.01
     assert ag["main_used_kg"] < 25.0

@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Generate DM100 SpaceX RTLS visuals from recorded 487-case results & 50 Hz replays."""
+"""Generate DM100 Reusable RTLS visuals from recorded 487-case results & 50 Hz replays."""
 
 from __future__ import annotations
 
@@ -127,11 +127,11 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict) -> str:
     passed = summary["overall"]["passed"]
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX 방식 2D 로켓 발사와 1단 귀환</title>
+<title id="title">DM100 재사용 RTLS 방식 2D 로켓 발사와 1단 귀환</title>
 <desc id="desc">100톤 로켓의 상승, 37 km 콜드 분리, 플립, 부스트백, 단축 재진입, 12.4 km 무동력 격자핀 활강, 3->1 호버슬램 착륙 및 5초 직립 동역학을 계산한 실제 궤적입니다.</desc>
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="760" fill="#111D25"/>
-<text x="48" y="76" font-size="46" fill="#EDF4F4" font-weight="750">DM100 · SpaceX RTLS 1단 재사용</text>
+<text x="48" y="76" font-size="46" fill="#EDF4F4" font-weight="750">DM100 · 1단 재사용 RTLS</text>
 <text x="48" y="122" font-size="24" fill="#A9BFC9" font-weight="500">무동력 격자핀 활강(12.4 km) · 3→1 호버슬램 · 접지 후 5초 착륙다리 직립 동역학</text>
 <line x1="48" y1="146" x2="1152" y2="146" stroke="#364E5B" stroke-width="1.2"/>
 
@@ -166,7 +166,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict) -> str:
 
 <rect x="48" y="688" width="1104" height="48" rx="12" fill="#1D3340"/>
 <text x="72" y="720" font-size="21" fill="#D6E4E8" font-weight="500">Plant ↔ Forces ↔ GNC 경계 분리 · 인과적 상태 추정 · 볼록 LP 참조 플래너</text>
-<text x="1128" y="720" font-size="20" fill="#9BB3BF" text-anchor="end">DM100 2D SpaceX RTLS</text>
+<text x="1128" y="720" font-size="20" fill="#9BB3BF" text-anchor="end">DM100 2D Reusable RTLS</text>
 </svg>
 """
 
@@ -233,7 +233,7 @@ def render_validation_svg(summary: dict) -> str:
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="700" fill="#111D25"/>
 <text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">전체 487케이스 일괄 검증 및 안전 여유 분포</text>
-<text x="48" y="98" font-size="21" fill="#A9BFC9">총 487/487 통과 (100.0%) · 5초 무동력 착륙다리 직립 487/487 통과 · 단일 통합 SpaceX RTLS 엔진</text>
+<text x="48" y="98" font-size="21" fill="#A9BFC9">총 487/487 통과 (100.0%) · 5초 무동력 착륙다리 직립 487/487 통과 · 단일 통합 재사용 RTLS 엔진</text>
 {"".join(cards)}
 
 <rect x="48" y="346" width="1104" height="304" rx="18" fill="#152631" stroke="#2B4250"/>
@@ -300,11 +300,11 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict) -> str:
     med_glide = float(np.median(glides))
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX RTLS 귀환 단계별 추진제 예산과 무동력 활강</title>
+<title id="title">DM100 RTLS 귀환 단계별 추진제 예산과 무동력 활강</title>
 <desc id="desc">단 분리 이후 귀환 단계별 주추진제와 RCS 소모량, 무동력 격자핀 활강 구간 및 487케이스 잔여 추진제 분포입니다.</desc>
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="650" fill="#111D25"/>
-<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">SpaceX RTLS 귀환 단계별 추진제 예산</text>
+<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">RTLS 귀환 단계별 추진제 예산</text>
 <text x="48" y="98" font-size="21" fill="#A9BFC9">무동력 격자핀 활강으로 연료를 절약하고, 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 궤적 + 487케이스 통계)</text>
 
 <rect x="48" y="132" width="1104" height="444" rx="18" fill="#152631" stroke="#2B4250"/>
@@ -396,11 +396,11 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
     )
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX RTLS 비행 궤적 및 동압·스로틀 프로파일</title>
+<title id="title">DM100 RTLS 비행 궤적 및 동압·스로틀 프로파일</title>
 <desc id="desc">무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 3회 재점화 스로틀 펄스, 47초 무동력 격자핀 활강 구간 및 동압 한계(30 kPa) 준수 결과입니다.</desc>
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="700" fill="#111D25"/>
-<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">SpaceX RTLS 궤적 및 무동력 활강·동압 프로파일</text>
+<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">RTLS 궤적 및 무동력 활강·동압 프로파일</text>
 <text x="48" y="96" font-size="20" fill="#A9BFC9">무풍 기준(실선)과 복합 기상(점선) 비교 · 재점화 3회(부스트백·재진입·착륙)와 47초 무동력 활강 구간 확인</text>
 
 <rect x="48" y="130" width="538" height="500" rx="16" fill="#152631" stroke="#2B4250"/>
@@ -448,7 +448,7 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
     fig, axes = plt.subplots(2, 2, figsize=(13.5, 8.2), dpi=160)
     fig.patch.set_facecolor("#ffffff")
     fig.suptitle(
-        "DM100 SpaceX RTLS · Calm Baseline (PASS | Main rem 9,772 kg | |x|=0.003 m | 5 s Standing PASS)",
+        "DM100 Reusable RTLS · Calm Baseline (PASS | Main rem 9,772 kg | |x|=0.003 m | 5 s Standing PASS)",
         fontsize=12.5,
         fontweight="bold",
         color="#1a2c38",

@@ -1,8 +1,8 @@
-# DM100 - 2차원 SpaceX 방식 로켓 발사와 1단 재사용 귀환
+# DM100 - 2차원 재사용 RTLS 로켓 발사와 1단 재사용 귀환
 
 [English](README.md) | [검증 결과](docs/results.ko.md) | [모델 명세](docs/spec.ko.md) | [검증 설계](docs/validation.ko.md) | [로드맵](docs/roadmap.ko.md)
 
-총질량 100톤 2단 로켓의 발사, 약 37 km에서의 콜드 단 분리, 그리고 **SpaceX(Falcon 9)
+총질량 100톤 2단 로켓의 발사, 약 37 km에서의 콜드 단 분리, 그리고 **RTLS(재사용 발사체)
 방식의 1단 발사장 귀환(RTLS)**을 계산하는 **2차원 개념 시뮬레이터**입니다.
 분리 직후 저동압 플립, 부스트백 연소, 짧은 재진입 연소(MECO-2) 뒤
 **무동력 격자핀 활강(9.6–14.5 km, 스로틀 명령 0%)**, **3→1엔진 최소 스로틀
@@ -20,7 +20,7 @@
 
 ## 구현한 물리·유도·제어 기능
 
-- **SpaceX 7단계 RTLS 비행**: `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
+- **7단계 재사용 RTLS 비행**: `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
 - **물리 모델**: 가변 질량·관성, 역방향 하강 둔체 항력($C_{D,\text{descent}} = 1.65$),
   격자핀 유효 받음각 및 힌지 모멘트 한계, **3기 엔진 클러스터(엔진당 최소 스로틀 44%,
   최대 재점화 3회)**, 단순화한 추진제 공급·가압·슬로싱·단 분리 충격량 모델,
@@ -64,9 +64,9 @@
 
 ![전체 487케이스 검증 및 안전 여유 분포](docs/assets/dm100-validation.svg)
 
-![SpaceX RTLS 귀환 단계별 추진제 예산](docs/assets/dm100-propellant.svg)
+![RTLS 귀환 단계별 추진제 예산](docs/assets/dm100-propellant.svg)
 
-![SpaceX RTLS 궤적 및 무동력 활강·동압 프로파일](docs/assets/dm100-trajectory.svg)
+![RTLS 궤적 및 무동력 활강·동압 프로파일](docs/assets/dm100-trajectory.svg)
 
 대표 시나리오의 50 Hz 3D 리플레이 JSON(UE5·MuJoCo 연동용, ENU 미터 + 단위 쿼터니언 `wxyz`)을
 [calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) 및
@@ -107,7 +107,7 @@ sh launch-dm100.sh --doctor
 사용하지 않습니다.
 
 1. 프리셋 7종(무풍, 복합 기상, 극한 전단풍·돌풍, 극한 Max-Q, 극한 중량·저추력 등) 또는 사용자 조건을 선택합니다.
-2. 비행을 실행한 뒤 **인터랙티브 2D 실시간 리플레이**(재생/일시정지, 타임라인 스크러버, 0.5×–20× 배속, 단계 바로가기, 격자핀·짐벌 플룸·RCS·착륙다리 압축 HUD), `활강·제어` 그래프, SpaceX 단계별 연료 분석표, 접지 및 5초 직립 판정표를 확인합니다.
+2. 비행을 실행한 뒤 **인터랙티브 2D 실시간 리플레이**(재생/일시정지, 타임라인 스크러버, 0.5×–20× 배속, 단계 바로가기, 격자핀·짐벌 플룸·RCS·착륙다리 압축 HUD), `활강·제어` 그래프, RTLS 단계별 연료 분석표, 접지 및 5초 직립 판정표를 확인합니다.
 3. 성공한 비행에서 선택적 MP4 영상 렌더링 또는 **50 Hz 3D 리플레이 JSON(`replay_3d.json`)** 다운로드를 수행할 수 있습니다.
 
 ## CLI 비행 실행 및 487케이스 재현
@@ -167,7 +167,7 @@ docs/results/                     validation-487.json 및 50 Hz 3D 리플레이 
 docs/assets/                      로컬 UI 스크린샷 및 시각화 자료
 requirements/                     검증한 런타임·개발 의존성 제약 조건
 scripts/                          단일 비행 CLI(run_flight.py), 487케이스 평가기(evaluate_validation.py)
-src/powered_landing_guidance/     공통 물리, SpaceX RTLS 엔진(rtls/), 로컬 API 및 인터랙티브 UI
+src/powered_landing_guidance/     공통 물리, 재사용 RTLS 엔진(rtls/), 로컬 API 및 인터랙티브 UI
 tests/                            물리, RTLS 유도·제어, 추정기, 로컬 UI 자동 테스트
 launch-dm100.bat / .sh            Windows·Linux 자동 환경 준비 및 앱 실행기
 ```

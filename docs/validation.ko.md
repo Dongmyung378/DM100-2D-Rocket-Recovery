@@ -2,13 +2,13 @@
 
 [English](validation.md) | [모델 명세](spec.ko.md) | [검증 결과](results.ko.md) | [README](../README.ko.md)
 
-이 문서는 DM100 2차원 SpaceX 방식 RTLS 시뮬레이터의 **487케이스 전수 검증 설계**와 재현 방법을 설명합니다.
+이 문서는 DM100 2차원 재사용 RTLS 시뮬레이터의 **487케이스 전수 검증 설계**와 재현 방법을 설명합니다.
 
 ---
 
 ## 1. 인과성 및 경계 격리 원칙
 
-- 제어기(`SpaceXRtlsController`)는 지연·잡음·편향·패킷 누락이 포함된 `TelemetryPacket`과 예보 대기/예보 바람만 받습니다.
+- 제어기(`RtlsController`)는 지연·잡음·편향·패킷 누락이 포함된 `TelemetryPacket`과 예보 대기/예보 바람만 받습니다.
 - 숨겨진 실제 물리 외란(`density_scale`, `drag_coefficient_scale`, `thrust_scale`, `initial_mass_scale`, `inertia_scale`, 실제 돌풍, 실제 IMU 편향)은 `Plant2D` 내부에만 존재합니다.
 - 모든 제어기 보정(항법 가속도 편향 추정 `est.accel_bias_x/z`, 활강 중 온라인 항력 배율 추정, 각가속도 외란 토크 편향 추정, 자이로 편향 추정)은 과거 관측만으로 수행하는 **인과적 추정**입니다.
 

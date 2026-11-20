@@ -1,4 +1,4 @@
-"""SpaceX Falcon 9-style 2D RTLS GNC Core (Engine-agnostic, 3D MuJoCo ready).
+"""Reusable 2D RTLS GNC Core (Engine-agnostic, 3D MuJoCo ready).
 
 Mission phases:
   1. ascent       : 3-engine gravity turn to 37 km cold-separation gate, MECO-1
@@ -157,8 +157,8 @@ class RtlsGuidanceSettings:
     ignition_height_margin_m: float = 75.0
 
 
-class SpaceXRtlsController:
-    """Strictly causal SpaceX-style RTLS controller implementing ControllerProtocol."""
+class RtlsController:
+    """Strictly causal Reusable RTLS controller implementing ControllerProtocol."""
 
     def __init__(
         self,
@@ -1121,10 +1121,10 @@ class SpaceXRtlsController:
             fx_req = fz_req * sin(direction) / max(cos(direction), 0.5)
 
         f_mag = hypot(fx_req, fz_req)
-        # Strictly enforce SpaceX per-engine throttle bounds [min, max]!
+        # Strictly enforce Cluster per-engine throttle bounds [min, max]!
         throttle = self.propulsion.quantize_throttle(f_mag / max(full_t, 1.0), active_engines)
 
-        # SpaceX Hoverslam anti-bounce MECO-3 guard: if already zeroing velocity right above deck,
+        # Hoverslam anti-bounce MECO-3 guard: if already zeroing velocity right above deck,
         # cut engine immediately rather than bouncing upward under TWR_min > 1.0!
         meco3_cut = self.landing_single_engine and h <= 0.25 and est.vz_m_s >= -0.20
         if meco3_cut:
@@ -1181,7 +1181,7 @@ class SpaceXRtlsController:
         )
 
     def step(self, telemetry: TelemetryPacket) -> ActuatorCommand:
-        """Main 50 Hz GNC step: causal estimation -> SpaceX phase guidance -> allocation."""
+        """Main 50 Hz GNC step: causal estimation -> RTLS phase guidance -> allocation."""
         est = self.estimator.observe(telemetry)
 
         # Phase 7: Post-touchdown immediate cutoff & settle
@@ -1400,7 +1400,7 @@ class SpaceXRtlsController:
             else:
                 vx_air, vz_air = self._air_velocity(est)
                 flow_retro = self._retro_angle(vx_air, vz_air)
-                # Gentle +/-5 deg SpaceX entry-burn steering to zero IIP into glide window:
+                # Gentle +/-5 deg RTLS entry-burn steering to zero IIP into glide window:
                 # thrust points along (+sin(theta), +cos(theta)), so when x_iip > 0 (East)
                 # tilt theta slightly NEGATIVE (pushing West), and vice versa.
                 if est.time_s >= self.last_iip_time_s + 0.40 - 1e-9:

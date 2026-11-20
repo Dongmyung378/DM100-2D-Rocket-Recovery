@@ -1,4 +1,4 @@
-"""High-level SpaceX-style RTLS flight runner for DM100."""
+"""High-level Reusable RTLS flight runner for DM100."""
 
 from __future__ import annotations
 
@@ -18,13 +18,13 @@ from powered_landing_guidance.rtls.forces import (
     RtlsFinSettings,
     RtlsPropulsionSettings,
 )
-from powered_landing_guidance.rtls.guidance import RtlsGuidanceSettings, SpaceXRtlsController
+from powered_landing_guidance.rtls.guidance import RtlsController, RtlsGuidanceSettings
 from powered_landing_guidance.rtls.plant_2d import Plant2D, PlantConfig
 from powered_landing_guidance.rtls.replay import export_replay_json
 
 
 class RtlsFlight:
-    """Orchestrates Plant2D <-> SpaceXRtlsController strictly through Telemetry/Command."""
+    """Orchestrates Plant2D <-> RtlsController strictly through Telemetry/Command."""
 
     def __init__(
         self,
@@ -67,7 +67,7 @@ class RtlsFlight:
             ascent_settings=self.ascent_settings,
             config=self.plant_config,
         )
-        self.controller = SpaceXRtlsController(
+        self.controller = RtlsController(
             design=self.design,
             conditions=self.conditions,
             aero=self.aero,

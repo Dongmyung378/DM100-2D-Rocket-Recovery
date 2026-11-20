@@ -972,7 +972,7 @@ def _run_rtls_flight(
     cancel,
     replay_path: Path,
 ) -> dict:
-    """Run DM100 SpaceX-style RTLS flight and return a UI/video-compatible record."""
+    """Run DM100 Reusable RTLS flight and return a UI/video-compatible record."""
     from powered_landing_guidance.rtls import PlantConfig, RtlsFlight
 
     flight = RtlsFlight(
@@ -1125,7 +1125,7 @@ def _run_rtls_flight(
     failures = [] if passed else ([summary["outcome"]] if summary["outcome"] != "landed" else [])
     return dict(
         description=(
-            "DM100 SpaceX RTLS 2D 모델 (플립·부스트백·단축 재진입·무동력 격자핀 활강·"
+            "DM100 재사용 RTLS 2D 모델 (플립·부스트백·단축 재진입·무동력 격자핀 활강·"
             "3→1 최소 스로틀 호버슬램·접지 후 5초 착륙다리 직립 동역학)"
         ),
         environment_version=OPERATING_SCOPE,

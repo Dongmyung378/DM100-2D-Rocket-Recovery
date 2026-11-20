@@ -4,7 +4,7 @@ Designed as a pure force/torque module that:
   1. Eliminates per-step dataclass allocation and Python loop overhead (~20x faster).
   2. Separates nose-first ascent drag from tail-first blunt-base descent drag and
      models realistic grid-fin effective angle of attack (alpha_eff = delta - alpha_retro).
-  3. Enforces SpaceX-style multi-engine cluster throttling (3 x 533.3 kN = 1,600 kN)
+  3. Enforces Reusable multi-engine cluster throttling (3 x 533.3 kN = 1,600 kN)
      with realistic per-engine minimum throttle (non-hovering Hoverslam on 1 engine)
      and bounded restart count.
   4. Can be plugged directly into MuJoCo's `xfrc_applied` callback in Stage 2 (3D).
@@ -64,7 +64,7 @@ class RtlsAerodynamics:
 
 @dataclass(frozen=True, slots=True)
 class RtlsFinSettings:
-    """SpaceX-style grid-fin parameters with effective angle-of-attack physics."""
+    """Reusable grid-fin parameters with effective angle-of-attack physics."""
 
     surface_mass_kg: float = FINS.surface_mass_kg
     actuator_mass_kg: float = FINS.actuator_mass_kg
@@ -101,7 +101,7 @@ class RtlsFinSettings:
 
 @dataclass(frozen=True, slots=True)
 class RtlsPropulsionSettings:
-    """SpaceX-style 3-engine cluster (3 x 533.3 kN = 1,600 kN) with throttle floor.
+    """Reusable 3-engine cluster (3 x 533.3 kN = 1,600 kN) with throttle floor.
 
     Total thrust, Isp, and nozzle exit area match the 100 t DM100 Design.
     Each individual engine throttles only within [min_engine_throttle, 1.0] or OFF.

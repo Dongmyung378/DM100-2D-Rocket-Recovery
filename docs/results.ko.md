@@ -2,7 +2,7 @@
 
 [English](results.md) | [프로젝트](../README.ko.md) | [모델 명세](spec.ko.md) | [검증 설계](validation.ko.md) | [로드맵](roadmap.ko.md)
 
-이 문서는 DM100 2차원 SpaceX 방식 RTLS(발사장 귀환) 시뮬레이터의 **전체 487케이스
+이 문서는 DM100 2차원 재사용 RTLS(발사장 귀환) 시뮬레이터의 **전체 487케이스
 일괄 검증 결과**와, 극한 엣지 케이스에서도 안정적인 귀환·착륙·직립을 달성하기 위해
 적용한 모든 유도·제어·물리 개선 사항을 기록합니다.
 
@@ -85,7 +85,7 @@
 
 ## 5. 안정적인 극한 귀환을 위해 적용한 핵심 개선 사항
 
-1. **SpaceX 7단계 RTLS 아키텍처 단일화 및 물리 경계 분리 (`Plant ↔ Forces ↔ GNC`)**
+1. **7단계 재사용 RTLS 아키텍처 단일화 및 물리 경계 분리 (`Plant ↔ Forces ↔ GNC`)**
    - `ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`
      전 과정을 단일 통합 엔진(`rtls/`)으로 일원화하고, 구버전 이중 모드 및 레거시 코드를 전부 제거했습니다.
    - 역방향 하강 둔체 항력($C_{D,\text{descent}} = 1.65$), 격자핀 유효 받음각·힌지 모멘트 한계,

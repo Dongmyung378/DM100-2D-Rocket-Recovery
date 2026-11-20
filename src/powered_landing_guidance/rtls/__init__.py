@@ -1,4 +1,4 @@
-"""DM100 SpaceX-style RTLS package (2D Plant -> 3D MuJoCo -> UE5 Replay)."""
+"""DM100 Reusable RTLS package (2D Plant -> 3D MuJoCo -> UE5 Replay)."""
 
 from powered_landing_guidance.rtls.contact import ContactSettings, evaluate_ground_contact
 from powered_landing_guidance.rtls.control_allocation import (
@@ -22,7 +22,7 @@ from powered_landing_guidance.rtls.forces import (
     compute_fin_aero,
     compute_forces_and_torques,
 )
-from powered_landing_guidance.rtls.guidance import RtlsGuidanceSettings, SpaceXRtlsController
+from powered_landing_guidance.rtls.guidance import RtlsController, RtlsGuidanceSettings
 from powered_landing_guidance.rtls.interfaces import (
     ActuatorCommand,
     ContactSample,
@@ -58,7 +58,7 @@ __all__ = [
     "RtlsFlight",
     "RtlsGuidanceSettings",
     "RtlsPropulsionSettings",
-    "SpaceXRtlsController",
+    "RtlsController",
     "TelemetryPacket",
     "WindLUT",
     "compute_body_aero",

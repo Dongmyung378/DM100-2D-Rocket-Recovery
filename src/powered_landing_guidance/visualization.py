@@ -1302,7 +1302,7 @@ class _NominalFlightAnimationScene:
                     f"엔진 OFF · 5초 착륙다리 동역학 ({stable_txt})"
                 )
                 self.footer.set_text(
-                    "DM100 SpaceX RTLS · 접지 후 5초 물리 안정화 평가 · 2단 궤도 미계산"
+                    "DM100 Reusable RTLS · 접지 후 5초 물리 안정화 평가 · 2단 궤도 미계산"
                 )
             else:
                 self.event.set_text(

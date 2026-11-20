@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX RTLS 귀환 단계별 추진제 예산과 무동력 활강</title>
+<title id="title">DM100 RTLS 귀환 단계별 추진제 예산과 무동력 활강</title>
 <desc id="desc">단 분리 이후 귀환 단계별 주추진제와 RCS 소모량, 무동력 격자핀 활강 구간 및 487케이스 잔여 추진제 분포입니다.</desc>
 <style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.mono{font-family:Consolas,'Courier New',monospace}</style>
 <rect width="1200" height="650" fill="#111D25"/>
-<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">SpaceX RTLS 귀환 단계별 추진제 예산</text>
+<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">RTLS 귀환 단계별 추진제 예산</text>
 <text x="48" y="98" font-size="21" fill="#A9BFC9">무동력 격자핀 활강으로 연료를 절약하고, 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 궤적 + 487케이스 통계)</text>
 
 <rect x="48" y="132" width="1104" height="444" rx="18" fill="#152631" stroke="#2B4250"/>

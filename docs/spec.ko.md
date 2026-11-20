@@ -1,4 +1,4 @@
-# DM100 2D SpaceX RTLS 모델 명세
+# DM100 2D Reusable RTLS 모델 명세
 
 [English](spec.md) | [README](../README.ko.md) | [검증 설계](validation.ko.md) | [검증 결과](results.ko.md)
 
@@ -50,7 +50,7 @@
 6. **무동력 격자핀 활강 (`aero_glide`)**: 주추진제 소모 `0 kg`. 인과적 항법 가속도 편향(`est.accel_bias_z_m_s2`)으로 숨겨진 대기밀도·항력 배율을 온라인 추정해 예측 탄착점(IIP) 오차를 공력 양력과 격자핀만으로 발사장 상공까지 유도.
 7. **3→1 최소 스로틀 호버슬램 (`landing_burn`, 재점화 #3) & 5초 직립 (`touchdown_settle`)**:
    - 고고도 3엔진 감속(Stage A) → 중앙 1엔진 전환(Stage B, 호버링 불가 Hoverslam).
-   - **해석적 자세 복귀 예측기(`_predict_zero_tilt_state`)**로 유한 각가속도(`2.15°/s²`) 복귀 위상지연을 선제 보상해 강풍·돌풍에서도 오버슈트 없이 패드 중앙 정렬.
+   - <strong>해석적 자세 복귀 예측기(`_predict_zero_tilt_state`)</strong>로 유한 각가속도(`2.15°/s²`) 복귀 위상지연을 선제 보상해 강풍·돌풍에서도 오버슈트 없이 패드 중앙 정렬.
    - 볼록 최적화(LP) 종말 참조 플래너 및 우선순위 제어 할당(`격자핀 → TVC → RCS`) 적용(저고도 수직 정렬 모드에서 구간 실제 TVC 토크 `sup_mid` 기준 RCS 정합).
    - 접지 직후 엔진 종료 및 **5초 무동력 착륙다리 스프링-댐퍼·마찰 직립 정착** 판정.
 

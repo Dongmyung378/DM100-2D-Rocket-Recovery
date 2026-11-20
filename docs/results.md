@@ -3,7 +3,7 @@
 [한국어](results.ko.md) | [Project](../README.md) | [Model specification](spec.md) | [Validation protocol](validation.md) | [Roadmap (KO)](roadmap.ko.md)
 
 This report records the **complete 487-case validation campaign** of the unified
-DM100 2D SpaceX-style RTLS simulator and documents every guidance, control, and
+DM100 2D Reusable RTLS simulator and documents every guidance, control, and
 physics improvement implemented to guarantee stable recovery across worst-case
 boundary conditions.
 
@@ -87,7 +87,7 @@ Representative flights generated with `scripts/run_flight.py`:
 
 ## 5. Key GNC and Physics Improvements Recorded
 
-1. **Unified SpaceX 7-Phase RTLS Engine (`Plant ↔ Forces ↔ GNC`)**
+1. **Unified RTLS 7-Phase RTLS Engine (`Plant ↔ Forces ↔ GNC`)**
    - Consolidated the entire simulator onto the clean `rtls/` architecture
      (`ascent → flip → boostback → coast → entry_burn → aero_glide → landing_burn → touchdown_settle`)
      and removed all legacy dual-mode paths.

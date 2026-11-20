@@ -1,4 +1,4 @@
-"""DM100 2D rocket launch and SpaceX-style RTLS first-stage recovery simulator."""
+"""DM100 2D rocket launch and Reusable RTLS first-stage recovery simulator."""
 
 from powered_landing_guidance.apr_recovery import (
     AprConditions,

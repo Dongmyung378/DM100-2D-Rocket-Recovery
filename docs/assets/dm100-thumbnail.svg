@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-<title id="title">DM100 SpaceX 방식 2D 로켓 발사와 1단 귀환</title>
+<title id="title">DM100 재사용 RTLS 방식 2D 로켓 발사와 1단 귀환</title>
 <desc id="desc">100톤 로켓의 상승, 37 km 콜드 분리, 플립, 부스트백, 단축 재진입, 12.4 km 무동력 격자핀 활강, 3->1 호버슬램 착륙 및 5초 직립 동역학을 계산한 실제 궤적입니다.</desc>
 <style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.mono{font-family:Consolas,'Courier New',monospace}</style>
 <rect width="1200" height="760" fill="#111D25"/>
-<text x="48" y="76" font-size="46" fill="#EDF4F4" font-weight="750">DM100 · SpaceX RTLS 1단 재사용</text>
+<text x="48" y="76" font-size="46" fill="#EDF4F4" font-weight="750">DM100 · 1단 재사용 RTLS</text>
 <text x="48" y="122" font-size="24" fill="#A9BFC9" font-weight="500">무동력 격자핀 활강(12.4 km) · 3→1 호버슬램 · 접지 후 5초 착륙다리 직립 동역학</text>
 <line x1="48" y1="146" x2="1152" y2="146" stroke="#364E5B" stroke-width="1.2"/>
 
@@ -38,5 +38,5 @@
 
 <rect x="48" y="688" width="1104" height="48" rx="12" fill="#1D3340"/>
 <text x="72" y="720" font-size="21" fill="#D6E4E8" font-weight="500">Plant ↔ Forces ↔ GNC 경계 분리 · 인과적 상태 추정 · 볼록 LP 참조 플래너</text>
-<text x="1128" y="720" font-size="20" fill="#9BB3BF" text-anchor="end">DM100 2D SpaceX RTLS</text>
+<text x="1128" y="720" font-size="20" fill="#9BB3BF" text-anchor="end">DM100 2D Reusable RTLS</text>
 </svg>

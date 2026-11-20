@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "powered-landing-guidance"
 version = "1.0.0"
-description = "DM100: 2D SpaceX-style RTLS rocket launch and first-stage recovery simulator"
+description = "DM100: 2D Reusable RTLS rocket launch and first-stage recovery simulator"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 keywords = ["rocket", "simulation", "2d", "rtls", "hoverslam", "guidance", "control"]

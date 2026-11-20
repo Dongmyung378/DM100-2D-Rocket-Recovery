@@ -1,6 +1,6 @@
 """DM100 100 t vehicle design, operating environment, disturbance, and safety definitions.
 
-Shared physical configuration dataclasses for the DM100 2D SpaceX-style RTLS
+Shared physical configuration dataclasses for the DM100 2D Reusable RTLS
 launch and first-stage recovery simulator.
 """
 
@@ -31,7 +31,7 @@ from powered_landing_guidance.vehicle_systems import (
     slosh_displacement,
 )
 
-RETURN_METHOD = "SpaceX RTLS"
+RETURN_METHOD = "Reusable RTLS"
 ASSUMED_UPPER_STAGE_ORBIT_ALTITUDE_M = 700_000.0
 
 
@@ -71,7 +71,7 @@ class RecoveryDisturbances:
 
 @dataclass(frozen=True)
 class FinSettings:
-    """Assumed equivalent control surfaces, not a measured Falcon 9 grid-fin map."""
+    """Assumed equivalent control surfaces, not a measured flight-vehicle grid-fin map."""
 
     surface_mass_kg: float = 360.0
     actuator_mass_kg: float = 160.0

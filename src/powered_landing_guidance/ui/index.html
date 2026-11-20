@@ -32,14 +32,14 @@ header{height:76px;background:var(--navy);color:white;display:flex;align-items:c
 <aside class="sidebar">
   <div class="eyebrow" data-i18n="configuration">FLIGHT CONFIGURATION</div><h2 data-i18n="conditions">Flight conditions</h2><p class="subtext" data-i18n="conditionsSub">Configure the environment within allowed limits.</p>
   <form id="flight-form" novalidate>
-    <div class="mode-box"><span class="small-label" data-i18n="engineMode">SpaceX RTLS · 2D Recovery</span><span class="mode-badge" id="mode-badge" data-i18n="modeNote">Flip → Boostback → Short Entry → Unpowered Grid-Fin Glide → 3→1 Hoverslam → 5 s Upright Standing</span></div>
+    <div class="mode-box"><span class="small-label" data-i18n="engineMode">Reusable RTLS · 2D Recovery</span><span class="mode-badge" id="mode-badge" data-i18n="modeNote">Flip → Boostback → Short Entry → Unpowered Grid-Fin Glide → 3→1 Hoverslam → 5 s Upright Standing</span></div>
     <div class="preset"><label class="small-label" for="preset" data-i18n="preset">Preset</label><select id="preset" disabled><option value="custom">Custom inputs</option></select></div>
     <div class="section-heading"><span data-i18n="environment">Environment</span><span class="section-number">01</span></div>
     <div class="conditions" id="wind-fields"></div><div class="two-fields" id="atmosphere-fields"></div>
     <p class="input-hint" data-i18n="densityHint">Final density must stay within ±10% of the reference atmosphere.</p>
     <details class="advanced" id="advanced"><summary data-i18n="advanced">Advanced conditions</summary><div class="advanced-content" id="advanced-fields"></div><p class="input-hint" data-i18n="profileHint">Wind varies smoothly from the ground to the upper atmosphere. Gust timing and altitude are set below.</p></details>
     <div class="form-errors hidden" id="form-errors" role="alert"></div>
-    <div class="sidebar-footer"><div class="fixed-card"><div class="fixed-title" data-i18n="fixedVehicle">Fixed vehicle · DM100</div><div class="fixed-grid"><div><span data-i18n="launchMass">Launch mass</span><strong>100 t</strong></div><div><span data-i18n="rcs">RCS propellant</span><strong>300 kg</strong></div><div><span data-i18n="controller">Controller</span><strong id="fixed-controller">SpaceX RTLS</strong></div><div><span data-i18n="seed">Seed</span><strong id="fixed-seed">—</strong></div></div></div><div><button type="submit" class="run" id="run-button" disabled><svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 2 8 5-8 5V2Z" fill="currentColor"/></svg><span id="run-text" data-i18n="run">Run simulation</span></button><button type="button" class="reset" id="reset-button" data-i18n="reset" disabled>Reset to defaults</button></div><p class="run-note" data-i18n="runNote">Calculation and files stay on this computer.</p></div>
+    <div class="sidebar-footer"><div class="fixed-card"><div class="fixed-title" data-i18n="fixedVehicle">Fixed vehicle · DM100</div><div class="fixed-grid"><div><span data-i18n="launchMass">Launch mass</span><strong>100 t</strong></div><div><span data-i18n="rcs">RCS propellant</span><strong>300 kg</strong></div><div><span data-i18n="controller">Controller</span><strong id="fixed-controller">RTLS GNC</strong></div><div><span data-i18n="seed">Seed</span><strong id="fixed-seed">—</strong></div></div></div><div><button type="submit" class="run" id="run-button" disabled><svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m4 2 8 5-8 5V2Z" fill="currentColor"/></svg><span id="run-text" data-i18n="run">Run simulation</span></button><button type="button" class="reset" id="reset-button" data-i18n="reset" disabled>Reset to defaults</button></div><p class="run-note" data-i18n="runNote">Calculation and files stay on this computer.</p></div>
   </form>
 </aside>
 <main class="main">
@@ -56,7 +56,7 @@ header{height:76px;background:var(--navy);color:white;display:flex;align-items:c
   </section>
   <div class="tabs" role="tablist" aria-label="Flight charts"><button type="button" id="tab-flight" class="active" role="tab" aria-selected="true" data-i18n="flightTab">Flight</button><button type="button" id="tab-velocity" role="tab" aria-selected="false" data-i18n="velocityTab">Velocity</button><button type="button" id="tab-propellant" role="tab" aria-selected="false" data-i18n="propellantTab">Propellant</button><button type="button" id="tab-safety" role="tab" aria-selected="false" data-i18n="safetyTab">Safety</button><button type="button" id="tab-control" role="tab" aria-selected="false" data-i18n="controlTab">Glide &amp; Control</button></div>
   <section class="charts"><article class="panel"><div class="panel-head"><div><h3 id="chart-a-title"></h3><p class="panel-caption" id="chart-a-caption"></p></div><div class="legend" id="chart-a-legend"></div></div><div class="chart" id="chart-a"></div></article><article class="panel"><div class="panel-head"><div><h3 id="chart-b-title"></h3><p class="panel-caption" id="chart-b-caption"></p></div></div><div class="chart" id="chart-b"></div></article></section>
-  <section class="phase-panel hidden" id="phase-panel"><div class="table-head"><h3 data-i18n="phaseBreakdown">SpaceX RTLS phase breakdown</h3><span class="table-sub" id="phase-meta"></span></div><div class="table-scroll"><table><thead><tr><th data-i18n="phaseCol">Phase</th><th data-i18n="durCol">Duration</th><th data-i18n="altCol">Altitude</th><th data-i18n="mainCol">Main fuel</th><th data-i18n="rcsCol">RCS</th><th data-i18n="finCol">Max fin</th><th data-i18n="qCol">Peak q</th></tr></thead><tbody id="phase-table"></tbody></table></div></section>
+  <section class="phase-panel hidden" id="phase-panel"><div class="table-head"><h3 data-i18n="phaseBreakdown">RTLS phase breakdown</h3><span class="table-sub" id="phase-meta"></span></div><div class="table-scroll"><table><thead><tr><th data-i18n="phaseCol">Phase</th><th data-i18n="durCol">Duration</th><th data-i18n="altCol">Altitude</th><th data-i18n="mainCol">Main fuel</th><th data-i18n="rcsCol">RCS</th><th data-i18n="finCol">Max fin</th><th data-i18n="qCol">Peak q</th></tr></thead><tbody id="phase-table"></tbody></table></div></section>
   <section class="lower"><article class="panel"><div class="table-head"><h3 data-i18n="assessment">Mission, safety & landing assessment</h3><span class="table-sub" data-i18n="contactOnly" data-i18n-title="speedDefinition">Landing: first touchdown</span></div><div class="table-scroll"><table><thead><tr><th data-i18n="item">Metric</th><th data-i18n="actual">Result</th><th data-i18n="limit">Limit</th><th data-i18n="status">Status</th></tr></thead><tbody id="result-table"></tbody></table></div><div class="result-actions hidden" id="result-actions"></div></article>
     <article class="video-card hidden" id="video-card">
       <div class="video-top"><h3 data-i18n="flightVideo">Flight video</h3><span class="optional" data-i18n="optional">OPTIONAL</span></div>
@@ -110,20 +110,20 @@ const criterionLabels={ascent_high_q_alpha:{en:"High-pressure ascent angle of at
 translations.en.phase_flip="Return attitude maneuver";
 translations.ko.phase_flip="귀환 자세 전환";
 Object.assign(translations.en,{
-  engineMode:"SpaceX RTLS · 2D Recovery",modeNote:"Flip → Boostback → Short Entry → Unpowered Grid-Fin Glide → 3→1 Hoverslam → 5 s Upright Standing",
+  engineMode:"Reusable RTLS · 2D Recovery",modeNote:"Flip → Boostback → Short Entry → Unpowered Grid-Fin Glide → 3→1 Hoverslam → 5 s Upright Standing",
   liveReplayTitle:"Interactive 2D flight replay",controlTab:"Glide & Control",
   finDeflection:"Grid-fin deflection",finAxis:"Fin deflection (°)",engineThrottle:"Main engine throttle",throttleAxis:"Throttle (%)",
-  phaseBreakdown:"SpaceX RTLS phase breakdown",phaseCol:"Phase",durCol:"Duration",altCol:"Altitude",mainCol:"Main fuel",rcsCol:"RCS",finCol:"Max fin",qCol:"Peak q",
+  phaseBreakdown:"RTLS phase breakdown",phaseCol:"Phase",durCol:"Duration",altCol:"Altitude",mainCol:"Main fuel",rcsCol:"RCS",finCol:"Max fin",qCol:"Peak q",
   postContactGroup:"Post-contact · 5 s engine-off leg dynamics",downloadReplay3d:"Save 50 Hz 3D Replay JSON (UE5/MuJoCo)",
   play:"Play",pause:"Pause",
   phase_entry_burn:"Entry burn",phase_aero_glide:"Unpowered glide",phase_landing_burn:"Hoverslam",phase_touchdown_settle:"5 s Standing",
   restartsMeta:"Restarts",convexMeta:"Convex LP",standingMeta:"5 s Standing"
 });
 Object.assign(translations.ko,{
-  engineMode:"SpaceX RTLS · 2D 재사용 귀환",modeNote:"플립 → 부스트백 → 단축 재진입 → 무동력 격자핀 활강 → 3→1 호버슬램 → 5초 직립 안정",
+  engineMode:"RTLS · 2D 재사용 귀환",modeNote:"플립 → 부스트백 → 단축 재진입 → 무동력 격자핀 활강 → 3→1 호버슬램 → 5초 직립 안정",
   liveReplayTitle:"인터랙티브 2D 실시간 비행 리플레이",controlTab:"활강·제어",
   finDeflection:"격자핀 조향각",finAxis:"핀 조향각 (°)",engineThrottle:"주엔진 스로틀",throttleAxis:"스로틀 (%)",
-  phaseBreakdown:"SpaceX RTLS 비행 단계별 분석",phaseCol:"비행 단계",durCol:"소요 시간",altCol:"고도 구간",mainCol:"주추진제",rcsCol:"RCS",finCol:"최대 핀각",qCol:"최대 동압",
+  phaseBreakdown:"RTLS 비행 단계별 분석",phaseCol:"비행 단계",durCol:"소요 시간",altCol:"고도 구간",mainCol:"주추진제",rcsCol:"RCS",finCol:"최대 핀각",qCol:"최대 동압",
   postContactGroup:"접지 이후 · 5초 무동력 착륙다리 동역학",downloadReplay3d:"50 Hz 3D 리플레이 JSON 저장 (UE5/MuJoCo)",
   play:"재생",pause:"일시정지",
   phase_entry_burn:"단축 재진입 연소",phase_aero_glide:"무동력 격자핀 활강",phase_landing_burn:"호버슬램 착륙 연소",phase_touchdown_settle:"5초 직립 안정",
