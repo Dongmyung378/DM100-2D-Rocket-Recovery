@@ -67,6 +67,12 @@ Aggregate highlights across all 487 flights:
 - **Median propellant remaining**: **`9,772.0 kg`** main / **`252.2 kg`** RCS (`3/3` restarts)
 - **5 s engine-off landing-leg standing**: **487 / 487 (100.0%)** (`leg stroke ≤ 0.278 m`, `contact load ≤ 1.98 g`)
 
+![487-case validation and safety margin distribution](docs/assets/dm100-validation.svg)
+
+![SpaceX RTLS phase propellant budget](docs/assets/dm100-propellant.svg)
+
+![SpaceX RTLS trajectory and unpowered glide profile](docs/assets/dm100-trajectory.svg)
+
 Canonical 50 Hz 3D replay exports (ENU meters + unit quaternion `wxyz`, ready for
 UE5 / MuJoCo) are provided in
 [calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) and

@@ -1652,8 +1652,8 @@ def create_app(output_dir: Path | None = None, manager: JobManager | None = None
                     ),
                     settings=DEFAULTS
                     | dict(
-                        ground_wind_m_s=-8,
-                        upper_wind_m_s=20,
+                        ground_wind_m_s=-6,
+                        upper_wind_m_s=18,
                         forecast_error_m_s=-2,
                         gust_amplitude_m_s=5,
                         gust_period_s=15,

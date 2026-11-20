@@ -62,6 +62,12 @@
 - **주추진제 / RCS 잔량 중앙값**: **`9,772.0 kg`** / **`252.2 kg`** (재점화 `3/3`)
 - **5초 무동력 착륙다리 직립**: **487 / 487 (100.0%)** (`다리 압축 ≤ 0.278 m`, `접촉 하중 ≤ 1.98 g`)
 
+![전체 487케이스 검증 및 안전 여유 분포](docs/assets/dm100-validation.svg)
+
+![SpaceX RTLS 귀환 단계별 추진제 예산](docs/assets/dm100-propellant.svg)
+
+![SpaceX RTLS 궤적 및 무동력 활강·동압 프로파일](docs/assets/dm100-trajectory.svg)
+
 대표 시나리오의 50 Hz 3D 리플레이 JSON(UE5·MuJoCo 연동용, ENU 미터 + 단위 쿼터니언 `wxyz`)을
 [calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) 및
 [example_weather_replay_50hz.json](docs/results/replays/example_weather_replay_50hz.json)에

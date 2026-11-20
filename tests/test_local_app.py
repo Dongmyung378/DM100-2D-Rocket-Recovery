@@ -1026,3 +1026,14 @@ def test_video_worker_itself_rejects_invalid_records_before_rendering(
     assert "valid saved flight" in result["error"]
     assert result_file.read_bytes() == original
     assert not (directory / "flight.mp4").exists()
+
+
+def test_all_presets_are_eligible(api):
+    client, _manager, headers, _spawned = api
+    presets = client.get("/api/config").json()["presets"]
+    assert len(presets) == 7
+    for preset in presets:
+        response = client.post("/api/validate", json=preset["settings"], headers=headers)
+        assert response.status_code == 200, preset["id"]
+        body = response.json()
+        assert body["eligible"] is True, (preset["id"], body["errors"])
