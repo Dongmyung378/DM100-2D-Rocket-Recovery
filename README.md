@@ -45,11 +45,11 @@ Across **7,792 individual constraint checks** (`16` metrics × `487` flights), *
 - **Stage 1 Main / RCS propellant remaining (median)**: **`2,612.8 kg`** (`min 932.0 kg`) / **`271.9 kg`** (`min 168.5 kg`, restarts `3/3`)
 - **5 s engine-off upright standing**: **487 / 487 (100.0%)** (`leg stroke ≤ 0.389 m` `43.3%`, `contact load ≤ 1.66 g` `41.4%`)
 
-![487-case validation and safety margin distribution](docs/assets/dm100-validation.svg)
+![487-case validation and safety margin distribution](docs/assets/dm100-validation.en.svg)
 
-![RTLS recovery propellant budget](docs/assets/dm100-propellant.svg)
+![RTLS recovery propellant budget](docs/assets/dm100-propellant.en.svg)
 
-![RTLS trajectory, glide and dynamic-pressure profile](docs/assets/dm100-trajectory.svg)
+![RTLS trajectory, dynamic pressure and throttle profile](docs/assets/dm100-trajectory.en.svg)
 
 Reference 50 Hz 3D replay exports (`ENU` meters + unit quaternion `wxyz` for UE5/MuJoCo) are provided in [calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) and [example_weather_replay_50hz.json](docs/results/replays/example_weather_replay_50hz.json).
 

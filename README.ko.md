@@ -7,9 +7,9 @@
 
 오프라인 로컬 브라우저 실험 화면은 영어를 기본으로 제공하며 한국어로 전환할 수 있고, **인터랙티브 2D 실시간 리플레이**와 <strong>50 Hz 3D 리플레이 JSON(ENU + 단위 쿼터니언)</strong> 내보내기, 선택적 H.264 MP4 영상 렌더링을 지원합니다.
 
-![로컬 실험 화면](docs/assets/ui.png)
+![로컬 실험 화면](docs/assets/ui.ko.png)
 
-실제 실행 화면은 영어 UI로 촬영했으며, 앱 오른쪽 위에서 한국어로 전환할 수 있습니다.
+로컬 브라우저 앱 오른쪽 위에서 한국어와 영어를 자유롭게 전환할 수 있습니다.
 
 ## 구현한 물리·유도·제어 기능
 
@@ -51,7 +51,7 @@
 
 ![RTLS 귀환 단계별 추진제 예산](docs/assets/dm100-propellant.svg)
 
-![RTLS 궤적 및 무동력 활강·동압 프로파일](docs/assets/dm100-trajectory.svg)
+![RTLS 궤적 및 분리형 동압·스로틀 프로파일](docs/assets/dm100-trajectory.svg)
 
 대표 시나리오의 50 Hz 3D 리플레이 JSON(UE5·MuJoCo 연동용, ENU 미터 + 단위 쿼터니언 `wxyz`)을 [calm_replay_50hz.json](docs/results/replays/calm_replay_50hz.json) 및 [example_weather_replay_50hz.json](docs/results/replays/example_weather_replay_50hz.json)에 함께 제공합니다.
 

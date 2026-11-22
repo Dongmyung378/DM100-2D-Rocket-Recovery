@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="670" viewBox="0 0 1200 670" role="img" aria-labelledby="title desc">
+<title id="title">DM100 100 t Methalox RTLS Recovery Propellant Budget and Stage 2 Orbit Margin</title>
+<desc id="desc">Post-separation main and RCS propellant consumption by phase, 29.4 km unpowered grid-fin glide, and 487-case Stage 1 and Stage 2 propellant reserves.</desc>
+<style>text{font-family:'Malgun Gothic','Noto Sans KR','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.eyebrow{letter-spacing:1.6px;font-weight:700}.mono{font-family:Consolas,'Courier New',monospace}</style>
+<rect width="1200" height="670" fill="#002147"/>
+<rect width="1200" height="6" fill="#C8A452"/>
+<g aria-hidden="true"><rect x="1106.0" y="28.0" width="46.0" height="46.0" rx="9" fill="#082C56" stroke="#C8A452" stroke-opacity="0.65" stroke-width="1.3"/><g transform="translate(1114.0 36.0) scale(1.2500)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15l-3-3a22 22 0 0 1 3-5c3-3 7-4 10-4 0 3-1 7-4 10a22 22 0 0 1-5 3Z" fill="#F5F3EE" fill-opacity="0.10" stroke="#F5F3EE" stroke-width="1.55"/><path d="M9 12H4s.6-3 2-4c1.6-1 4-1 4-1m3 8v5s3-.6 4-2c1-1.6 1-4 1-4" stroke="#F5F3EE" stroke-width="1.55"/><path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2" stroke="#DEC074" stroke-width="1.65"/><circle cx="16" cy="7" r="1.25" fill="#DEC074"/></g></g>
+<text x="48" y="46" font-size="13" fill="#DEC074" class="eyebrow">PROPELLANT BUDGET · LCH₄/LOX 7-ENGINE CLUSTER</text>
+<text x="48" y="88" font-size="34" fill="#F5F3EE" font-weight="700">RTLS Recovery Propellant Budget by Phase</text>
+<text x="48" y="118" font-size="16.5" fill="#9CB4CE">Supersonic &amp; subsonic unpowered grid-fin glide saves fuel before terminal 3→1 hoverslam (Calm + 487-case stats)</text>
+
+<rect x="48" y="142" width="1104" height="432" rx="4" fill="#082C56" stroke="#1E4673"/>
+<text x="70" y="178" font-size="17" fill="#DEC074" font-weight="700">Post-Separation Main Propellant Usage <tspan fill="#9CB4CE" font-weight="400">(excl. 57,167 kg ascent of 69,500 kg · 3/3 restarts)</tspan></text>
+<text x="70" y="222" font-size="16" fill="#F5F3EE" font-weight="600">Low-q Flip (RCS)</text><rect x="376" y="207" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="207" width="4.0" height="20" rx="2" fill="#94B3D6"/><text x="836" y="222" font-size="14" fill="#9CB4CE">Main 0.0 kg · RCS 13.0 kg (18.0 s)</text><text x="70" y="274" font-size="16" fill="#F5F3EE" font-weight="600">Boostback Burn (3 Engines)</text><rect x="376" y="259" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="259" width="444.0" height="20" rx="2" fill="#A8C3E0"/><text x="836" y="274" font-size="14" fill="#9CB4CE">Main 5,883.7 kg · RCS 0.0 kg (38.8 s)</text><text x="70" y="326" font-size="16" fill="#F5F3EE" font-weight="600">Ballistic Coast</text><rect x="376" y="311" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="311" width="4.0" height="20" rx="2" fill="#7394BA"/><text x="836" y="326" font-size="14" fill="#9CB4CE">Main 3.1 kg · RCS 9.8 kg (237.0 s)</text><text x="70" y="378" font-size="16" fill="#F5F3EE" font-weight="600">Short Entry Burn (3 Engines)</text><rect x="376" y="363" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="363" width="206.7" height="20" rx="2" fill="#D96C62"/><text x="836" y="378" font-size="14" fill="#9CB4CE">Main 2,739.1 kg · RCS 0.1 kg (25.7 s)</text><text x="70" y="430" font-size="16" fill="#F5F3EE" font-weight="600">Unpowered Grid-Fin Glide</text><rect x="376" y="415" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="415" width="4.0" height="20" rx="2" fill="#6FA4DC"/><text x="836" y="430" font-size="14" fill="#9CB4CE">0% cmd · 29.4 km glide (tail-off 1.9 kg)</text><text x="70" y="482" font-size="16" fill="#F5F3EE" font-weight="600">3→1 Hoverslam Landing</text><rect x="376" y="467" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="467" width="81.9" height="20" rx="2" fill="#52B780"/><text x="836" y="482" font-size="14" fill="#9CB4CE">Main 1,085.9 kg · RCS 1.8 kg (28.4 s)</text><text x="70" y="534" font-size="16" fill="#F5F3EE" font-weight="600">5 s Upright Standing</text><rect x="376" y="519" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="519" width="4.0" height="20" rx="2" fill="#3E8E63"/><text x="836" y="534" font-size="14" fill="#9CB4CE">Main 0.9 kg · RCS 0.0 kg (5.0 s)</text>
+
+<rect x="48" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="48" y="592" width="354" height="3" fill="#52B780"/>
+<text x="225" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">Stage 1 Main Rem (487 cases)</text>
+<text x="225" y="636" font-size="16" fill="#52B780" font-weight="700" text-anchor="middle">Median 2,613 kg · Min 932 kg</text>
+
+<rect x="423" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="423" y="592" width="354" height="3" fill="#6FA4DC"/>
+<text x="600" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">Unpowered Grid-Fin Glide</text>
+<text x="600" y="636" font-size="16" fill="#6FA4DC" font-weight="700" text-anchor="middle">Median 29.42 km (25.0–43.0 km)</text>
+
+<rect x="798" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="798" y="592" width="354" height="3" fill="#C8A452"/>
+<text x="975" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">Stage 2 700 km Orbit (1,800 kg)</text>
+<text x="975" y="636" font-size="16" fill="#DEC074" font-weight="700" text-anchor="middle">Max err 3.25 km · Min rem 182 kg</text>
+</svg>
