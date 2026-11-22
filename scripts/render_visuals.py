@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Generate DM100 Orbital Reusable RTLS visuals in Oxford Blue editorial style."""
+"""Generate DM100 Orbital Reusable RTLS visuals in light-paper Oxford Blue editorial style."""
 
 from __future__ import annotations
 
@@ -20,49 +20,42 @@ CALM_REPLAY = ROOT / "docs" / "results" / "replays" / "calm_replay_50hz.json"
 WEATHER_REPLAY = ROOT / "docs" / "results" / "replays" / "example_weather_replay_50hz.json"
 ASSETS_DIR = ROOT / "docs" / "assets"
 
-# University of Oxford brand palette (#002147 primary) + restrained engineering accents
+# University of Oxford editorial light-paper palette (#002147 primary)
+PAPER_BG = "#F4F6F9"
+CARD_BG = "#FFFFFF"
+CARD_BORDER = "#D4DDE7"
+RULE_LINE = "#CDD8E4"
+GRID_LINE = "#E6ECF2"
+TRACK_BG = "#EBF0F5"
+GLIDE_TINT = "#E4EDF7"
+
 OXFORD_BLUE = "#002147"
-OXFORD_DEEP = "#001630"
-OXFORD_SURFACE = "#082C56"
-OXFORD_BORDER = "#1E4673"
-OXFORD_GRID = "#163B66"
-OXFORD_BRASS = "#C8A452"
-OXFORD_BRASS_LT = "#DEC074"
-OXFORD_SKY = "#6FA4DC"
-OXFORD_SLATE = "#9CB4CE"
-OXFORD_MUTED = "#8AA2BC"
-OXFORD_IVORY = "#F5F3EE"
-OXFORD_GREEN = "#52B780"
-OXFORD_CRIMSON = "#D96C62"
+OXFORD_MID = "#2D537B"
+OXFORD_STEEL = "#6E8AA8"
+OXFORD_PALE = "#B4C5D8"
+OXFORD_SUBTLE = "#C9D8E8"
+INK_BODY = "#1C2B3B"
+INK_MUTED = "#556473"
+WEATHER_GRAY = "#7D8B99"
+
+OCHRE = "#8C6A28"
+CRIMSON = "#9E2A2B"
+FOREST = "#1F5A3D"
 
 FONT_STYLE = (
-    "text{font-family:'Malgun Gothic','Noto Sans KR','Apple SD Gothic Neo','Segoe UI',sans-serif;"
+    "text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;"
     "font-variant-numeric:tabular-nums}"
-    ".eyebrow{letter-spacing:1.6px;font-weight:700}"
-    ".mono{font-family:Consolas,'Courier New',monospace}"
 )
 
 PHASE_COLORS = {
-    "ascent": OXFORD_BRASS_LT,
-    "flip": "#94B3D6",
-    "boostback": "#A8C3E0",
-    "coast": "#7394BA",
-    "entry_burn": OXFORD_CRIMSON,
-    "aero_glide": OXFORD_SKY,
-    "landing_burn": OXFORD_GREEN,
-    "touchdown_settle": OXFORD_GREEN,
-}
-
-# Light-theme phase palette for white-paper Matplotlib PNG
-PNG_PHASE_COLORS = {
-    "ascent": "#002147",
-    "flip": "#5B7898",
-    "boostback": "#345C8A",
-    "coast": "#7D95B0",
-    "entry_burn": "#9E2A2B",
-    "aero_glide": "#1F5B94",
-    "landing_burn": "#1B5E3A",
-    "touchdown_settle": "#1B5E3A",
+    "ascent": OXFORD_BLUE,
+    "flip": OXFORD_STEEL,
+    "boostback": "#4C6E91",
+    "coast": "#849DB7",
+    "entry_burn": CRIMSON,
+    "aero_glide": OXFORD_MID,
+    "landing_burn": FOREST,
+    "touchdown_settle": FOREST,
 }
 
 
@@ -104,28 +97,6 @@ def _phase_segments(frames: list[dict], sx, sy) -> list[tuple[str, list[tuple[fl
     return segs
 
 
-def _rocket_badge_svg(x: float, y: float, size: float = 46.0) -> str:
-    """Site-matched Rocket Engineering emblem framed in Oxford Blue & Brass."""
-    scale = (size - 16.0) / 24.0
-    tx = x + 8.0
-    ty = y + 8.0
-    return (
-        f'<g aria-hidden="true">'
-        f'<rect x="{x:.1f}" y="{y:.1f}" width="{size:.1f}" height="{size:.1f}" rx="9" '
-        f'fill="{OXFORD_SURFACE}" stroke="{OXFORD_BRASS}" stroke-opacity="0.65" stroke-width="1.3"/>'
-        f'<g transform="translate({tx:.1f} {ty:.1f}) scale({scale:.4f})" fill="none" '
-        f'stroke-linecap="round" stroke-linejoin="round">'
-        f'<path d="M12 15l-3-3a22 22 0 0 1 3-5c3-3 7-4 10-4 0 3-1 7-4 10a22 22 0 0 1-5 3Z" '
-        f'fill="{OXFORD_IVORY}" fill-opacity="0.10" stroke="{OXFORD_IVORY}" stroke-width="1.55"/>'
-        f'<path d="M9 12H4s.6-3 2-4c1.6-1 4-1 4-1m3 8v5s3-.6 4-2c1-1.6 1-4 1-4" '
-        f'stroke="{OXFORD_IVORY}" stroke-width="1.55"/>'
-        f'<path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2" '
-        f'stroke="{OXFORD_BRASS_LT}" stroke-width="1.65"/>'
-        f'<circle cx="16" cy="7" r="1.25" fill="{OXFORD_BRASS_LT}"/>'
-        f"</g></g>"
-    )
-
-
 def _compute_peak_utilization_pct(rows: list[dict]) -> float:
     checks = [
         ("position_error_m", 2.0),
@@ -156,11 +127,11 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     z_vals = [f["pos_enu_m"][2] / 1000.0 for f in sub]
     x_min_raw = min(0.0, min(x_vals))
     x_lo = math.floor(x_min_raw / 10.0) * 10.0 if x_min_raw < -2.0 else 0.0
-    x_hi = max(80.0, math.ceil(max(x_vals) / 20.0) * 20.0)
+    x_hi = max(100.0, math.ceil(max(x_vals) / 20.0) * 20.0)
     z_hi = max(200.0, math.ceil((max(z_vals) + 25.0) / 25.0) * 25.0)
 
-    px0, px1 = 516.0, 1116.0
-    py0, py1 = 236.0, 580.0
+    px0, px1 = 496.0, 1116.0
+    py0, py1 = 242.0, 514.0
 
     def sx(f: dict) -> float:
         return px0 + ((f["pos_enu_m"][0] / 1000.0) - x_lo) / (x_hi - x_lo) * (px1 - px0)
@@ -180,22 +151,22 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         zv = z_hi * i / 4.0
         yy = py1 - (zv / z_hi) * (py1 - py0)
         grid_lines.append(
-            f'<line x1="{px0:.0f}" y1="{yy:.1f}" x2="{px1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}" stroke-width="1"/>'
-            f'<text x="{px0 - 12:.0f}" y="{yy + 6:.1f}" font-size="18" fill="{OXFORD_MUTED}" text-anchor="end">{zv:.0f}</text>'
+            f'<line x1="{px0:.0f}" y1="{yy:.1f}" x2="{px1:.0f}" y2="{yy:.1f}" stroke="{GRID_LINE}" stroke-width="1"/>'
+            f'<text x="{px0 - 12:.0f}" y="{yy + 5:.1f}" font-size="16" fill="{INK_MUTED}" text-anchor="end">{zv:.0f}</text>'
         )
     for i in range(5):
         xv = x_lo + (x_hi - x_lo) * i / 4.0
         xx = px0 + (px1 - px0) * i / 4.0
         anchor = "start" if i == 0 else ("end" if i == 4 else "middle")
         grid_lines.append(
-            f'<line x1="{xx:.1f}" y1="{py0:.0f}" x2="{xx:.1f}" y2="{py1:.0f}" stroke="{OXFORD_GRID}" stroke-width="1"/>'
-            f'<text x="{xx:.1f}" y="{py1 + 28:.0f}" font-size="18" fill="{OXFORD_MUTED}" text-anchor="{anchor}">{xv:.0f}</text>'
+            f'<line x1="{xx:.1f}" y1="{py0:.0f}" x2="{xx:.1f}" y2="{py1:.0f}" stroke="{GRID_LINE}" stroke-width="1"/>'
+            f'<text x="{xx:.1f}" y="{py1 + 24:.0f}" font-size="16" fill="{INK_MUTED}" text-anchor="{anchor}">{xv:.0f}</text>'
         )
 
     path_svg = []
     for ph, pts in segs:
-        col = PHASE_COLORS.get(ph, OXFORD_SKY)
-        w = 4.6 if ph in ("ascent", "aero_glide", "landing_burn") else 3.4
+        col = PHASE_COLORS.get(ph, OXFORD_MID)
+        w = 4.2 if ph in ("ascent", "aero_glide", "landing_burn") else 2.8
         path_svg.append(
             f'<polyline points="{_polyline(pts)}" fill="none" stroke="{col}" stroke-width="{w}" '
             'stroke-linecap="round" stroke-linejoin="round"/>'
@@ -211,31 +182,31 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
 
     spec_rows = (
         [
-            ("Target orbit", "700 km · 1,800 kg", OXFORD_BRASS_LT),
-            ("Peak limit usage", f"{peak_util:.1f}% (≤ 80% cap)", OXFORD_GREEN),
-            ("Unpowered glide", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_SKY),
-            ("Median main rem", f"{med_main:,.0f} kg", OXFORD_IVORY),
-            ("Median pos error", f"{med_pos:.3f} m", OXFORD_IVORY),
-            ("5 s leg standing", f"{passed} / {total}", OXFORD_GREEN),
+            ("Target orbit", "700 km · 1,800 kg", OXFORD_BLUE),
+            ("Peak limit usage", f"{peak_util:.1f}% (≤ 80%)", FOREST),
+            ("Unpowered glide", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_MID),
+            ("Median main rem", f"{med_main:,.0f} kg", OXFORD_BLUE),
+            ("Median pos error", f"{med_pos:.3f} m", OXFORD_BLUE),
+            ("5 s leg standing", f"{passed} / {total}", FOREST),
         ]
         if en
         else [
-            ("목표 궤도", "700 km · 1,800 kg", OXFORD_BRASS_LT),
-            ("최대 제약 사용률", f"{peak_util:.1f}% (한계 80%)", OXFORD_GREEN),
-            ("무동력 격자핀 활강", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_SKY),
-            ("잔여 주추진제 중앙", f"{med_main:,.0f} kg", OXFORD_IVORY),
-            ("접지 위치 중앙값", f"{med_pos:.3f} m", OXFORD_IVORY),
-            ("5초 착륙다리 직립", f"{passed} / {total}", OXFORD_GREEN),
+            ("목표 궤도", "700 km · 1,800 kg", OXFORD_BLUE),
+            ("최대 제약 사용률", f"{peak_util:.1f}% (≤ 80%)", FOREST),
+            ("무동력 격자핀 활강", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_MID),
+            ("잔여 주추진제 중앙", f"{med_main:,.0f} kg", OXFORD_BLUE),
+            ("접지 위치 중앙값", f"{med_pos:.3f} m", OXFORD_BLUE),
+            ("5초 착륙다리 직립", f"{passed} / {total}", FOREST),
         ]
     )
     row_svg = []
     for idx, (k, v, col) in enumerate(spec_rows):
-        ry = 384 + idx * 42
+        ry = 266 + idx * 50
         row_svg.append(
-            f'<text x="70" y="{ry}" font-size="15.5" fill="{OXFORD_SLATE}">{k}</text>'
-            f'<text x="372" y="{ry}" font-size="16" fill="{col}" font-weight="700" text-anchor="end">{v}</text>'
+            f'<text x="70" y="{ry}" font-size="16" fill="{INK_MUTED}">{k}</text>'
+            f'<text x="370" y="{ry}" font-size="17" fill="{col}" font-weight="700" text-anchor="end">{v}</text>'
             + (
-                f'<line x1="70" y1="{ry + 14}" x2="372" y2="{ry + 14}" stroke="{OXFORD_GRID}" stroke-width="1"/>'
+                f'<line x1="70" y1="{ry + 18}" x2="370" y2="{ry + 18}" stroke="{GRID_LINE}" stroke-width="1"/>'
                 if idx < len(spec_rows) - 1
                 else ""
             )
@@ -261,45 +232,24 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         else f"100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, {min_glide:.1f}–{max_glide:.1f} km 무동력 격자핀 활강, 3->1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다."
     )
     h1_text = (
-        "DM100 · 100 t Methalox Orbital Launch &amp; RTLS"
-        if en
-        else "DM100 · 100톤 메탈록스 궤도 발사 및 1단 RTLS"
+        "100 t Methalox Orbital Launch &amp; RTLS" if en else "100톤 메탈록스 궤도 발사 및 1단 회수"
     )
-    h1_size = 38 if en else 40
+    h1_size = 44 if en else 46
     sub_text = (
-        f"700 km Circular Orbit (1,800 kg) · {min_glide:.0f}–{max_glide:.0f} km Unpowered Grid-Fin Glide · 3→1 Hoverslam · 5 s Standing"
+        "700 km circular orbit (1,800 kg), unpowered grid-fin glide, 3→1 hoverslam &amp; 5 s standing"
         if en
-        else f"700 km 원궤도 1,800 kg 투입 · {min_glide:.0f}–{max_glide:.0f} km 무동력 격자핀 활강 · 3→1 호버슬램 · 접지 후 5초 직립 동역학"
+        else "700 km 원궤도(1,800 kg) 투입, 무동력 격자핀 활강과 접지 후 5초 직립 동역학"
     )
-    sub_size = 17.5 if en else 19
-    pass_sub = "100.0% Pass · All 16 Limits ≤ 80%" if en else "100.0% 통과 · 16개 전 항목 ≤ 80%"
-    pass_sub_size = 16.5 if en else 18
-    foot1 = (
-        "100 t 7× LCH₄/LOX · 2D conceptual model"
-        if en
-        else "100 t 7× LCH₄/LOX · 2D 개념 시뮬레이터"
-    )
-    foot2 = (
-        "Verified within declared 2D synthetic scope"
-        if en
-        else "선언된 2D 합성 외란·센서 범위 내 물리 검증"
-    )
+    sub_size = 23 if en else 25
+    left_hdr = "Key Design &amp; Metrics" if en else "주요 설계 · 검증 지표"
     traj_hdr = (
-        'Stage 1 Ascent &amp; RTLS Trajectory <tspan font-size="14.5" fill="'
-        + OXFORD_SLATE
-        + '" font-weight="400">(Alt km vs Downrange km)</tspan>'
+        f'Stage 1 RTLS Trajectory <tspan font-size="14.5" fill="{INK_MUTED}" font-weight="400">(Alt km vs Downrange km)</tspan>'
         if en
-        else '1단 상승·귀환 비행 궤적 <tspan font-size="15" fill="'
-        + OXFORD_SLATE
-        + '" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
+        else f'1단 상승·귀환 비행 궤적 <tspan font-size="15" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
     calm_lbl = f"Calm ({t_end:.1f} s)" if en else f"무풍 기준 ({t_end:.1f} s)"
     sep_lbl = f"MECO-1 Sep ({sep_z_km:.1f} km)" if en else f"MECO-1 단 분리 ({sep_z_km:.1f} km)"
-    apo_lbl = (
-        f"Apogee {apo_z_km:.1f} km · Ballistic Return"
-        if en
-        else f"정점 {apo_z_km:.1f} km · 탄도 귀환"
-    )
+    apo_lbl = f"Apogee {apo_z_km:.1f} km" if en else f"정점 {apo_z_km:.1f} km · 탄도 귀환"
     gld_lbl = (
         f"Glide ({gld_z0:.1f}→{lnd_z0:.1f} km)"
         if en
@@ -307,63 +257,56 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     )
     lnd_lbl = "3→1 Hoverslam · Pad Touchdown" if en else "3→1 호버슬램 · 발사장 착륙"
     x_lbl = "Horizontal distance (km)" if en else "수평 거리 (km)"
-    pad_lbl = "Launch pad origin (0, 0)" if en else "발사장 원점 (0, 0)"
-    bot_bar = (
-        "Plant ↔ Forces ↔ GNC Isolation · Causal Estimation · Stage 2 Spherical-Earth Orbit · 50 Hz 3D Replay JSON"
+    pad_lbl = "Launch pad (0, 0)" if en else "발사장 원점 (0, 0)"
+    ban_top = "487-Case Full Validation Passed" if en else "전체 487케이스 전수 검증 통과"
+    ban_sub = (
+        f"All 16 constraints ≤ {peak_util:.1f}% (under 80% cap) · 2D conceptual model"
         if en
-        else "Plant ↔ Forces ↔ GNC 경계 격리 · 인과적 상태 추정 · 2단 구면 지구 2회 연소 궤도 적분 · 50 Hz 3D 리플레이 JSON"
+        else f"16개 전 제약 ≤ {peak_util:.1f}% (80% 안전 여유) · 100 t 7× LCH₄/LOX 2D 모델"
     )
-    bot_size = 16 if en else 17
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
 <title id="title">{svg_title}</title>
 <desc id="desc">{svg_desc}</desc>
 <style>{FONT_STYLE}</style>
-<rect width="1200" height="760" fill="{OXFORD_BLUE}"/>
-<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
-{_rocket_badge_svg(1106, 30, 46)}
-<text x="48" y="48" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">DM100 · ORBITAL REUSABLE RTLS · 700 KM LEO</text>
-<text x="48" y="96" font-size="{h1_size}" fill="{OXFORD_IVORY}" font-weight="700">{h1_text}</text>
-<text x="48" y="132" font-size="{sub_size}" fill="{OXFORD_SLATE}">{sub_text}</text>
-<line x1="48" y1="154" x2="1152" y2="154" stroke="{OXFORD_BORDER}" stroke-width="1"/>
+<rect width="1200" height="760" fill="{PAPER_BG}"/>
+<text x="44" y="78" font-size="{h1_size}" fill="{OXFORD_BLUE}" font-weight="750">{h1_text}</text>
+<text x="46" y="124" font-size="{sub_size}" fill="{INK_MUTED}">{sub_text}</text>
+<line x1="44" y1="148" x2="1156" y2="148" stroke="{RULE_LINE}" stroke-width="1"/>
 
-<rect x="48" y="178" width="348" height="500" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}" stroke-width="1"/>
-<rect x="48" y="178" width="348" height="3" fill="{OXFORD_BRASS}"/>
-<text x="70" y="218" font-size="14" fill="{OXFORD_BRASS_LT}" class="eyebrow">487-CASE CERTIFICATION</text>
-<text x="70" y="284" font-size="56" fill="{OXFORD_IVORY}" font-weight="700">{passed}<tspan fill="{OXFORD_MUTED}" font-size="34"> / {total}</tspan></text>
-<text x="70" y="318" font-size="{pass_sub_size}" fill="{OXFORD_GREEN}" font-weight="700">{pass_sub}</text>
-<line x1="70" y1="344" x2="372" y2="344" stroke="{OXFORD_BORDER}" stroke-width="1"/>
+<rect x="44" y="172" width="352" height="410" rx="16" fill="{CARD_BG}" stroke="{CARD_BORDER}" stroke-width="1"/>
+<text x="70" y="216" font-size="21" fill="{OXFORD_BLUE}" font-weight="700">{left_hdr}</text>
+<line x1="70" y1="234" x2="370" y2="234" stroke="{RULE_LINE}" stroke-width="1"/>
 {"".join(row_svg)}
-<text x="70" y="640" font-size="14" fill="{OXFORD_MUTED}">{foot1}</text>
-<text x="70" y="660" font-size="14" fill="{OXFORD_MUTED}">{foot2}</text>
 
-<rect x="420" y="178" width="732" height="500" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}" stroke-width="1"/>
-<rect x="420" y="178" width="732" height="3" fill="{OXFORD_SKY}"/>
-<text x="444" y="216" font-size="18" fill="{OXFORD_IVORY}" font-weight="700">{traj_hdr}</text>
-<text x="1126" y="216" font-size="16" fill="{OXFORD_MUTED}" text-anchor="end">{calm_lbl}</text>
+<rect x="418" y="172" width="738" height="410" rx="16" fill="{CARD_BG}" stroke="{CARD_BORDER}" stroke-width="1"/>
+<text x="444" y="214" font-size="20" fill="{OXFORD_BLUE}" font-weight="700">{traj_hdr}</text>
+<text x="1130" y="214" font-size="15" fill="{INK_MUTED}" text-anchor="end">{calm_lbl}</text>
 {"".join(grid_lines)}
 {"".join(path_svg)}
 
-<circle cx="{sep_x:.1f}" cy="{sep_y:.1f}" r="5.5" fill="{OXFORD_BRASS_LT}" stroke="{OXFORD_IVORY}" stroke-width="1.8"/>
-<text x="{min(px1 - 12, sep_x + 14):.1f}" y="{sep_y + 24:.1f}" font-size="16" fill="{OXFORD_BRASS_LT}" font-weight="700">{sep_lbl}</text>
+<circle cx="{sep_x:.1f}" cy="{sep_y:.1f}" r="5.0" fill="{OXFORD_BLUE}" stroke="{CARD_BG}" stroke-width="1.8"/>
+<line x1="{sep_x + 5:.1f}" y1="{sep_y + 5:.1f}" x2="{sep_x + 34:.1f}" y2="{sep_y + 42:.1f}" stroke="{OXFORD_BLUE}" stroke-width="1.2"/>
+<text x="{sep_x + 40:.1f}" y="{sep_y + 47:.1f}" font-size="15" fill="{OXFORD_BLUE}" font-weight="700">{sep_lbl}</text>
 
-<circle cx="{apo_x:.1f}" cy="{apo_y:.1f}" r="5.5" fill="#A8C3E0" stroke="{OXFORD_IVORY}" stroke-width="1.8"/>
-<text x="{apo_x:.1f}" y="{apo_y - 16:.1f}" font-size="16" fill="#C9DCF0" font-weight="700" text-anchor="middle">{apo_lbl}</text>
+<circle cx="{apo_x:.1f}" cy="{apo_y:.1f}" r="5.0" fill="{OXFORD_STEEL}" stroke="{CARD_BG}" stroke-width="1.8"/>
+<text x="{apo_x:.1f}" y="{apo_y - 13:.1f}" font-size="15" fill="{INK_BODY}" font-weight="700" text-anchor="middle">{apo_lbl}</text>
 
-<circle cx="{gld_x:.1f}" cy="{gld_y:.1f}" r="5.5" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.8"/>
-<line x1="{gld_x + 7:.1f}" y1="{gld_y - 4:.1f}" x2="{gld_x + 88:.1f}" y2="{gld_y - 88:.1f}" stroke="{OXFORD_SKY}" stroke-width="1.3"/>
-<text x="{gld_x + 94:.1f}" y="{gld_y - 84:.1f}" font-size="15.5" fill="{OXFORD_SKY}" font-weight="700">{gld_lbl}</text>
+<circle cx="{gld_x:.1f}" cy="{gld_y:.1f}" r="5.0" fill="{OXFORD_MID}" stroke="{CARD_BG}" stroke-width="1.8"/>
+<line x1="{gld_x + 6:.1f}" y1="{gld_y - 5:.1f}" x2="{gld_x + 122:.1f}" y2="{gld_y - 104:.1f}" stroke="{OXFORD_MID}" stroke-width="1.2"/>
+<text x="{gld_x + 128:.1f}" y="{gld_y - 100:.1f}" font-size="15" fill="{OXFORD_MID}" font-weight="700">{gld_lbl}</text>
 
-<circle cx="{lnd_x:.1f}" cy="{lnd_y:.1f}" r="5.5" fill="{OXFORD_GREEN}" stroke="{OXFORD_IVORY}" stroke-width="1.8"/>
-<line x1="{lnd_x + 8:.1f}" y1="{lnd_y - 1:.1f}" x2="{px0 + 96:.1f}" y2="{py1 - 14:.1f}" stroke="{OXFORD_GREEN}" stroke-width="1.3"/>
-<text x="{px0 + 102:.1f}" y="{py1 - 9:.1f}" font-size="15.5" fill="{OXFORD_GREEN}" font-weight="700">{lnd_lbl}</text>
+<circle cx="{lnd_x:.1f}" cy="{lnd_y:.1f}" r="5.0" fill="{FOREST}" stroke="{CARD_BG}" stroke-width="1.8"/>
+<line x1="{lnd_x + 7:.1f}" y1="{lnd_y - 1:.1f}" x2="{px0 + 96:.1f}" y2="{py1 - 10:.1f}" stroke="{FOREST}" stroke-width="1.2"/>
+<text x="{px0 + 102:.1f}" y="{py1 - 5:.1f}" font-size="14.5" fill="{FOREST}" font-weight="700">{lnd_lbl}</text>
 
-<text x="1116" y="646" font-size="16" fill="{OXFORD_SLATE}" text-anchor="end">{x_lbl}</text>
-<text x="442" y="646" font-size="15" fill="{OXFORD_MUTED}">{pad_lbl}</text>
+<text x="1116" y="566" font-size="15" fill="{INK_MUTED}" text-anchor="end">{x_lbl}</text>
+<text x="496" y="566" font-size="14.5" fill="{INK_MUTED}">{pad_lbl}</text>
 
-<rect x="48" y="696" width="1104" height="44" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}" stroke-width="1"/>
-<text x="70" y="724" font-size="{bot_size}" fill="{OXFORD_SLATE}">{bot_bar}</text>
-<text x="1130" y="724" font-size="16" fill="{OXFORD_BRASS_LT}" font-weight="700" text-anchor="end">DM100</text>
+<rect x="44" y="604" width="1112" height="112" rx="14" fill="{OXFORD_BLUE}"/>
+<text x="76" y="652" font-size="31" fill="#FFFFFF" font-weight="750">{ban_top}</text>
+<text x="76" y="692" font-size="22" fill="{OXFORD_SUBTLE}">{ban_sub}</text>
+<text x="1124" y="681" font-size="56" fill="#FFFFFF" font-weight="750" text-anchor="end">{passed} / {total}</text>
 </svg>
 """
 
@@ -373,21 +316,21 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
     rows = summary["cases"]
     groups = (
         [
-            ("Extreme Edge Cases", "Includes 100% worst corners", "edge-cases", OXFORD_BRASS_LT),
-            ("Combined Holdout", "Wind, drag, thrust &amp; delays", "holdout", OXFORD_SKY),
-            ("Extended Sensor", "Noise, bias &amp; packet loss", "sensor-holdout", "#94B3D6"),
-            ("Regression &amp; Dev", "286 regression + 16 dev", None, OXFORD_GREEN),
+            ("Extreme Edge Cases", "Includes 100% worst corners", "edge-cases"),
+            ("Combined Holdout", "Wind, drag, thrust &amp; delays", "holdout"),
+            ("Extended Sensor", "Noise, bias &amp; packet loss", "sensor-holdout"),
+            ("Regression &amp; Dev", "286 regression + 16 dev", None),
         ]
         if en
         else [
-            ("극한 엣지 케이스", "100% 동시 최악 포함", "edge-cases", OXFORD_BRASS_LT),
-            ("복합 홀드아웃", "바람·편차·지연 복합", "holdout", OXFORD_SKY),
-            ("확장 센서 홀드아웃", "잡음·편향·패킷 누락", "sensor-holdout", "#94B3D6"),
-            ("회귀 · 개발 전체", "기존 286 + 개발 16", None, OXFORD_GREEN),
+            ("극한 엣지 케이스", "100% 동시 최악 포함", "edge-cases"),
+            ("복합 홀드아웃", "바람·편차·지연 복합", "holdout"),
+            ("확장 센서 홀드아웃", "잡음·편향·패킷 누락", "sensor-holdout"),
+            ("회귀 · 개발 전체", "기존 286 + 개발 16", None),
         ]
     )
     cards = []
-    for idx, (title, sub, split_key, col) in enumerate(groups):
+    for idx, (title, sub, split_key) in enumerate(groups):
         if split_key is None:
             sub_rows = [
                 r for r in rows if r["split"] not in ("edge-cases", "holdout", "sensor-holdout")
@@ -398,13 +341,11 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
         t_cnt = len(sub_rows)
         x = 48 + idx * 282
         cards.append(
-            f'<rect x="{x}" y="140" width="260" height="154" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>'
-            f'<rect x="{x}" y="140" width="260" height="3" fill="{col}"/>'
-            f'<text x="{x + 20}" y="176" font-size="19" fill="{OXFORD_IVORY}" font-weight="700">{title}</text>'
-            f'<text x="{x + 20}" y="200" font-size="14" fill="{OXFORD_MUTED}">{sub}</text>'
-            f'<text x="{x + 20}" y="256" font-size="40" fill="{col}" font-weight="700">{p_cnt}<tspan fill="{OXFORD_MUTED}" font-size="24"> / {t_cnt}</tspan></text>'
-            f'<rect x="{x + 20}" y="274" width="220" height="4" rx="2" fill="{OXFORD_GRID}"/>'
-            f'<rect x="{x + 20}" y="274" width="220" height="4" rx="2" fill="{col}"/>'
+            f'<rect x="{x}" y="142" width="260" height="122" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>'
+            f'<text x="{x + 20}" y="176" font-size="18" fill="{OXFORD_BLUE}" font-weight="700">{title}</text>'
+            f'<text x="{x + 20}" y="198" font-size="13.5" fill="{INK_MUTED}">{sub}</text>'
+            f'<text x="{x + 20}" y="246" font-size="34" fill="{OXFORD_BLUE}" font-weight="750">{p_cnt}<tspan fill="{INK_MUTED}" font-size="21" font-weight="500"> / {t_cnt}</tspan></text>'
+            f'<text x="{x + 240}" y="244" font-size="14" fill="{FOREST}" font-weight="700" text-anchor="end">100%</text>'
         )
 
     metrics = (
@@ -437,21 +378,21 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
     for i, (label, key, lim, unit, scale, dec) in enumerate(metrics):
         vals = np.array([r[key] for r in rows], dtype=float)
         p50, p95, mx = np.percentile(vals, [50, 95, 100])
-        y = 382 + i * 36
+        y = 368 + i * 38
         w50 = max(3.0, (p50 / lim) * bw)
         w95 = max(4.0, (p95 / lim) * bw)
         wmx = min(bw, (mx / lim) * bw)
         pct = mx / lim * 100.0
         fmt = f".{dec}f"
         bars.append(
-            f'<text x="70" y="{y + 14}" font-size="{lbl_size}" fill="{OXFORD_IVORY}" font-weight="600">{label}</text>'
-            f'<rect x="{bx0:.0f}" y="{y}" width="{bw:.0f}" height="18" rx="2" fill="{OXFORD_DEEP}" stroke="{OXFORD_GRID}" stroke-width="0.8"/>'
-            f'<rect x="{bx0:.0f}" y="{y}" width="{wmx:.1f}" height="18" rx="2" fill="{OXFORD_BRASS}" opacity="0.58"/>'
-            f'<rect x="{bx0:.0f}" y="{y}" width="{w95:.1f}" height="18" rx="2" fill="{OXFORD_SKY}" opacity="0.85"/>'
-            f'<rect x="{bx0:.0f}" y="{y}" width="{w50:.1f}" height="18" rx="2" fill="{OXFORD_GREEN}"/>'
-            f'<text x="{bx0 + bw + 14:.0f}" y="{y + 14}" font-size="14" fill="{OXFORD_SLATE}">'
+            f'<text x="70" y="{y + 15}" font-size="{lbl_size}" fill="{INK_BODY}" font-weight="600">{label}</text>'
+            f'<rect x="{bx0:.0f}" y="{y}" width="{bw:.0f}" height="20" rx="3" fill="{TRACK_BG}"/>'
+            f'<rect x="{bx0:.0f}" y="{y}" width="{wmx:.1f}" height="20" rx="3" fill="{OXFORD_PALE}"/>'
+            f'<rect x="{bx0:.0f}" y="{y}" width="{w95:.1f}" height="20" rx="3" fill="#527499"/>'
+            f'<rect x="{bx0:.0f}" y="{y}" width="{w50:.1f}" height="20" rx="3" fill="{OXFORD_BLUE}"/>'
+            f'<text x="{bx0 + bw + 16:.0f}" y="{y + 15}" font-size="14" fill="{INK_MUTED}">'
             f"p50 {p50 * scale:{fmt}} · max {mx * scale:{fmt}} {unit} "
-            f'<tspan fill="{OXFORD_BRASS_LT}" font-weight="700">({pct:.1f}%)</tspan></text>'
+            f'<tspan fill="{OXFORD_BLUE}" font-weight="700">({pct:.1f}%)</tspan></text>'
         )
 
     peak_util = _compute_peak_utilization_pct(rows)
@@ -466,24 +407,23 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
         else f"극한 엣지 32케이스, 복합 홀드아웃 96케이스, 확장 센서 57케이스, 회귀·개발 302케이스 총 487케이스 100% 통과 결과와 모든 16개 물리 제약 항목의 80% 이하(최대 {peak_util:.1f}%) 안전 여유 분포입니다."
     )
     h1_text = (
-        "487-Case Batch Validation &amp; Safety Margin Distribution"
+        "487-Case Validation &amp; Safety Margin Distribution"
         if en
         else "전체 487케이스 일괄 검증 및 안전 여유 분포"
     )
-    h1_size = 33 if en else 34
     sub_text = (
-        f"487/487 Pass (100.0%) · Stage 2 700 km Orbit 487/487 · 5 s Standing 487/487 · Peak Limit Usage {peak_util:.1f}%"
+        f"487/487 pass (100.0%) · Stage 2 700 km orbit 487/487 · 5 s standing 487/487 · Peak limit usage {peak_util:.1f}%"
         if en
         else f"487/487 통과 (100.0%) · 2단 700 km 원궤도 487/487 · 5초 직립 487/487 · 전 제약 최대 사용률 {peak_util:.1f}%"
     )
-    sub_size = 16.5 if en else 18
+    sub_size = 18.5 if en else 20
     sec_title = (
         "Observed Distribution vs. Hard Limit (100%)" if en else "허용 한계(100%) 대비 관측 분포"
     )
     leg_p50 = "Median (p50)" if en else "중앙 (p50)"
     leg_p95 = "95th pct" if en else "상위 95%"
     leg_max = "Max" if en else "최댓값 (Max)"
-    leg_x = (848, 966, 1060) if en else (810, 914, 1014)
+    leg_x = (850, 968, 1062) if en else (834, 934, 1028)
     line_80 = "80% Margin" if en else "80% 여유선"
     line_100 = "100% Limit" if en else "100% 한계"
     footer_txt = (
@@ -492,29 +432,27 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
         else "모든 수치는 validation-487.json 원시 기록에서 직접 집계했습니다. 선언된 2D 합성 외란·센서 범위 내 검증 결과입니다."
     )
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="730" viewBox="0 0 1200 730" role="img" aria-labelledby="title desc">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="755" viewBox="0 0 1200 755" role="img" aria-labelledby="title desc">
 <title id="title">{svg_title}</title>
 <desc id="desc">{svg_desc}</desc>
 <style>{FONT_STYLE}</style>
-<rect width="1200" height="730" fill="{OXFORD_BLUE}"/>
-<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
-{_rocket_badge_svg(1106, 28, 46)}
-<text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">VALIDATION SCORECARD · ALL 7,792 CHECKS ≤ 80% OF LIMIT</text>
-<text x="48" y="88" font-size="{h1_size}" fill="{OXFORD_IVORY}" font-weight="700">{h1_text}</text>
-<text x="48" y="118" font-size="{sub_size}" fill="{OXFORD_SLATE}">{sub_text}</text>
+<rect width="1200" height="755" fill="{PAPER_BG}"/>
+<text x="48" y="64" font-size="36" fill="{OXFORD_BLUE}" font-weight="750">{h1_text}</text>
+<text x="48" y="102" font-size="{sub_size}" fill="{INK_MUTED}">{sub_text}</text>
+<line x1="48" y1="122" x2="1152" y2="122" stroke="{RULE_LINE}" stroke-width="1"/>
 {"".join(cards)}
 
-<rect x="48" y="316" width="1104" height="364" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<text x="70" y="350" font-size="19" fill="{OXFORD_IVORY}" font-weight="700">{sec_title}</text>
-<rect x="{leg_x[0]}" y="338" width="14" height="10" rx="2" fill="{OXFORD_GREEN}"/><text x="{leg_x[0] + 20}" y="348" font-size="14" fill="{OXFORD_SLATE}">{leg_p50}</text>
-<rect x="{leg_x[1]}" y="338" width="14" height="10" rx="2" fill="{OXFORD_SKY}"/><text x="{leg_x[1] + 20}" y="348" font-size="14" fill="{OXFORD_SLATE}">{leg_p95}</text>
-<rect x="{leg_x[2]}" y="338" width="14" height="10" rx="2" fill="{OXFORD_BRASS}" opacity="0.75"/><text x="{leg_x[2] + 20}" y="348" font-size="14" fill="{OXFORD_SLATE}">{leg_max}</text>
-<line x1="{x80:.1f}" y1="368" x2="{x80:.1f}" y2="664" stroke="{OXFORD_BRASS_LT}" stroke-width="1.5" stroke-dasharray="4 4"/>
-<text x="{x80:.1f}" y="360" font-size="12" fill="{OXFORD_BRASS_LT}" font-weight="700" text-anchor="middle">{line_80}</text>
-<line x1="{bx0 + bw:.1f}" y1="368" x2="{bx0 + bw:.1f}" y2="664" stroke="{OXFORD_CRIMSON}" stroke-width="1.5" stroke-dasharray="4 4"/>
-<text x="{bx0 + bw:.1f}" y="360" font-size="12" fill="{OXFORD_CRIMSON}" font-weight="700" text-anchor="middle">{line_100}</text>
+<rect x="48" y="284" width="1104" height="408" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>
+<text x="70" y="322" font-size="20" fill="{OXFORD_BLUE}" font-weight="700">{sec_title}</text>
+<rect x="{leg_x[0]}" y="310" width="14" height="11" rx="2" fill="{OXFORD_BLUE}"/><text x="{leg_x[0] + 20}" y="320" font-size="14" fill="{INK_BODY}">{leg_p50}</text>
+<rect x="{leg_x[1]}" y="310" width="14" height="11" rx="2" fill="#527499"/><text x="{leg_x[1] + 20}" y="320" font-size="14" fill="{INK_BODY}">{leg_p95}</text>
+<rect x="{leg_x[2]}" y="310" width="14" height="11" rx="2" fill="{OXFORD_PALE}"/><text x="{leg_x[2] + 20}" y="320" font-size="14" fill="{INK_BODY}">{leg_max}</text>
+<line x1="{x80:.1f}" y1="350" x2="{x80:.1f}" y2="672" stroke="{OCHRE}" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="{x80:.1f}" y="342" font-size="12.5" fill="{OCHRE}" font-weight="700" text-anchor="middle">{line_80}</text>
+<line x1="{bx0 + bw:.1f}" y1="350" x2="{bx0 + bw:.1f}" y2="672" stroke="{CRIMSON}" stroke-width="1.5" stroke-dasharray="4 4"/>
+<text x="{bx0 + bw:.1f}" y="342" font-size="12.5" fill="{CRIMSON}" font-weight="700" text-anchor="middle">{line_100}</text>
 {"".join(bars)}
-<text x="48" y="708" font-size="14.5" fill="{OXFORD_MUTED}">{footer_txt}</text>
+<text x="48" y="728" font-size="15" fill="{INK_MUTED}">{footer_txt}</text>
 </svg>
 """
 
@@ -523,25 +461,25 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
     en = lang == "en"
     phase_order = (
         [
-            ("ascent", "Ascent (7 Engines)", OXFORD_BRASS_LT),
-            ("flip", "Low-q Flip (RCS)", "#94B3D6"),
-            ("boostback", "Boostback Burn (3 Engines)", "#A8C3E0"),
-            ("coast", "Ballistic Coast", "#7394BA"),
-            ("entry_burn", "Short Entry Burn (3 Engines)", OXFORD_CRIMSON),
-            ("aero_glide", "Unpowered Grid-Fin Glide", OXFORD_SKY),
-            ("landing_burn", "3→1 Hoverslam Landing", OXFORD_GREEN),
-            ("touchdown_settle", "5 s Upright Standing", "#3E8E63"),
+            ("ascent", "Ascent (7 Engines)", OXFORD_BLUE),
+            ("flip", "Low-q Flip (RCS)", OXFORD_STEEL),
+            ("boostback", "Boostback Burn (3 Engines)", OXFORD_BLUE),
+            ("coast", "Ballistic Coast", OXFORD_PALE),
+            ("entry_burn", "Short Entry Burn (3 Engines)", CRIMSON),
+            ("aero_glide", "Unpowered Grid-Fin Glide", OXFORD_MID),
+            ("landing_burn", "3→1 Hoverslam Landing", FOREST),
+            ("touchdown_settle", "5 s Upright Standing", "#4E7A62"),
         ]
         if en
         else [
-            ("ascent", "상승 (Ascent · 7엔진)", OXFORD_BRASS_LT),
-            ("flip", "저동압 플립 (Flip)", "#94B3D6"),
-            ("boostback", "부스트백 (Boostback · 3엔진)", "#A8C3E0"),
-            ("coast", "탄도 코스트 (Coast)", "#7394BA"),
-            ("entry_burn", "단축 재진입 (Entry Burn · 3엔진)", OXFORD_CRIMSON),
-            ("aero_glide", "무동력 격자핀 활강 (Glide)", OXFORD_SKY),
-            ("landing_burn", "3→1 호버슬램 (Landing)", OXFORD_GREEN),
-            ("touchdown_settle", "5초 직립 안정 (Standing)", "#3E8E63"),
+            ("ascent", "상승 (Ascent · 7엔진)", OXFORD_BLUE),
+            ("flip", "저동압 플립 (Flip)", OXFORD_STEEL),
+            ("boostback", "부스트백 (Boostback · 3엔진)", OXFORD_BLUE),
+            ("coast", "탄도 코스트 (Coast)", OXFORD_PALE),
+            ("entry_burn", "단축 재진입 (Entry Burn · 3엔진)", CRIMSON),
+            ("aero_glide", "무동력 격자핀 활강 (Glide)", OXFORD_MID),
+            ("landing_burn", "3→1 호버슬램 (Landing)", FOREST),
+            ("touchdown_settle", "5초 직립 안정 (Standing)", "#4E7A62"),
         ]
     )
     rows_data = []
@@ -564,8 +502,8 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
     ext_size = 14 if en else 15
     bars = []
     for i, (ph, label, col, dur, main_used, rcs_used, z0, z1) in enumerate(rec_rows):
-        y = 204 + i * 52
-        w = max(4.0, (main_used / max(max_fuel, 1.0)) * bw)
+        y = 206 + i * 50
+        w = max(5.0, (main_used / max(max_fuel, 1.0)) * bw)
         if en:
             extra = (
                 f"0% cmd · {z0 - z1:.1f} km glide (tail-off {main_used:.1f} kg)"
@@ -579,10 +517,10 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
                 else f"주추진제 {main_used:,.1f} kg · RCS {rcs_used:.1f} kg ({dur:.1f} s)"
             )
         bars.append(
-            f'<text x="70" y="{y + 18}" font-size="{lbl_size}" fill="{OXFORD_IVORY}" font-weight="600">{label}</text>'
-            f'<rect x="{bx0:.0f}" y="{y + 3}" width="{bw:.0f}" height="20" rx="2" fill="{OXFORD_DEEP}" stroke="{OXFORD_GRID}" stroke-width="0.8"/>'
-            f'<rect x="{bx0:.0f}" y="{y + 3}" width="{w:.1f}" height="20" rx="2" fill="{col}"/>'
-            f'<text x="{bx0 + bw + 16:.0f}" y="{y + 18}" font-size="{ext_size}" fill="{OXFORD_SLATE}">{extra}</text>'
+            f'<text x="70" y="{y + 17}" font-size="{lbl_size}" fill="{INK_BODY}" font-weight="600">{label}</text>'
+            f'<rect x="{bx0:.0f}" y="{y + 2}" width="{bw:.0f}" height="20" rx="3" fill="{TRACK_BG}"/>'
+            f'<rect x="{bx0:.0f}" y="{y + 2}" width="{w:.1f}" height="20" rx="3" fill="{col}"/>'
+            f'<text x="{bx0 + bw + 16:.0f}" y="{y + 17}" font-size="{ext_size}" fill="{INK_MUTED}">{extra}</text>'
         )
 
     cases = summary["cases"]
@@ -606,17 +544,17 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
     )
     h1_text = "RTLS Recovery Propellant Budget by Phase" if en else "RTLS 귀환 단계별 추진제 예산"
     sub_text = (
-        "Supersonic &amp; subsonic unpowered grid-fin glide saves fuel before terminal 3→1 hoverslam (Calm + 487-case stats)"
+        "Unpowered grid-fin glide conserves propellant before terminal 3→1 hoverslam (Calm + 487-case stats)"
         if en
-        else "초음속·아음속 무동력 격자핀 활강으로 연료를 절약하고 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 + 487케이스)"
+        else "무동력 격자핀 활강으로 연료를 절약하고 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 + 487케이스)"
     )
-    sub_size = 16.5 if en else 18
+    sub_size = 18.5 if en else 20
     sec_hdr = (
-        f'Post-Separation Main Propellant Usage <tspan fill="{OXFORD_SLATE}" font-weight="400">(excl. {asc_used:,.0f} kg ascent of 69,500 kg · 3/3 restarts)</tspan>'
+        f'Post-Separation Main Propellant Usage <tspan fill="{INK_MUTED}" font-weight="400">(excl. {asc_used:,.0f} kg ascent of 69,500 kg · 3/3 restarts)</tspan>'
         if en
-        else f'분리 이후 귀환 단계별 주추진제 소모 <tspan fill="{OXFORD_SLATE}" font-weight="400">(1단 총 69,500 kg 중 상승 {asc_used:,.0f} kg 제외 · 재점화 3/3회)</tspan>'
+        else f'분리 이후 귀환 단계별 주추진제 소모 <tspan fill="{INK_MUTED}" font-weight="400">(1단 총 69,500 kg 중 상승 {asc_used:,.0f} kg 제외 · 재점화 3/3회)</tspan>'
     )
-    sec_size = 17 if en else 18
+    sec_size = 17.5 if en else 18.5
     k1_lbl = "Stage 1 Main Rem (487 cases)" if en else "1단 잔여 주추진제 (487케이스)"
     k1_val = (
         f"Median {med_main:,.0f} kg · Min {min(mains):,.0f} kg"
@@ -635,37 +573,30 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
         if en
         else f"최대 오차 {max_orb_err:.2f} km · 최소 잔여 {min_upper:.0f} kg"
     )
-    kpi_size = 16 if en else 17
+    kpi_size = 17 if en else 18
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="670" viewBox="0 0 1200 670" role="img" aria-labelledby="title desc">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
 <title id="title">{svg_title}</title>
 <desc id="desc">{svg_desc}</desc>
 <style>{FONT_STYLE}</style>
-<rect width="1200" height="670" fill="{OXFORD_BLUE}"/>
-<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
-{_rocket_badge_svg(1106, 28, 46)}
-<text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">PROPELLANT BUDGET · LCH₄/LOX 7-ENGINE CLUSTER</text>
-<text x="48" y="88" font-size="34" fill="{OXFORD_IVORY}" font-weight="700">{h1_text}</text>
-<text x="48" y="118" font-size="{sub_size}" fill="{OXFORD_SLATE}">{sub_text}</text>
+<rect width="1200" height="700" fill="{PAPER_BG}"/>
+<text x="48" y="64" font-size="36" fill="{OXFORD_BLUE}" font-weight="750">{h1_text}</text>
+<text x="48" y="102" font-size="{sub_size}" fill="{INK_MUTED}">{sub_text}</text>
+<line x1="48" y1="122" x2="1152" y2="122" stroke="{RULE_LINE}" stroke-width="1"/>
 
-<rect x="48" y="142" width="1104" height="432" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<text x="70" y="178" font-size="{sec_size}" fill="{OXFORD_BRASS_LT}" font-weight="700">{sec_hdr}</text>
+<rect x="48" y="142" width="1104" height="422" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>
+<text x="70" y="180" font-size="{sec_size}" fill="{OXFORD_BLUE}" font-weight="700">{sec_hdr}</text>
 {"".join(bars)}
 
-<rect x="48" y="592" width="354" height="54" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
-<rect x="48" y="592" width="354" height="3" fill="{OXFORD_GREEN}"/>
-<text x="225" y="615" font-size="13" fill="{OXFORD_MUTED}" text-anchor="middle">{k1_lbl}</text>
-<text x="225" y="636" font-size="{kpi_size}" fill="{OXFORD_GREEN}" font-weight="700" text-anchor="middle">{k1_val}</text>
-
-<rect x="423" y="592" width="354" height="54" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
-<rect x="423" y="592" width="354" height="3" fill="{OXFORD_SKY}"/>
-<text x="600" y="615" font-size="13" fill="{OXFORD_MUTED}" text-anchor="middle">{k2_lbl}</text>
-<text x="600" y="636" font-size="{kpi_size}" fill="{OXFORD_SKY}" font-weight="700" text-anchor="middle">{k2_val}</text>
-
-<rect x="798" y="592" width="354" height="54" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
-<rect x="798" y="592" width="354" height="3" fill="{OXFORD_BRASS}"/>
-<text x="975" y="615" font-size="13" fill="{OXFORD_MUTED}" text-anchor="middle">{k3_lbl}</text>
-<text x="975" y="636" font-size="{kpi_size}" fill="{OXFORD_BRASS_LT}" font-weight="700" text-anchor="middle">{k3_val}</text>
+<rect x="48" y="584" width="1104" height="86" rx="12" fill="{OXFORD_BLUE}"/>
+<line x1="416" y1="600" x2="416" y2="654" stroke="#284B70" stroke-width="1"/>
+<line x1="784" y1="600" x2="784" y2="654" stroke="#284B70" stroke-width="1"/>
+<text x="232" y="615" font-size="13.5" fill="{OXFORD_SUBTLE}" text-anchor="middle">{k1_lbl}</text>
+<text x="232" y="646" font-size="{kpi_size}" fill="#FFFFFF" font-weight="700" text-anchor="middle">{k1_val}</text>
+<text x="600" y="615" font-size="13.5" fill="{OXFORD_SUBTLE}" text-anchor="middle">{k2_lbl}</text>
+<text x="600" y="646" font-size="{kpi_size}" fill="#FFFFFF" font-weight="700" text-anchor="middle">{k2_val}</text>
+<text x="968" y="615" font-size="13.5" fill="{OXFORD_SUBTLE}" text-anchor="middle">{k3_lbl}</text>
+<text x="968" y="646" font-size="{kpi_size}" fill="#FFFFFF" font-weight="700" text-anchor="middle">{k3_val}</text>
 </svg>
 """
 
@@ -684,7 +615,7 @@ def render_trajectory_svg(
     z_hi = max(175.0, math.ceil((max(all_z) + 12.0) / 25.0) * 25.0)
 
     # Left panel: 1st-stage trajectory
-    lx0, lx1, ly0, ly1 = 102.0, 560.0, 198.0, 582.0
+    lx0, lx1, ly0, ly1 = 102.0, 560.0, 198.0, 588.0
 
     def lsx(f: dict) -> float:
         return lx0 + ((f["pos_enu_m"][0] / 1000.0) - x_lo) / (x_hi - x_lo) * (lx1 - lx0)
@@ -701,8 +632,8 @@ def render_trajectory_svg(
 
     # Right stacked panels: Top = Dynamic Pressure (kPa), Bottom = Main Engine Throttle (%)
     rx0, rx1 = 674.0, 1128.0
-    qy0, qy1 = 196.0, 358.0
-    ty0, ty1 = 456.0, 586.0
+    qy0, qy1 = 196.0, 362.0
+    ty0, ty1 = 460.0, 592.0
     t_hi = max(
         580.0, math.ceil(max(calm_frames[-1]["time_s"], weather_frames[-1]["time_s"]) / 50.0) * 50.0
     )
@@ -748,31 +679,31 @@ def render_trajectory_svg(
         zv = z_hi * i / 4.0
         yy = ly1 - (zv / z_hi) * (ly1 - ly0)
         l_grid.append(
-            f'<line x1="{lx0:.0f}" y1="{yy:.1f}" x2="{lx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{lx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="end">{zv:.0f}</text>'
+            f'<line x1="{lx0:.0f}" y1="{yy:.1f}" x2="{lx1:.0f}" y2="{yy:.1f}" stroke="{GRID_LINE}"/>'
+            f'<text x="{lx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{INK_MUTED}" text-anchor="end">{zv:.0f}</text>'
         )
     for i in range(5):
         xv = x_lo + (x_hi - x_lo) * i / 4.0
         xx = lx0 + (lx1 - lx0) * i / 4.0
         l_grid.append(
-            f'<line x1="{xx:.1f}" y1="{ly0:.0f}" x2="{xx:.1f}" y2="{ly1:.0f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{xx:.1f}" y="{ly1 + 22:.0f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="middle">{xv:.0f}</text>'
+            f'<line x1="{xx:.1f}" y1="{ly0:.0f}" x2="{xx:.1f}" y2="{ly1:.0f}" stroke="{GRID_LINE}"/>'
+            f'<text x="{xx:.1f}" y="{ly1 + 22:.0f}" font-size="14" fill="{INK_MUTED}" text-anchor="middle">{xv:.0f}</text>'
         )
 
     q_grid = []
     for qv in (0, 15, 30, 45):
         yy = rsy_q(qv)
         q_grid.append(
-            f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_SKY}" text-anchor="end">{qv}</text>'
+            f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{GRID_LINE}"/>'
+            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_BLUE}" text-anchor="end">{qv}</text>'
         )
 
     thr_grid = []
     for tp in (0, 50, 100):
         yy = rsy_thr(tp)
         thr_grid.append(
-            f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_BRASS_LT}" text-anchor="end">{tp}%</text>'
+            f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{GRID_LINE}"/>'
+            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OCHRE}" text-anchor="end">{tp}%</text>'
         )
 
     t_step = 150 if t_hi <= 600 else 200
@@ -780,17 +711,17 @@ def render_trajectory_svg(
     while tv <= t_hi:
         xx = rsx(tv)
         q_grid.append(
-            f'<line x1="{xx:.1f}" y1="{qy0:.0f}" x2="{xx:.1f}" y2="{qy1:.0f}" stroke="{OXFORD_GRID}"/>'
+            f'<line x1="{xx:.1f}" y1="{qy0:.0f}" x2="{xx:.1f}" y2="{qy1:.0f}" stroke="{GRID_LINE}"/>'
         )
         thr_grid.append(
-            f'<line x1="{xx:.1f}" y1="{ty0:.0f}" x2="{xx:.1f}" y2="{ty1:.0f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{xx:.1f}" y="{ty1 + 22:.0f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="middle">{tv}</text>'
+            f'<line x1="{xx:.1f}" y1="{ty0:.0f}" x2="{xx:.1f}" y2="{ty1:.0f}" stroke="{GRID_LINE}"/>'
+            f'<text x="{xx:.1f}" y="{ty1 + 22:.0f}" font-size="14" fill="{INK_MUTED}" text-anchor="middle">{tv}</text>'
         )
         tv += t_step
 
     l_paths = "".join(
-        f'<polyline points="{_polyline(pts)}" fill="none" stroke="{PHASE_COLORS.get(ph, OXFORD_SKY)}" '
-        f'stroke-width="{3.8 if ph in ("ascent", "aero_glide", "landing_burn") else 3.0}" stroke-linecap="round"/>'
+        f'<polyline points="{_polyline(pts)}" fill="none" stroke="{PHASE_COLORS.get(ph, OXFORD_MID)}" '
+        f'stroke-width="{3.6 if ph in ("ascent", "aero_glide", "landing_burn") else 2.6}" stroke-linecap="round"/>'
         for ph, pts in l_segs
     )
 
@@ -819,25 +750,20 @@ def render_trajectory_svg(
         else f"무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 독립 패널로 분리된 동압 프로파일(상승 {asc_q_kpa:.1f} kPa, 재진입 {rec_q_kpa:.1f} kPa, 한계 42 kPa 및 80% 목표 33.6 kPa 미만 유지)과 주엔진 스로틀 프로파일(재점화 3회, {glide_dur:.0f}초 무동력 격자핀 활강)입니다."
     )
     h1_text = (
-        "RTLS Trajectory, Dynamic Pressure &amp; Throttle Profile"
+        "RTLS Trajectory, Dynamic Pressure &amp; Throttle"
         if en
         else "RTLS 궤적 및 동압 · 스로틀 프로파일"
     )
-    h1_size = 33 if en else 34
     sub_text = (
         "Calm baseline (solid) vs. weather (dashed) · Dynamic pressure (top) and throttle (bottom) on separate axes"
         if en
         else "무풍 기준(실선)과 복합 기상(점선) 비교 · 동압(상단)과 스로틀(하단)을 독립 축으로 분리해 표시합니다"
     )
-    sub_size = 16.5 if en else 18
+    sub_size = 18 if en else 19.5
     left_hdr = (
-        'Stage 1 Trajectory <tspan font-size="13.5" fill="'
-        + OXFORD_SLATE
-        + '" font-weight="400">(Alt km vs Downrange km)</tspan>'
+        f'Stage 1 Trajectory <tspan font-size="13.5" fill="{INK_MUTED}" font-weight="400">(Alt km vs Downrange km)</tspan>'
         if en
-        else '1단 상승·귀환 궤적 <tspan font-size="14" fill="'
-        + OXFORD_SLATE
-        + '" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
+        else f'1단 상승·귀환 궤적 <tspan font-size="14" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
     sep_lbl = f"MECO-1 Sep ({sep_z:.1f} km)" if en else f"단 분리 ({sep_z:.1f} km)"
     apo_lbl = f"Apogee {apo_z:.1f} km" if en else f"정점 {apo_z:.1f} km"
@@ -865,87 +791,91 @@ def render_trajectory_svg(
     x_time_lbl = "Flight time (s)" if en else "비행 시간 (s)"
     leg = (
         (
-            (70, "Ascent (7 eng) / Throttle"),
-            (314, "Entry burn"),
-            (450, "Unpowered glide / q"),
-            (668, "3→1 Hoverslam"),
-            (858, "Weather trajectory"),
+            (48, "Ascent (7 eng) / q"),
+            (254, "Entry burn"),
+            (390, "Unpowered glide"),
+            (578, "3→1 Hoverslam"),
+            (758, "Main throttle (%)"),
+            (948, "Weather trajectory"),
         )
         if en
         else (
-            (70, "상승 (7엔진) / 스로틀"),
-            (296, "재진입 연소"),
-            (454, "무동력 활강 / 동압"),
-            (666, "3→1 호버슬램 착륙"),
-            (882, "복합 기상 궤적"),
+            (48, "상승 (7엔진) / 동압"),
+            (256, "재진입 연소"),
+            (402, "무동력 활강"),
+            (554, "3→1 호버슬램"),
+            (716, "주엔진 스로틀 (%)"),
+            (912, "복합 기상 궤적"),
         )
     )
+    footer_txt = (
+        "Generated from 50 Hz recorded calm and complex-weather replay telemetry; both dynamic pressure peaks remain below the 33.6 kPa (80%) margin."
+        if en
+        else "50 Hz 무풍 기준 및 복합 기상 비행 기록에서 직접 생성했습니다. 상승·재진입 동압 피크 모두 80% 여유선(33.6 kPa) 아래를 유지합니다."
+    )
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="730" viewBox="0 0 1200 730" role="img" aria-labelledby="title desc">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="752" viewBox="0 0 1200 752" role="img" aria-labelledby="title desc">
 <title id="title">{svg_title}</title>
 <desc id="desc">{svg_desc}</desc>
 <style>{FONT_STYLE}</style>
-<rect width="1200" height="730" fill="{OXFORD_BLUE}"/>
-<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
-{_rocket_badge_svg(1106, 28, 46)}
-<text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">FLIGHT TELEMETRY · TRAJECTORY &amp; AEROTHERMAL ENVELOPE</text>
-<text x="48" y="88" font-size="{h1_size}" fill="{OXFORD_IVORY}" font-weight="700">{h1_text}</text>
-<text x="48" y="118" font-size="{sub_size}" fill="{OXFORD_SLATE}">{sub_text}</text>
+<rect width="1200" height="752" fill="{PAPER_BG}"/>
+<text x="48" y="64" font-size="36" fill="{OXFORD_BLUE}" font-weight="750">{h1_text}</text>
+<text x="48" y="102" font-size="{sub_size}" fill="{INK_MUTED}">{sub_text}</text>
+<line x1="48" y1="122" x2="1152" y2="122" stroke="{RULE_LINE}" stroke-width="1"/>
 
-<rect x="48" y="142" width="538" height="506" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<rect x="48" y="142" width="538" height="3" fill="{OXFORD_BRASS}"/>
-<text x="72" y="176" font-size="18" fill="{OXFORD_IVORY}" font-weight="700">{left_hdr}</text>
+<rect x="48" y="142" width="538" height="518" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>
+<text x="72" y="176" font-size="18" fill="{OXFORD_BLUE}" font-weight="700">{left_hdr}</text>
 {"".join(l_grid)}
-<polyline points="{_polyline(w_pts)}" fill="none" stroke="{OXFORD_IVORY}" stroke-width="1.6" stroke-dasharray="5 5" opacity="0.58"/>
+<polyline points="{_polyline(w_pts)}" fill="none" stroke="{WEATHER_GRAY}" stroke-width="1.6" stroke-dasharray="5 5" opacity="0.85"/>
 {l_paths}
-<circle cx="{sep_x:.1f}" cy="{sep_y:.1f}" r="4.8" fill="{OXFORD_BRASS_LT}" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
-<line x1="{sep_x + 5:.1f}" y1="{sep_y + 5:.1f}" x2="{sep_x + 36:.1f}" y2="{sep_y + 52:.1f}" stroke="{OXFORD_BRASS_LT}" stroke-width="1.2" opacity="0.85"/>
-<text x="{sep_x + 42:.1f}" y="{sep_y + 57:.1f}" font-size="13.5" fill="{OXFORD_BRASS_LT}" font-weight="700">{sep_lbl}</text>
-<circle cx="{apo_x:.1f}" cy="{apo_y:.1f}" r="4.8" fill="#A8C3E0" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
-<text x="{apo_x:.1f}" y="{apo_y - 12:.1f}" font-size="13.5" fill="#D5E4F4" font-weight="700" text-anchor="middle">{apo_lbl}</text>
-<circle cx="{gld_x:.1f}" cy="{gld_y:.1f}" r="4.8" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
-<line x1="{gld_x + 6:.1f}" y1="{gld_y - 6:.1f}" x2="{gld_x + 118:.1f}" y2="{gld_y - 128:.1f}" stroke="{OXFORD_SKY}" stroke-width="1.2" opacity="0.85"/>
-<text x="{gld_x + 124:.1f}" y="{gld_y - 124:.1f}" font-size="13.5" fill="{OXFORD_SKY}" font-weight="700">{gld_lbl}</text>
-<text x="332" y="632" font-size="15" fill="{OXFORD_SLATE}" text-anchor="middle">{x_dist_lbl}</text>
+<circle cx="{sep_x:.1f}" cy="{sep_y:.1f}" r="4.8" fill="{OXFORD_BLUE}" stroke="{CARD_BG}" stroke-width="1.6"/>
+<line x1="{sep_x + 5:.1f}" y1="{sep_y + 5:.1f}" x2="{sep_x + 36:.1f}" y2="{sep_y + 52:.1f}" stroke="{OXFORD_BLUE}" stroke-width="1.2"/>
+<text x="{sep_x + 42:.1f}" y="{sep_y + 57:.1f}" font-size="13.5" fill="{OXFORD_BLUE}" font-weight="700">{sep_lbl}</text>
+<circle cx="{apo_x:.1f}" cy="{apo_y:.1f}" r="4.8" fill="{OXFORD_STEEL}" stroke="{CARD_BG}" stroke-width="1.6"/>
+<text x="{apo_x:.1f}" y="{apo_y - 12:.1f}" font-size="13.5" fill="{INK_BODY}" font-weight="700" text-anchor="middle">{apo_lbl}</text>
+<circle cx="{gld_x:.1f}" cy="{gld_y:.1f}" r="4.8" fill="{OXFORD_MID}" stroke="{CARD_BG}" stroke-width="1.6"/>
+<line x1="{gld_x + 6:.1f}" y1="{gld_y - 6:.1f}" x2="{gld_x + 118:.1f}" y2="{gld_y - 128:.1f}" stroke="{OXFORD_MID}" stroke-width="1.2"/>
+<text x="{gld_x + 124:.1f}" y="{gld_y - 124:.1f}" font-size="13.5" fill="{OXFORD_MID}" font-weight="700">{gld_lbl}</text>
+<text x="332" y="640" font-size="15" fill="{INK_MUTED}" text-anchor="middle">{x_dist_lbl}</text>
 
-<rect x="614" y="142" width="538" height="244" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<rect x="614" y="142" width="538" height="3" fill="{OXFORD_SKY}"/>
-<text x="636" y="175" font-size="17" fill="{OXFORD_IVORY}" font-weight="700">{q_hdr}</text>
-<text x="1130" y="175" font-size="13.5" fill="{OXFORD_SKY}" font-weight="600" text-anchor="end">{q_kpi}</text>
-<rect x="{gx0:.1f}" y="{qy0:.0f}" width="{gx1 - gx0:.1f}" height="{qy1 - qy0:.0f}" fill="{OXFORD_SKY}" opacity="0.14"/>
+<rect x="610" y="142" width="542" height="250" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>
+<text x="634" y="175" font-size="17" fill="{OXFORD_BLUE}" font-weight="700">{q_hdr}</text>
+<text x="1130" y="175" font-size="13.5" fill="{OXFORD_MID}" font-weight="600" text-anchor="end">{q_kpi}</text>
+<rect x="{gx0:.1f}" y="{qy0:.0f}" width="{gx1 - gx0:.1f}" height="{qy1 - qy0:.0f}" fill="{GLIDE_TINT}"/>
 {"".join(q_grid)}
-<line x1="{rx0:.0f}" y1="{y_q42:.1f}" x2="{rx1:.0f}" y2="{y_q42:.1f}" stroke="{OXFORD_CRIMSON}" stroke-width="1.5" stroke-dasharray="6 4"/>
-<text x="{rsx(285):.1f}" y="{y_q42 - 6:.1f}" font-size="12.5" fill="{OXFORD_CRIMSON}" font-weight="700" text-anchor="middle">{q42_lbl}</text>
-<line x1="{rx0:.0f}" y1="{y_q336:.1f}" x2="{rx1:.0f}" y2="{y_q336:.1f}" stroke="{OXFORD_BRASS_LT}" stroke-width="1.3" stroke-dasharray="3 4"/>
-<text x="{rsx(285):.1f}" y="{y_q336 - 6:.1f}" font-size="12" fill="{OXFORD_BRASS_LT}" font-weight="600" text-anchor="middle">{q336_lbl}</text>
-<polygon points="{_polyline(q_area)}" fill="{OXFORD_SKY}" opacity="0.18"/>
-<polyline points="{_polyline(q_pts)}" fill="none" stroke="{OXFORD_SKY}" stroke-width="2.6" stroke-linejoin="round"/>
-<circle cx="{aqx:.1f}" cy="{aqy:.1f}" r="4.0" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.3"/>
-<text x="{aqx + 12:.1f}" y="{aqy + 4:.1f}" font-size="12.5" fill="{OXFORD_IVORY}" font-weight="700">{asc_q_kpa:.1f} kPa</text>
-<circle cx="{rqx:.1f}" cy="{rqy:.1f}" r="4.0" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.3"/>
-<text x="{rqx - 10:.1f}" y="{rqy + 4:.1f}" font-size="12.5" fill="{OXFORD_IVORY}" font-weight="700" text-anchor="end">{rec_q_kpa:.1f} kPa</text>
+<line x1="{rx0:.0f}" y1="{y_q42:.1f}" x2="{rx1:.0f}" y2="{y_q42:.1f}" stroke="{CRIMSON}" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="{rsx(285):.1f}" y="{y_q42 - 6:.1f}" font-size="12.5" fill="{CRIMSON}" font-weight="700" text-anchor="middle">{q42_lbl}</text>
+<line x1="{rx0:.0f}" y1="{y_q336:.1f}" x2="{rx1:.0f}" y2="{y_q336:.1f}" stroke="{OCHRE}" stroke-width="1.3" stroke-dasharray="3 4"/>
+<text x="{rsx(285):.1f}" y="{y_q336 - 6:.1f}" font-size="12" fill="{OCHRE}" font-weight="600" text-anchor="middle">{q336_lbl}</text>
+<polygon points="{_polyline(q_area)}" fill="{OXFORD_BLUE}" opacity="0.10"/>
+<polyline points="{_polyline(q_pts)}" fill="none" stroke="{OXFORD_BLUE}" stroke-width="2.5" stroke-linejoin="round"/>
+<circle cx="{aqx:.1f}" cy="{aqy:.1f}" r="4.0" fill="{OXFORD_BLUE}" stroke="{CARD_BG}" stroke-width="1.4"/>
+<text x="{aqx + 12:.1f}" y="{aqy + 4:.1f}" font-size="12.5" fill="{OXFORD_BLUE}" font-weight="700">{asc_q_kpa:.1f} kPa</text>
+<circle cx="{rqx:.1f}" cy="{rqy:.1f}" r="4.0" fill="{OXFORD_BLUE}" stroke="{CARD_BG}" stroke-width="1.4"/>
+<text x="{rqx - 10:.1f}" y="{rqy + 4:.1f}" font-size="12.5" fill="{OXFORD_BLUE}" font-weight="700" text-anchor="end">{rec_q_kpa:.1f} kPa</text>
 
-<rect x="614" y="402" width="538" height="246" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<rect x="614" y="402" width="538" height="3" fill="{OXFORD_BRASS}"/>
-<text x="636" y="435" font-size="17" fill="{OXFORD_IVORY}" font-weight="700">{thr_hdr}</text>
-<text x="1130" y="435" font-size="13.5" fill="{OXFORD_BRASS_LT}" font-weight="600" text-anchor="end">{thr_kpi}</text>
-<rect x="{gx0:.1f}" y="{ty0:.0f}" width="{gx1 - gx0:.1f}" height="{ty1 - ty0:.0f}" fill="{OXFORD_SKY}" opacity="0.14"/>
-<text x="{(gx0 + gx1) / 2:.1f}" y="{ty0 + 22:.1f}" font-size="11.5" fill="{OXFORD_SKY}" font-weight="700" text-anchor="middle">{thr_glide_lbl}</text>
+<rect x="610" y="408" width="542" height="252" rx="12" fill="{CARD_BG}" stroke="{CARD_BORDER}"/>
+<text x="634" y="441" font-size="17" fill="{OXFORD_BLUE}" font-weight="700">{thr_hdr}</text>
+<text x="1130" y="441" font-size="13.5" fill="{OCHRE}" font-weight="600" text-anchor="end">{thr_kpi}</text>
+<rect x="{gx0:.1f}" y="{ty0:.0f}" width="{gx1 - gx0:.1f}" height="{ty1 - ty0:.0f}" fill="{GLIDE_TINT}"/>
+<text x="{(gx0 + gx1) / 2:.1f}" y="{ty0 + 20:.1f}" font-size="11.5" fill="{OXFORD_MID}" font-weight="700" text-anchor="middle">{thr_glide_lbl}</text>
 {"".join(thr_grid)}
-<polygon points="{_polyline(thr_area)}" fill="{OXFORD_BRASS}" opacity="0.18"/>
-<polyline points="{_polyline(thr_pts)}" fill="none" stroke="{OXFORD_BRASS_LT}" stroke-width="2.4" stroke-linejoin="round"/>
-<text x="{rsx(62):.1f}" y="{rsy_thr(100) - 6:.1f}" font-size="12" fill="{OXFORD_BRASS_LT}" font-weight="700" text-anchor="middle">{p_asc}</text>
-<text x="{rsx(boost_frames[0]["time_s"]) + 2:.1f}" y="{rsy_thr(boost_thr_max) - 7:.1f}" font-size="12" fill="{OXFORD_SLATE}" font-weight="600" text-anchor="start">{p_boost}</text>
-<text x="{rsx(t_entry_mid) - 6:.1f}" y="{rsy_thr(entry_thr_max) - 7:.1f}" font-size="12" fill="{OXFORD_CRIMSON}" font-weight="600" text-anchor="end">{p_entry}</text>
-<text x="{min(rx1 - 2, rsx(t_land_mid) + 8):.1f}" y="{rsy_thr(land_thr_max) - 10:.1f}" font-size="12" fill="{OXFORD_GREEN}" font-weight="700" text-anchor="end">{p_land}</text>
-<text x="900" y="636" font-size="15" fill="{OXFORD_SLATE}" text-anchor="middle">{x_time_lbl}</text>
+<polygon points="{_polyline(thr_area)}" fill="{OCHRE}" opacity="0.14"/>
+<polyline points="{_polyline(thr_pts)}" fill="none" stroke="{OCHRE}" stroke-width="2.3" stroke-linejoin="round"/>
+<text x="{rsx(62):.1f}" y="{rsy_thr(100) - 6:.1f}" font-size="12" fill="{OXFORD_BLUE}" font-weight="700" text-anchor="middle">{p_asc}</text>
+<text x="{rsx(boost_frames[0]["time_s"]) + 2:.1f}" y="{rsy_thr(boost_thr_max) - 7:.1f}" font-size="12" fill="{INK_MUTED}" font-weight="600" text-anchor="start">{p_boost}</text>
+<text x="{rsx(t_entry_mid) - 6:.1f}" y="{rsy_thr(entry_thr_max) - 7:.1f}" font-size="12" fill="{CRIMSON}" font-weight="600" text-anchor="end">{p_entry}</text>
+<text x="{min(rx1 - 2, rsx(t_land_mid) + 8):.1f}" y="{rsy_thr(land_thr_max) - 10:.1f}" font-size="12" fill="{FOREST}" font-weight="700" text-anchor="end">{p_land}</text>
+<text x="900" y="644" font-size="15" fill="{INK_MUTED}" text-anchor="middle">{x_time_lbl}</text>
 
-<rect x="48" y="664" width="1104" height="44" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
-<line x1="{leg[0][0]}" y1="686" x2="{leg[0][0] + 26}" y2="686" stroke="{OXFORD_BRASS_LT}" stroke-width="3.5"/><text x="{leg[0][0] + 36}" y="692" font-size="14.5" fill="{OXFORD_IVORY}">{leg[0][1]}</text>
-<line x1="{leg[1][0]}" y1="686" x2="{leg[1][0] + 26}" y2="686" stroke="{OXFORD_CRIMSON}" stroke-width="3.5"/><text x="{leg[1][0] + 36}" y="692" font-size="14.5" fill="{OXFORD_IVORY}">{leg[1][1]}</text>
-<line x1="{leg[2][0]}" y1="686" x2="{leg[2][0] + 26}" y2="686" stroke="{OXFORD_SKY}" stroke-width="3.5"/><text x="{leg[2][0] + 36}" y="692" font-size="14.5" fill="{OXFORD_IVORY}">{leg[2][1]}</text>
-<line x1="{leg[3][0]}" y1="686" x2="{leg[3][0] + 26}" y2="686" stroke="{OXFORD_GREEN}" stroke-width="3.5"/><text x="{leg[3][0] + 36}" y="692" font-size="14.5" fill="{OXFORD_IVORY}">{leg[3][1]}</text>
-<line x1="{leg[4][0]}" y1="686" x2="{leg[4][0] + 30}" y2="686" stroke="{OXFORD_IVORY}" stroke-width="2.0" stroke-dasharray="5 4"/><text x="{leg[4][0] + 40}" y="692" font-size="14.5" fill="{OXFORD_IVORY}">{leg[4][1]}</text>
+<line x1="{leg[0][0]}" y1="692" x2="{leg[0][0] + 24}" y2="692" stroke="{OXFORD_BLUE}" stroke-width="3.5"/><text x="{leg[0][0] + 32}" y="697" font-size="14" fill="{INK_BODY}">{leg[0][1]}</text>
+<line x1="{leg[1][0]}" y1="692" x2="{leg[1][0] + 24}" y2="692" stroke="{CRIMSON}" stroke-width="3.5"/><text x="{leg[1][0] + 32}" y="697" font-size="14" fill="{INK_BODY}">{leg[1][1]}</text>
+<line x1="{leg[2][0]}" y1="692" x2="{leg[2][0] + 24}" y2="692" stroke="{OXFORD_MID}" stroke-width="3.5"/><text x="{leg[2][0] + 32}" y="697" font-size="14" fill="{INK_BODY}">{leg[2][1]}</text>
+<line x1="{leg[3][0]}" y1="692" x2="{leg[3][0] + 24}" y2="692" stroke="{FOREST}" stroke-width="3.5"/><text x="{leg[3][0] + 32}" y="697" font-size="14" fill="{INK_BODY}">{leg[3][1]}</text>
+<line x1="{leg[4][0]}" y1="692" x2="{leg[4][0] + 24}" y2="692" stroke="{OCHRE}" stroke-width="3.5"/><text x="{leg[4][0] + 32}" y="697" font-size="14" fill="{INK_BODY}">{leg[4][1]}</text>
+<line x1="{leg[5][0]}" y1="692" x2="{leg[5][0] + 28}" y2="692" stroke="{WEATHER_GRAY}" stroke-width="2.0" stroke-dasharray="5 4"/><text x="{leg[5][0] + 36}" y="697" font-size="14" fill="{INK_BODY}">{leg[5][1]}</text>
+
+<text x="48" y="730" font-size="14.5" fill="{INK_MUTED}">{footer_txt}</text>
 </svg>
 """
 
@@ -979,7 +909,7 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
     final_x = abs(calm_frames[-1]["pos_enu_m"][0])
 
     fig = plt.figure(figsize=(13.6, 8.4), dpi=160)
-    fig.patch.set_facecolor("#F7F6F1")
+    fig.patch.set_facecolor(PAPER_BG)
     gs = gridspec.GridSpec(
         2, 2, figure=fig, hspace=0.28, wspace=0.22, left=0.065, right=0.975, top=0.915, bottom=0.075
     )
@@ -998,36 +928,41 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
             ax_traj.plot(
                 x_km[idx],
                 z_km[idx],
-                color=PNG_PHASE_COLORS[ph],
+                color=PHASE_COLORS[ph],
                 lw=2.4 if ph in ("ascent", "aero_glide", "landing_burn") else 1.7,
                 label=ph.replace("_", " "),
             )
     ax_traj.set_xlabel("Horizontal distance (km)")
     ax_traj.set_ylabel("Altitude (km)")
     ax_traj.legend(
-        fontsize=8, loc="upper left", ncol=2, frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
+        fontsize=8,
+        loc="upper left",
+        ncol=2,
+        frameon=True,
+        facecolor="#FFFFFF",
+        edgecolor=CARD_BORDER,
     )
 
     # 2. Velocity
     ax_vel = fig.add_subplot(gs[0, 1])
-    ax_vel.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide")
+    ax_vel.axvspan(gt0, gt1, color=GLIDE_TINT, alpha=0.85, label="Unpowered glide")
     ax_vel.plot(t, vx, color=OXFORD_BLUE, lw=1.9, label="Horizontal vx")
-    ax_vel.plot(t, vz, color="#9E7B2F", lw=1.9, label="Vertical vz")
+    ax_vel.plot(t, vz, color=OCHRE, lw=1.9, label="Vertical vz")
     ax_vel.set_xlabel("Time (s)")
     ax_vel.set_ylabel("Velocity (m/s)")
     ax_vel.legend(
-        fontsize=8.5, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
+        fontsize=8.5, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor=CARD_BORDER
     )
 
     # 3. Attitude & Grid-Fin Deflection
     ax_att = fig.add_subplot(gs[1, 0])
-    ax_att.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16)
+    ax_att.axvspan(gt0, gt1, color=GLIDE_TINT, alpha=0.85)
     ax_att.plot(t, pitch, color=OXFORD_BLUE, lw=1.9, label="Pitch (deg)")
-    ax_att.plot(t, fin_deg, color="#1B5E3A", lw=1.5, label="Grid-fin deflection (deg)")
+    ax_att.plot(t, fin_deg, color=FOREST, lw=1.5, label="Grid-fin deflection (deg)")
     ax_att.set_xlabel("Time (s)")
     ax_att.set_ylabel("Angle (deg)")
     ax_att.legend(
-        fontsize=8.5, loc="lower right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
+        fontsize=8.5, loc="lower right", frameon=True, facecolor="#FFFFFF", edgecolor=CARD_BORDER
     )
 
     # 4. Separate stacked panels: Top = Dynamic Pressure (kPa), Bottom = Main Throttle (%)
@@ -1035,7 +970,7 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
         2, 1, subplot_spec=gs[1, 1], height_ratios=[1.15, 0.85], hspace=0.16
     )
     ax_q = fig.add_subplot(sub_gs[0, 0])
-    ax_q.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16)
+    ax_q.axvspan(gt0, gt1, color=GLIDE_TINT, alpha=0.85)
     ax_q.fill_between(t, 0.0, q_kpa, color=OXFORD_BLUE, alpha=0.10)
     ax_q.plot(
         t,
@@ -1044,8 +979,8 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
         lw=2.0,
         label=f"Dynamic pressure (peak {asc_q_max:.1f} / {rec_q_max:.1f} kPa)",
     )
-    ax_q.axhline(42.0, color="#9E2A2B", ls="--", lw=1.35, label="Max-Q limit (42 kPa)")
-    ax_q.axhline(33.6, color="#9E7B2F", ls=":", lw=1.25, label="80% margin (33.6 kPa)")
+    ax_q.axhline(42.0, color=CRIMSON, ls="--", lw=1.35, label="Max-Q limit (42 kPa)")
+    ax_q.axhline(33.6, color=OCHRE, ls=":", lw=1.25, label="80% margin (33.6 kPa)")
     ax_q.set_ylabel("Dyn. pressure (kPa)", fontsize=9.5, color=OXFORD_BLUE)
     ax_q.set_ylim(-1.5, 48.0)
     ax_q.set_yticks([0, 15, 30, 42])
@@ -1056,28 +991,28 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
         bbox_to_anchor=(0.50, 0.06),
         frameon=True,
         facecolor="#FFFFFF",
-        edgecolor="#D8D6CE",
+        edgecolor=CARD_BORDER,
     )
 
     ax_thr = fig.add_subplot(sub_gs[1, 0], sharex=ax_q)
-    ax_thr.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide (0% cmd)")
-    ax_thr.fill_between(t, 0.0, thr_pct, color="#9E7B2F", alpha=0.15)
-    ax_thr.plot(t, thr_pct, color="#9E7B2F", lw=1.8, label="Main engine throttle (%)")
+    ax_thr.axvspan(gt0, gt1, color=GLIDE_TINT, alpha=0.85, label="Unpowered glide (0% cmd)")
+    ax_thr.fill_between(t, 0.0, thr_pct, color=OCHRE, alpha=0.14)
+    ax_thr.plot(t, thr_pct, color=OCHRE, lw=1.8, label="Main engine throttle (%)")
     ax_thr.set_xlabel("Time (s)")
-    ax_thr.set_ylabel("Throttle (%)", fontsize=9.5, color="#9E7B2F")
+    ax_thr.set_ylabel("Throttle (%)", fontsize=9.5, color=OCHRE)
     ax_thr.set_ylim(-6.0, 118.0)
     ax_thr.set_yticks([0, 50, 100])
     ax_thr.legend(
-        fontsize=7.6, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
+        fontsize=7.6, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor=CARD_BORDER
     )
 
     for axis in (ax_traj, ax_vel, ax_att, ax_q, ax_thr):
         axis.set_facecolor("#FFFFFF")
-        axis.grid(True, color="#E2E0D8", alpha=0.8, linewidth=0.7)
+        axis.grid(True, color=GRID_LINE, alpha=0.95, linewidth=0.7)
         axis.spines["top"].set_visible(False)
         axis.spines["right"].set_visible(False)
         for sp in ("bottom", "left"):
-            axis.spines[sp].set_color("#B8C2CE")
+            axis.spines[sp].set_color("#B8C5D4")
 
     fig.savefig(out_path, dpi=160, facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -1103,7 +1038,7 @@ def main() -> None:
             render_trajectory_svg(calm, weather, lang=lang), encoding="utf-8"
         )
     render_trajectory_png(calm, ASSETS_DIR / "trajectory.png")
-    print("Generated all 9 KO/EN Oxford Blue DM100 RTLS visuals in", ASSETS_DIR)
+    print("Generated all 9 light-paper Oxford Blue DM100 RTLS visuals in", ASSETS_DIR)
 
 
 if __name__ == "__main__":
