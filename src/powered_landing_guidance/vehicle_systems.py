@@ -36,8 +36,8 @@ class FeedSettings:
     equivalent liquid omit cryogenic collapse, two-species mixing and boiling.
     """
 
-    main_tank_volume_m3: float = 13.0 * pi * 1.5**2
-    liquid_density_kg_m3: float = 826.0
+    main_tank_volume_m3: float = 15.0 * pi * 1.55**2
+    liquid_density_kg_m3: float = 830.0
     buffer_capacity_kg: float = 1500.0
     maximum_flow_kg_s: float = 650.0
     buffer_fill_time_s: float = 0.5
@@ -47,8 +47,8 @@ class FeedSettings:
     settled_acceleration_m_s2: float = 0.3
     regulated_pressure_pa: float = 350_000.0
     minimum_pressure_pa: float = 220_000.0
-    bottle_volume_m3: float = 1.3
-    helium_total_mass_kg: float = 65.0
+    bottle_volume_m3: float = 1.5
+    helium_total_mass_kg: float = 75.0
     gas_temperature_k: float = 290.0
     helium_specific_gas_constant_j_kg_k: float = 2077.1
     regulator_time_s: float = 0.1

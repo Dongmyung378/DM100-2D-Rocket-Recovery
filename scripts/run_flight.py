@@ -74,13 +74,27 @@ def _format_report(result: dict, scenario_label: str) -> str:
             f"rate = {result['contact_rate_deg_s']:.3f} deg/s (<=0.5)"
         )
     lines.append(
-        f"Flight peaks: max_q = {result['peak_dynamic_pressure_pa'] / 1000.0:.2f} kPa (<=30), "
-        f"max_g_rec = {result['peak_recovery_g']:.2f} g (<=5.0), "
+        f"Flight peaks: max_q = {result['peak_dynamic_pressure_pa'] / 1000.0:.2f} kPa (<=42), "
+        f"max_qdot = {result['peak_heat_flux_w_m2'] / 1000.0:.2f} kW/m^2 (<=80), "
+        f"max_qa = {result['peak_q_alpha_kpa_deg']:.1f} kPa*deg (<=150), "
+        f"max_g_asc = {result['peak_ascent_axial_g']:.2f} g (<=4.5), "
+        f"max_g_rec = {result['peak_recovery_g']:.2f} g (<=5.5), "
         f"max_rate = {result['peak_angular_rate_deg_s']:.2f} deg/s (<=15), "
         f"max_accel = {result['peak_angular_acceleration_deg_s2']:.2f} deg/s^2 (<=5), "
         f"max_fin = {result['peak_fin_deflection_deg']:.2f} deg, "
-        f"max_hinge = {result['peak_fin_hinge_nm']:.0f} N*m (<=5000)"
+        f"max_hinge = {result['peak_fin_hinge_nm']:.0f} N*m (<=7500)"
     )
+    orb = result.get("upper_stage_orbit")
+    if orb is not None:
+        apogee_s = (
+            f"{orb['final_apogee_km']:.2f} km" if orb.get("final_apogee_km") is not None else "N/A"
+        )
+        lines.append(
+            f"Upper stage (700 km LEO): orbit_inserted = {orb['orbit_inserted']}, "
+            f"orbit = {apogee_s} (target {orb['target_altitude_km']:.0f} +/-15 km), "
+            f"payload = {orb['payload_mass_kg']:.0f} kg, "
+            f"upper_prop_rem = {orb['upper_propellant_remaining_kg']:.1f} kg"
+        )
     pc = result["post_contact"]
     lines.append(
         f"Post-contact (5 s engine-off): standing_stable = {pc['standing_stable']}, "

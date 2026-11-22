@@ -4,7 +4,7 @@ Designed as a pure force/torque module that:
   1. Eliminates per-step dataclass allocation and Python loop overhead (~20x faster).
   2. Separates nose-first ascent drag from tail-first blunt-base descent drag and
      models realistic grid-fin effective angle of attack (alpha_eff = delta - alpha_retro).
-  3. Enforces Reusable multi-engine cluster throttling (3 x 533.3 kN = 1,600 kN)
+  3. Enforces Reusable multi-engine cluster throttling (7 x 221.4 kN = 1,550 kN SL)
      with realistic per-engine minimum throttle (non-hovering Hoverslam on 1 engine)
      and bounded restart count.
   4. Can be plugged directly into MuJoCo's `xfrc_applied` callback in Stage 2 (3D).
@@ -37,6 +37,18 @@ from powered_landing_guidance.recovery_physics import (
 from powered_landing_guidance.rtls.interfaces import ForceTorqueSample
 
 OMEGA_EARTH = 7.292115e-5
+SUTTON_GRAVES_EARTH_K = 1.7415e-4
+
+
+def compute_stagnation_heat_flux_w_m2(
+    rho_kg_m3: float,
+    speed_m_s: float,
+    nose_radius_m: float = 1.55,
+) -> float:
+    """Sutton-Graves convective stagnation heat flux [W/m^2] for Earth entry."""
+    if rho_kg_m3 <= 0.0 or speed_m_s <= 0.0:
+        return 0.0
+    return SUTTON_GRAVES_EARTH_K * sqrt(rho_kg_m3 / max(nose_radius_m, 0.1)) * (speed_m_s**3)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +68,8 @@ class RtlsAerodynamics:
     axial_cd_descent: float = 1.65
     normal_cd: float = 0.8
     slender_lift_slope: float = 2.0
-    pressure_center_ascent_m: float = 10.0
-    pressure_center_descent_m: float = 9.5
+    pressure_center_ascent_m: float = 11.5
+    pressure_center_descent_m: float = 11.0
     rotation_damping: float = 0.3
     transonic_drag_rise: float = 0.2
 
@@ -87,7 +99,7 @@ class RtlsFinSettings:
     control_max_alpha_deg: float = 25.0
     model_max_mach: float = 8.0
     hinge_arm_m: float = 0.12
-    per_fin_hinge_limit_nm: float = 5000.0
+    per_fin_hinge_limit_nm: float = 7_500.0
 
     @property
     def mass_kg(self) -> float:
@@ -101,25 +113,26 @@ class RtlsFinSettings:
 
 @dataclass(frozen=True, slots=True)
 class RtlsPropulsionSettings:
-    """Reusable 3-engine cluster (3 x 533.3 kN = 1,600 kN) with throttle floor.
+    """Reusable 7-engine hexagonal Methalox cluster (7 x 221.4 kN = 1,550 kN SL).
 
-    Total thrust, Isp, and nozzle exit area match the 100 t DM100 Design.
+    Total thrust (1.55 MN SL / 1.693 MN vac), Isp (325 s SL / 355 s vac), and nozzle
+    exit area match the 100 t Methalox orbital RTLS Design.
     Each individual engine throttles only within [min_engine_throttle, 1.0] or OFF.
-    Landing on the 1 center engine at min_engine_throttle=0.55 yields 293.3 kN,
-    giving TWR_min > 1.1 across all landing masses -> true non-hovering Hoverslam.
+    Landing on the 1 center engine at min_engine_throttle=0.42 yields 93.0 kN,
+    giving TWR_min ~ 1.25 on an ~7.6 t booster -> true non-hovering Hoverslam.
     """
 
-    engine_count: int = 3
-    sea_level_thrust_n: float = 1_600_000.0
-    sea_level_isp_s: float = 300.0
-    nozzle_exit_area_m2: float = 160_000.0 / 101_325.0
-    min_engine_throttle: float = 0.44
+    engine_count: int = 7
+    sea_level_thrust_n: float = 1_550_000.0
+    sea_level_isp_s: float = 325.0
+    nozzle_exit_area_m2: float = 1.4113
+    min_engine_throttle: float = 0.36
     max_restarts: int = 3
     gimbal_limit_deg: float = 6.0
     gimbal_rate_deg_s: float = 60.0
     gimbal_tau_s: float = 0.06
     nominal_engine_tau_s: float = 0.04
-    rcs_isp_s: float = 220.0
+    rcs_isp_s: float = 260.0
     rcs_torque_limit_nm: float = 100_000.0
 
     def throttle_bounds(self, active_engines: int) -> tuple[float, float]:
@@ -291,9 +304,9 @@ def fast_mass_properties(
     fin_radius_m: float = FINS.mean_mass_radius_m,
     airframe_mass_offset_kg: float = 0.0,
     upper_attached: bool = False,
-    upper_mass_kg: float = 17_500.0,
-    upper_station_m: float = 24.0,
-    upper_length_m: float = 8.0,
+    upper_mass_kg: float = 24_000.0,
+    upper_station_m: float = PHYSICS.upper_station_m,
+    upper_length_m: float = PHYSICS.upper_length_m,
     inertia_scale: float = 1.0,
 ) -> tuple[float, float, float]:
     """Scalar (cg_m, inertia_kg_m2, fuel_height_m) matching recovery_physics.mass_properties()."""

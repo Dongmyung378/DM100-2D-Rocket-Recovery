@@ -21,6 +21,7 @@ from powered_landing_guidance.rtls.forces import (
     compute_body_aero,
     compute_fin_aero,
     compute_forces_and_torques,
+    compute_stagnation_heat_flux_w_m2,
 )
 from powered_landing_guidance.rtls.guidance import RtlsController, RtlsGuidanceSettings
 from powered_landing_guidance.rtls.interfaces import (
@@ -33,6 +34,7 @@ from powered_landing_guidance.rtls.interfaces import (
     TelemetryPacket,
     pitch_to_quat_wxyz,
 )
+from powered_landing_guidance.rtls.orbit import UpperStageSettings, evaluate_upper_stage_orbit
 from powered_landing_guidance.rtls.plant_2d import Plant2D, PlantConfig
 from powered_landing_guidance.rtls.replay import REPLAY_SCHEMA_VERSION, export_replay_json
 
@@ -60,11 +62,14 @@ __all__ = [
     "RtlsPropulsionSettings",
     "RtlsController",
     "TelemetryPacket",
+    "UpperStageSettings",
     "WindLUT",
     "compute_body_aero",
     "compute_fin_aero",
     "compute_forces_and_torques",
+    "compute_stagnation_heat_flux_w_m2",
     "evaluate_ground_contact",
+    "evaluate_upper_stage_orbit",
     "export_replay_json",
     "pitch_to_quat_wxyz",
     "solve_convex_hoverslam",

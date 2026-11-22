@@ -25,20 +25,20 @@ from powered_landing_guidance.rtls.interfaces import ContactSample
 class ContactSettings:
     """Conceptual 2-leg planar strut compliance and standing-stability limits.
 
-    Sized for a ~20-30 t landing booster (weight ~200-295 kN, 2 planar feet
-    representing 4 physical legs, static load ~100-150 kN per planar foot):
-      - Static equilibrium deflection at 25 t: ~122.5 kN / 450 kN/m = 0.27 m
-      - Critical damping ratio ~0.85 for 12.5 t per foot -> c ~ 130 kN*s/m
-      - At 1.5 m/s vertical impact: max stroke ~0.40 m << 1.2 m limit,
-        peak load ~1.8-2.4 g << 4.0 g limit, zero bounce.
+    Sized for a ~7.5-9.5 t Methalox landing booster (weight ~74-93 kN, 2 planar feet
+    representing 4 physical legs, static load ~37-47 kN per planar foot):
+      - Static equilibrium deflection at 8 t: ~39 kN / 160 kN/m = 0.24 m
+      - Critical damping ratio ~0.90 for 4 t per foot -> c ~ 45 kN*s/m
+      - At 1.5 m/s vertical impact: max stroke ~0.36 m << 0.90 m limit,
+        peak load ~1.4-2.3 g << 4.0 g limit, zero bounce.
     """
 
-    leg_stiffness_n_m: float = 450_000.0
-    leg_damping_n_s_m: float = 135_000.0
+    leg_stiffness_n_m: float = 160_000.0
+    leg_damping_n_s_m: float = 45_000.0
     friction_coefficient: float = 0.75
     friction_velocity_scale_m_s: float = 0.05
-    max_leg_stroke_m: float = 1.20
-    max_leg_force_n: float = 550_000.0
+    max_leg_stroke_m: float = 0.90
+    max_leg_force_n: float = 250_000.0
     max_contact_load_g: float = 4.0
     settle_duration_s: float = 5.0
     max_standing_tilt_deg: float = 5.0

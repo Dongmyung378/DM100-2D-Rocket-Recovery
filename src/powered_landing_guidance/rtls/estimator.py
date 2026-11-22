@@ -18,7 +18,7 @@ from powered_landing_guidance.observation_models import (
     PlanarAttitudeEstimator,
     SensorSettings,
 )
-from powered_landing_guidance.recovery_physics import G0, PlanarNavigationEstimator
+from powered_landing_guidance.recovery_physics import EARTH_RADIUS_M, G0, PlanarNavigationEstimator
 from powered_landing_guidance.rtls.forces import (
     OMEGA_EARTH,
     AtmosphereLUT,
@@ -152,7 +152,8 @@ class CausalRtlsEstimator:
         if pkt.on_pad and pkt.upper_attached and ft.force_z_n < mass * g_loc:
             return 0.0, 0.0
         ax = ft.force_x_n / mass
-        az = ft.force_z_n / mass - g_loc
+        r_orb = EARTH_RADIUS_M + max(pkt.z_m, 0.0)
+        az = ft.force_z_n / mass - g_loc + (pkt.vx_m_s * pkt.vx_m_s) / r_orb
         if self.coriolis_enabled:
             om = OMEGA_EARTH * cos(self.latitude_deg * (pi / 180.0))
             ax += -2.0 * om * pkt.vz_m_s

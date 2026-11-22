@@ -21,37 +21,37 @@ EARTH_RADIUS_M = 6_371_000.0
 
 @dataclass(frozen=True, slots=True)
 class Geometry:
-    body_length_m: float = 20.0
-    body_radius_m: float = 1.5
-    engine_mass_kg: float = 1200.0
+    body_length_m: float = 24.0
+    body_radius_m: float = 1.55
+    engine_mass_kg: float = 1050.0
     engine_station_m: float = 0.8
-    airframe_mass_kg: float = 8700.0
-    airframe_station_m: float = 10.0
-    gear_mass_kg: float = 1500.0
+    airframe_mass_kg: float = 3750.0
+    airframe_station_m: float = 11.5
+    gear_mass_kg: float = 800.0
     gear_retracted_station_m: float = 2.0
     gear_deployed_station_m: float = 0.3
     tank_bottom_m: float = 3.0
-    tank_length_m: float = 13.0
-    propellant_density_kg_m3: float = 826.0
+    tank_length_m: float = 15.0
+    propellant_density_kg_m3: float = 830.0
     nozzle_station_m: float = -0.2
-    nozzle_radius_m: float = 0.71
-    rcs_station_m: float = 18.5
-    rcs_arm_m: float = 9.0
+    nozzle_radius_m: float = 0.78
+    rcs_station_m: float = 22.4
+    rcs_arm_m: float = 9.5
 
 
 @dataclass(frozen=True, slots=True)
 class Aerodynamics:
     axial_cd: float = 0.4
     normal_cd: float = 0.8
-    pressure_center_m: float = 10.0
+    pressure_center_m: float = 11.5
     rotation_damping: float = 0.3
     transonic_drag_rise: float = 0.2
 
 
 @dataclass(frozen=True, slots=True)
 class Propulsion:
-    # Vacuum thrust 1.76 MN at the unchanged sea-level mass flow (Isp 330 s).
-    nozzle_exit_area_m2: float = 160_000.0 / 101_325.0
+    # Methalox 7-engine cluster: 1.55 MN SL (Isp 325 s) -> 1.693 MN vac (Isp 355 s).
+    nozzle_exit_area_m2: float = 1.4113
 
 
 @dataclass(frozen=True, slots=True)

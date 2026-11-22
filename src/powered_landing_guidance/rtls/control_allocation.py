@@ -134,7 +134,7 @@ class PriorityControlAllocator:
                     # Limit vertical-body gimbal step relative to current gimbal so
                     # TVC lag vs instantaneous RCS counter-torque never spikes angular
                     # acceleration under 1-step action delay.
-                    max_g_step = 0.85 * (pi / 180.0)
+                    max_g_step = 1.52 * (pi / 180.0)
                     slew_lo = max(lo_g, inp.current_gimbal_rad - max_g_step)
                     slew_hi = min(hi_g, inp.current_gimbal_rad + max_g_step)
                     if slew_lo <= slew_hi:
@@ -160,7 +160,11 @@ class PriorityControlAllocator:
                 -g_rate * dt, min(g_rate * dt, dg * (1.0 - 2.718281828 ** (-dt / g_tau)))
             )
             t_cur = inp.current_thrust_n
-            t_fut = inp.sizing_thrust_n
+            t_fut = (
+                inp.sizing_thrust_n
+                if inp.sizing_thrust_n > 1.0
+                else t_cur * (2.718281828 ** (-dt / self.propulsion.nominal_engine_tau_s))
+            )
             t_mid = 0.5 * (t_cur + t_fut)
             supplied_samples = (
                 fin_torque_est - inp.lever_arm_m * t_cur * sin(inp.current_gimbal_rad),
@@ -171,10 +175,12 @@ class PriorityControlAllocator:
             sup_max = max(supplied_samples)
             sup_mid = 0.5 * (sup_min + sup_max)
 
-            if inp.thrust_direction_rad is not None:
-                # In vertical-body mode, gimbal steers thrust laterally while RCS counter-torques
-                # instantaneously; match RCS to actual interval TVC+fin torque `sup_mid` so gimbal
-                # slew lag never injects an unbalanced angular-acceleration spike.
+            if inp.thrust_direction_rad is not None or (
+                inp.sizing_thrust_n <= 1.0 and inp.current_thrust_n > 1.0
+            ):
+                # In vertical-body mode (or during engine cutoff tail-off with residual thrust),
+                # match RCS to actual interval TVC+fin torque `sup_mid` so gimbal slew lag or
+                # thrust tail-off never injects an unbalanced angular-acceleration spike.
                 residual_after_tvc = inp.requested_torque_nm - sup_mid
             else:
                 residual_after_tvc = inp.requested_torque_nm - (fin_torque_est + tvc_torque_est)

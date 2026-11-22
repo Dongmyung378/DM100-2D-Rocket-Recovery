@@ -121,6 +121,10 @@ _RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 _FILE_NAMES = frozenset({"result.json", "trajectory.png", "flight.mp4", "replay_3d.json"})
 _FAILURE_LABELS = {
     "dynamic_pressure": ("동압 한계 초과", "Dynamic pressure limit exceeded"),
+    "entry_heat_flux": (
+        "재진입 정체 열유속 한계 초과",
+        "Reentry stagnation heat-flux limit exceeded",
+    ),
     "ascent_q_alpha": ("상승 동압·받음각 한계 초과", "Ascent q-alpha limit exceeded"),
     "ascent_high_q_alpha": (
         "고동압 구간 받음각 한계 초과",
@@ -151,6 +155,10 @@ _FAILURE_LABELS = {
         "Separation pulse estimate limit exceeded",
     ),
     "separation": ("단 분리 조건 미충족", "Stage separation check failed"),
+    "upper_stage_orbit": (
+        "2단 700 km 원궤도 투입 기준 미충족",
+        "Upper-stage 700 km circular orbit insertion failed",
+    ),
     "touchdown": ("착륙 판정 기준 미충족", "Touchdown acceptance checks failed"),
     "contact.position": ("착륙 위치 오차 한계 초과", "Landing position-error limit exceeded"),
     "contact.vertical_foot_speed": (
@@ -705,12 +713,30 @@ def summarize_result(raw: dict, job_id: str) -> dict:
             0.001,
         ),
         (
+            "entry_heat_flux",
+            "최대 정체 열유속",
+            "Peak stagnation heat flux",
+            "max_heat_flux_w_m2",
+            "max_heat_flux_w_m2",
+            "kW/m²",
+            0.001,
+        ),
+        (
             "ascent_q_alpha",
             "최대 동압·받음각",
             "Peak q-alpha",
             "max_ascent_q_alpha_kpa_deg",
             "max_q_alpha_kpa_deg",
             "kPa·°",
+            1,
+        ),
+        (
+            "ascent_axial_g",
+            "최대 상승 축방향 하중",
+            "Peak ascent axial load",
+            "max_ascent_axial_g",
+            "max_ascent_axial_g",
+            "g",
             1,
         ),
         (
@@ -733,8 +759,8 @@ def summarize_result(raw: dict, job_id: str) -> dict:
         ),
         (
             "flight_load_g",
-            "최대 비행 하중",
-            "Peak flight load",
+            "최대 회수 하중",
+            "Peak recovery load",
             "max_flight_load_g",
             "max_recovery_flight_g",
             "g",
@@ -742,12 +768,13 @@ def summarize_result(raw: dict, job_id: str) -> dict:
         ),
     ):
         value = raw.get(raw_key)
+        limit_val = safety.get(limit_key, getattr(SAFETY, limit_key))
         metric(
             key,
             ko,
             en,
             value * scale if value is not None else None,
-            safety[limit_key] * scale,
+            limit_val * scale,
             unit,
             criteria.get(key),
             "flight",
@@ -775,9 +802,9 @@ def summarize_result(raw: dict, job_id: str) -> dict:
     if raw.get("landing_assessment") == "contact_dynamics":
         pc = raw.get("post_contact") or {}
         pc_limits = raw.get("contact_limits") or {
-            "max_leg_stroke_m": 0.85,
+            "max_leg_stroke_m": 0.90,
             "max_leg_force_n": 450_000.0,
-            "max_contact_load_g": 4.5,
+            "max_contact_load_g": 4.0,
         }
         metric(
             "leg_stroke",
@@ -903,6 +930,7 @@ def summarize_result(raw: dict, job_id: str) -> dict:
             convex_reference_feasible=raw.get("convex_reference_feasible"),
             peak_fin_deflection_deg=raw.get("peak_fin_deflection_deg"),
             post_contact=raw.get("post_contact"),
+            upper_stage_orbit=raw.get("upper_stage_orbit"),
             phases=raw.get("phases"),
             charts=_chart_data(raw),
             files=files_map,
@@ -923,29 +951,42 @@ def _save_plot(raw: dict, destination: Path) -> None:
 
     samples = _chart_data(raw)["samples"]
     figure, axes = plt.subplots(2, 2, figsize=(12, 7), constrained_layout=True)
+    figure.patch.set_facecolor("#FAF9F6")
     try:
         axes[0, 0].plot(
-            [s["x_m"] / 1000 for s in samples], [s["z_m"] / 1000 for s in samples], color="#259487"
+            [s["x_m"] / 1000 for s in samples],
+            [s["z_m"] / 1000 for s in samples],
+            color="#002147",
+            linewidth=2.0,
         )
         axes[0, 0].set(xlabel="Horizontal distance (km)", ylabel="Altitude (km)")
         time = [s["time_s"] for s in samples]
-        axes[0, 1].plot(time, [s["vx_m_s"] for s in samples], label="Horizontal")
-        axes[0, 1].plot(time, [s["vz_m_s"] for s in samples], label="Vertical")
+        axes[0, 1].plot(time, [s["vx_m_s"] for s in samples], color="#002147", label="Horizontal")
+        axes[0, 1].plot(time, [s["vz_m_s"] for s in samples], color="#9E7B2F", label="Vertical")
         axes[0, 1].set(xlabel="Time (s)", ylabel="Velocity (m/s)")
-        axes[0, 1].legend()
-        axes[1, 0].plot(time, [s["attitude_deg"] for s in samples])
+        axes[0, 1].legend(frameon=True, facecolor="#FFFFFF", edgecolor="#D8DCE2")
+        axes[1, 0].plot(time, [s["attitude_deg"] for s in samples], color="#1F4E79")
         axes[1, 0].set(xlabel="Time (s)", ylabel="Attitude (deg)")
-        axes[1, 1].plot(time, [s["dynamic_pressure_pa"] / 1000 for s in samples])
-        axes[1, 1].axhline(SAFETY.max_q_pa / 1000, color="#cf685c", linestyle="--")
+        axes[1, 1].plot(time, [s["dynamic_pressure_pa"] / 1000 for s in samples], color="#002147")
+        axes[1, 1].axhline(SAFETY.max_q_pa / 1000, color="#9E2A2B", linestyle="--", linewidth=1.3)
         axes[1, 1].set(xlabel="Time (s)", ylabel="Dynamic pressure (kPa)")
         for axis in axes.flat:
-            axis.grid(alpha=0.2)
+            axis.set_facecolor("#FFFFFF")
+            axis.grid(color="#D8DCE2", alpha=0.65, linewidth=0.6)
+            for spine in ("top", "right"):
+                axis.spines[spine].set_visible(False)
+            for spine in ("bottom", "left"):
+                axis.spines[spine].set_color("#B8C2CE")
         passed = raw.get("local_app_result_validation", {}).get(
             "success", raw["simulated_acceptance_passed"]
         )
-        figure.suptitle("DM100 · " + ("PASS" if passed else "FAIL"))
+        figure.suptitle(
+            "DM100 Orbital RTLS (700 km LEO) · " + ("PASS" if passed else "FAIL"),
+            color="#002147",
+            fontweight="bold",
+        )
         with destination.open("xb") as stream:
-            figure.savefig(stream, format="png", dpi=130)
+            figure.savefig(stream, format="png", dpi=130, facecolor=figure.get_facecolor())
     finally:
         plt.close(figure)
 
@@ -1095,9 +1136,10 @@ def _run_rtls_flight(
         )
 
     criteria = summary["criteria"]
-    mission_ok = bool(criteria.get("separation"))
+    mission_ok = bool(criteria.get("separation") and criteria.get("upper_stage_orbit", True))
     flight_safety_keys = (
         "dynamic_pressure",
+        "entry_heat_flux",
         "ascent_q_alpha",
         "ascent_high_q_alpha",
         "ascent_axial_g",
@@ -1125,7 +1167,8 @@ def _run_rtls_flight(
     failures = [] if passed else ([summary["outcome"]] if summary["outcome"] != "landed" else [])
     return dict(
         description=(
-            "DM100 재사용 RTLS 2D 모델 (플립·부스트백·단축 재진입·무동력 격자핀 활강·"
+            "DM100 100톤 메탈록스 7엔진 재사용 RTLS 2D 모델 "
+            "(700 km 원궤도 1,800 kg 투입 · 1단 플립·부스트백·단축 재진입·무동력 격자핀 활강·"
             "3→1 최소 스로틀 호버슬램·접지 후 5초 착륙다리 직립 동역학)"
         ),
         environment_version=OPERATING_SCOPE,
@@ -1133,6 +1176,7 @@ def _run_rtls_flight(
         landing_assessment="contact_dynamics",
         assessment_scope=dict(
             flight_safety="through_post_contact_settling",
+            upper_stage_orbit_model="2d_spherical_two_burn_700km",
             contact_structural_dynamics=True,
             post_contact_settling=True,
             settle_duration_s=flight.contact_settings.settle_duration_s,
@@ -1156,6 +1200,7 @@ def _run_rtls_flight(
         outcome=summary["outcome"],
         failures=failures,
         separation=sep_out,
+        upper_stage_orbit=summary["upper_stage_orbit"],
         contact=contact_out,
         post_contact=summary["post_contact"],
         phases=summary["phases"],
@@ -1170,7 +1215,9 @@ def _run_rtls_flight(
         main_propellant_remaining_kg=summary["main_remaining_kg"],
         rcs_propellant_remaining_kg=summary["rcs_remaining_kg"],
         max_dynamic_pressure_pa=summary["peak_dynamic_pressure_pa"],
+        max_heat_flux_w_m2=summary["peak_heat_flux_w_m2"],
         max_ascent_q_alpha_kpa_deg=summary["peak_q_alpha_kpa_deg"],
+        max_ascent_axial_g=summary["peak_ascent_axial_g"],
         max_angular_rate_deg_s=summary["peak_angular_rate_deg_s"],
         max_angular_acceleration_deg_s2=summary["peak_angular_acceleration_deg_s2"],
         max_flight_load_g=summary["peak_recovery_g"],
@@ -1357,7 +1404,7 @@ class JobManager:
                 status="running",
                 error=None,
                 result=None,
-                progress=dict(phase="starting", time_s=0, deadline_s=600, fraction=0),
+                progress=dict(phase="starting", time_s=0, deadline_s=680, fraction=0),
                 video=dict(status="not_requested", error=None, url=None),
             )
             self._spawn(job_id, "flight", settings)

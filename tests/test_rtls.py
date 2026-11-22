@@ -108,15 +108,18 @@ def test_grid_fin_effective_aoa_and_weathercock() -> None:
 
 def test_propulsion_cluster_throttle_floor_and_bounds() -> None:
     prop = RtlsPropulsionSettings()
+    lo7, hi7 = prop.throttle_bounds(7)
     lo3, hi3 = prop.throttle_bounds(3)
     lo1, hi1 = prop.throttle_bounds(1)
-    assert lo3 == pytest.approx(prop.min_engine_throttle)
-    assert hi3 == pytest.approx(1.0)
-    assert lo1 == pytest.approx(prop.min_engine_throttle / 3.0)
-    assert hi1 == pytest.approx(1.0 / 3.0)
+    assert lo7 == pytest.approx(prop.min_engine_throttle)
+    assert hi7 == pytest.approx(1.0)
+    assert lo3 == pytest.approx(prop.min_engine_throttle * 3.0 / 7.0)
+    assert hi3 == pytest.approx(3.0 / 7.0)
+    assert lo1 == pytest.approx(prop.min_engine_throttle / 7.0)
+    assert hi1 == pytest.approx(1.0 / 7.0)
     # Non-zero request below minimum floor is clamped up to physical floor
-    assert prop.quantize_throttle(0.05, 1) == pytest.approx(lo1)
-    # Above 1-engine max is clamped to 1/3
+    assert prop.quantize_throttle(0.02, 1) == pytest.approx(lo1)
+    # Above 1-engine max is clamped to 1/7
     assert prop.quantize_throttle(0.9, 1) == pytest.approx(hi1)
     # Cutoff returns exact 0
     assert prop.quantize_throttle(0.0, 1) == 0.0
@@ -330,8 +333,12 @@ def test_rtls_calm_end_to_end_and_replay_export(tmp_path: Path) -> None:
     assert res["requirements_passed"], f"Failed criteria: {res['failed_criteria']}"
     assert res["outcome"] == "landed"
     assert res["restarts_used"] <= 3
-    assert res["main_remaining_kg"] > 9_000.0
+    assert res["main_remaining_kg"] > 2_000.0
     assert res["position_error_m"] <= 2.0
+    assert res["peak_heat_flux_w_m2"] <= 80_000.0
+    assert res["upper_stage_orbit"]["orbit_inserted"] is True
+    assert 685.0 <= res["upper_stage_orbit"]["final_apogee_km"] <= 715.0
+    assert res["upper_stage_orbit"]["payload_mass_kg"] == pytest.approx(1_800.0)
     assert res["post_contact"]["standing_stable"] is True
     assert res["convex_reference_feasible"] is True
 
@@ -378,7 +385,10 @@ def test_rtls_example_weather_extended_sensors_end_to_end() -> None:
     res = flight.run()
     assert res["requirements_passed"], f"Failed criteria: {res['failed_criteria']}"
     assert res["outcome"] == "landed"
-    assert res["main_remaining_kg"] > 9_000.0
+    assert res["main_remaining_kg"] > 1_800.0
+    assert res["peak_heat_flux_w_m2"] <= 80_000.0
+    assert res["upper_stage_orbit"]["orbit_inserted"] is True
+    assert 685.0 <= res["upper_stage_orbit"]["final_apogee_km"] <= 715.0
     assert res["post_contact"]["standing_stable"] is True
     assert res["phases"]["aero_glide"]["active_fraction"] < 0.01
     assert res["phases"]["aero_glide"]["main_used_kg"] < 25.0

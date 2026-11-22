@@ -77,8 +77,8 @@ class FinSettings:
     actuator_mass_kg: float = 160.0
     deployment_mass_kg: float = 60.0
     electrical_mass_kg: float = 20.0
-    station_m: float = 18.6
-    mean_mass_radius_m: float = 1.5
+    station_m: float = 22.4
+    mean_mass_radius_m: float = 1.55
     installed_area_m2: float = 6.0
     planar_effective_area_m2: float = 3.0
     lift_slope_rad_inv: float = 2.4
@@ -94,7 +94,7 @@ class FinSettings:
     control_max_alpha_deg: float = 25.0
     model_max_mach: float = 8.0
     hinge_arm_m: float = 0.12
-    per_fin_hinge_limit_nm: float = 5000.0
+    per_fin_hinge_limit_nm: float = 7_500.0
 
     @property
     def mass_kg(self):
@@ -111,19 +111,19 @@ FINS = FinSettings()
 
 @dataclass(frozen=True)
 class Design:
-    dry_mass_kg: float = 12_000.0
-    main_propellant_kg: float = 70_200.0
+    dry_mass_kg: float = 6_200.0
+    main_propellant_kg: float = 69_500.0
     rcs_propellant_kg: float = 300.0
-    upper_mass_kg: float = 17_500.0
-    sea_level_thrust_n: float = 1_600_000.0
-    sea_level_isp_s: float = 300.0
-    nozzle_exit_area_m2: float = 160_000.0 / 101_325.0
+    upper_mass_kg: float = 24_000.0
+    sea_level_thrust_n: float = 1_550_000.0
+    sea_level_isp_s: float = 325.0
+    nozzle_exit_area_m2: float = 1.4113
     gimbal_limit_deg: float = 6.0
-    rcs_isp_s: float = 220.0
+    rcs_isp_s: float = 260.0
     rcs_torque_limit_nm: float = 100_000.0
     high_q_threshold_pa: float = 10_000.0
     descent_reference_m_s: float = 1.0
-    payload_mass_kg: float = 500.0  # Included in upper_mass_kg, not added to it.
+    payload_mass_kg: float = 1_800.0  # Included in upper_mass_kg (700 km circular orbit).
 
     def __post_init__(self):
         if (
@@ -159,8 +159,8 @@ class AprPhysics:
         max_contact_tilt_deg=3.0,
         max_contact_rate_deg_s=0.5,
     )
-    upper_station_m: float = 24.0
-    upper_length_m: float = 8.0
+    upper_station_m: float = 28.0
+    upper_length_m: float = 9.0
     slosh_mass_fraction: float = 0.03
     slosh_settings: SloshSettings = SloshSettings()
     fixed_mass_components: tuple[tuple[float, float, float], ...] = (
@@ -599,14 +599,15 @@ class FlightSafety:
     shell_wall_m: float = 0.004
     shell_yield_pa: float = 250_000_000.0
     material_safety_factor: float = 1.5
-    max_q_pa: float = 30_000.0
+    max_q_pa: float = 42_000.0
+    max_heat_flux_w_m2: float = 80_000.0
     max_q_alpha_kpa_deg: float = 150.0
     max_high_q_alpha_deg: float = 5.0
     max_angular_rate_deg_s: float = 15.0
     max_angular_acceleration_deg_s2: float = 5.0
-    max_ascent_axial_g: float = 3.0
-    max_recovery_flight_g: float = 5.0
-    absolute_g: float = 6.0
+    max_ascent_axial_g: float = 4.5
+    max_recovery_flight_g: float = 5.5
+    absolute_g: float = 6.5
 
     def derivation(self):
         radius = PHYSICS.geometry.body_radius_m
@@ -634,14 +635,15 @@ SAFETY = FlightSafety()
 
 @dataclass(frozen=True)
 class AscentGuidanceSettings:
-    separation_altitude_m: float = 37_000.0
-    separation_tolerance_m: float = 1_000.0
-    separation_min_main_propellant_kg: float = 20_000.0
-    separation_max_q_pa: float = 25_000.0
+    separation_altitude_m: float = 60_000.0
+    separation_tolerance_m: float = 16_000.0
+    separation_min_main_propellant_kg: float = 12_300.0
+    separation_min_speed_m_s: float = 1_600.0
+    separation_max_q_pa: float = 3_000.0
     separation_max_rate_deg_s: float = 5.0
     separation_max_alpha_deg: float = 5.0
-    pitch_start_s: float = 15.0
-    pitch_duration_s: float = 30.0
-    final_pitch_deg: float = 80.0
+    pitch_start_s: float = 8.0
+    pitch_duration_s: float = 10.0
+    final_pitch_deg: float = 6.4
     separation_alignment_preview_s: float = 8.0
     separation_alignment_blend_s: float = 4.0

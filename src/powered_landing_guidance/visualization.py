@@ -483,10 +483,10 @@ class _NominalFlightAnimationScene:
 
     def __init__(self, flight: dict[str, Any], *, width: int = 1920) -> None:
         self.replay = _NominalFlightReplay(flight)
-        self.fig = plt.figure(figsize=(16, 9), dpi=width / 16, facecolor="#07131e")
+        self.fig = plt.figure(figsize=(16, 9), dpi=width / 16, facecolor="#001730")
         self.camera = self.fig.add_axes((0.04, 0.205, 0.565, 0.655))
         self.camera_aspect = (16 * 0.565) / (9 * 0.655)
-        self.overview = self.fig.add_axes((0.660, 0.700, 0.295, 0.155), facecolor="#0e2535")
+        self.overview = self.fig.add_axes((0.660, 0.700, 0.295, 0.155), facecolor="#002147")
         self.info = self.fig.add_axes((0.645, 0.205, 0.32, 0.43))
         self.info.axis("off")
         self.display_engine_on = False
@@ -500,17 +500,21 @@ class _NominalFlightAnimationScene:
             flight.get("simulation_scope") == "37km_separation_to_touchdown"
         )
         self.title = self.fig.text(
-            0.04, 0.944, "DM100", color="#edf6fb", fontsize=25, weight="bold"
+            0.04, 0.944, "DM100", color="#F5F3EE", fontsize=25, weight="bold"
         )
         self.subtitle = self.fig.text(
-            0.205, 0.948, "2D 로켓 · 발사 및 1단 회수", color="#bad0dc", fontsize=15
+            0.205,
+            0.948,
+            "100톤 메탈록스 700 km 궤도 발사 및 1단 RTLS 회수",
+            color="#B8C7D9",
+            fontsize=14,
         )
         self.mission_label = self.fig.text(
             0.956,
             0.95,
-            "1단 회수" if recovery_only else "발사장 복귀",
+            "1단 회수" if recovery_only else "700 km LEO · RTLS",
             ha="right",
-            color="#63ddce",
+            color="#D4AF5A",
             fontsize=12,
         )
         conditions = flight.get("conditions", {})
@@ -523,17 +527,22 @@ class _NominalFlightAnimationScene:
             0.04,
             0.902,
             "무풍 기준" if calm else "설정 외란",
-            color="#8da6b6",
+            color="#93ABC4",
             fontsize=10,
         )
         self.clock = self.fig.text(
-            0.956, 0.902, "", ha="right", color="#e6f5fc", fontsize=13, family="DejaVu Sans"
+            0.956, 0.902, "", ha="right", color="#F5F3EE", fontsize=13, family="DejaVu Sans"
         )
+        has_orbit = bool(flight.get("upper_stage_orbit"))
         self.footer = self.fig.text(
             0.04,
             0.035,
-            "2D 모델 · 2단 상승은 연출(궤도·연료 미계산)",
-            color="#8da6b6",
+            (
+                "DM100 2D 개념 모델 · 2단 700 km 원궤도(1,800 kg) 별도 적분 판정 · 1단 RTLS 회수"
+                if has_orbit
+                else "2D 모델 · 1단 RTLS 회수 시뮬레이션"
+            ),
+            color="#93ABC4",
             fontsize=9,
         )
         self.fig.add_artist(
@@ -542,7 +551,7 @@ class _NominalFlightAnimationScene:
                 0.92,
                 0.0015,
                 transform=self.fig.transFigure,
-                facecolor="#274454",
+                facecolor="#1F436E",
                 edgecolor="none",
             )
         )
@@ -1018,8 +1027,9 @@ class _NominalFlightAnimationScene:
         skirt = np.asarray(((-radius, 0), (radius, 0), (radius, 1.1), (-radius, 1.1)))
         self.engine_skirt.set_xy(skirt @ transform.T + base)
         seam_segments = [
-            np.asarray(((-radius, station), (radius, station))) @ transform.T + base
-            for station in (3, 7.5, 13, 17.6, 19.3)
+            np.asarray(((-radius, station * length), (radius, station * length))) @ transform.T
+            + base
+            for station in (0.15, 0.37, 0.65, 0.88, 0.965)
         ]
         self.seams.set_segments(seam_segments)
         grid = []
@@ -1040,7 +1050,7 @@ class _NominalFlightAnimationScene:
                 )
         self.fin_mesh.set_segments(grid)
         self.fin_mesh.set_visible(state[10] > 0.01)
-        label = np.asarray((0, 11)) @ transform.T + base
+        label = np.asarray((0, 0.55 * length)) @ transform.T + base
         self.body_label.set_position(label)
         self.body_label.set_rotation(90 - np.rad2deg(state[4]))
         for support in self.launch_supports:
@@ -1294,6 +1304,14 @@ class _NominalFlightAnimationScene:
             passed = self.replay.flight.get("simulated_acceptance_passed") is True
             heading = "접지 조건 통과" if passed else f"판정: {self.replay.flight.get('outcome')}"
             is_contact_dyn = self.replay.flight.get("landing_assessment") == "contact_dynamics"
+            orb = self.replay.flight.get("upper_stage_orbit") or {}
+            orb_note = (
+                f"2단 {orb['final_apogee_km']:.1f} km 원궤도 투입 ({orb['payload_mass_kg']:.0f} kg)"
+                if orb.get("orbit_inserted") and orb.get("final_apogee_km") is not None
+                else "2단 궤도 판정 미충족"
+                if orb
+                else "1단 회수 기록"
+            )
             if is_contact_dyn:
                 pc = self.replay.flight.get("post_contact") or {}
                 stable_txt = "직립 안정 통과" if pc.get("standing_stable") else "직립 안정 미충족"
@@ -1302,7 +1320,7 @@ class _NominalFlightAnimationScene:
                     f"엔진 OFF · 5초 착륙다리 동역학 ({stable_txt})"
                 )
                 self.footer.set_text(
-                    "DM100 Reusable RTLS · 접지 후 5초 물리 안정화 평가 · 2단 궤도 미계산"
+                    f"DM100 Reusable RTLS · 접지 후 5초 물리 안정화 평가 · {orb_note}"
                 )
             else:
                 self.event.set_text(
@@ -1310,19 +1328,20 @@ class _NominalFlightAnimationScene:
                     "엔진 OFF · 재생 연출 / 접지 이후 거동 미평가"
                 )
                 self.footer.set_text(
-                    "접지 후 화면 고정·엔진 OFF는 연출 · 기립 미평가 · 2단 궤도 미계산"
+                    f"접지 후 화면 고정·엔진 OFF는 연출 · 기립 미평가 · {orb_note}"
                 )
         elif attached:
-            self.event.set_text("1·2단 결합")
+            self.event.set_text("1·2단 결합 (7엔진 상승)")
         else:
-            self.event.set_text(
-                f"분리 T+{self.replay.separation_s:.2f} s · 1단 귀환\n"
-                + (
-                    "2단 상승 연출 / 궤도 미계산"
-                    if departure is not None
-                    else "2단 초기 기록 없음 · 1단만 재생"
-                )
+            orb = self.replay.flight.get("upper_stage_orbit") or {}
+            orb_line = (
+                f"2단 {orb['final_apogee_km']:.1f} km 원궤도 투입 ({orb['payload_mass_kg']:.0f} kg)"
+                if orb.get("orbit_inserted") and orb.get("final_apogee_km") is not None
+                else "2단 분리 상승(궤도 별도 적분)"
+                if departure is not None
+                else "2단 초기 기록 없음 · 1단만 재생"
             )
+            self.event.set_text(f"분리 T+{self.replay.separation_s:.2f} s · 1단 귀환\n{orb_line}")
         stage = {
             "ascent": 0,
             "flip": 1,
@@ -1339,9 +1358,9 @@ class _NominalFlightAnimationScene:
             "touchdown_settle": 5,
         }.get(phase, 0)
         for i, (card, text) in enumerate(self.timeline):
-            card.set_facecolor("#173e46" if i <= stage else "#102636")
-            card.set_edgecolor("#5bd2be" if i == stage else "#254554")
-            text.set_color("#d6f5ee" if i <= stage else "#7493a5")
+            card.set_facecolor("#0C315E" if i <= stage else "#002147")
+            card.set_edgecolor("#D4AF5A" if i == stage else "#1F436E")
+            text.set_color("#F5F3EE" if i <= stage else "#8BA2BC")
 
 
 class _NominalFlightFrameRenderer:

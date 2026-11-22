@@ -1,19 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
-<title id="title">DM100 RTLS 귀환 단계별 추진제 예산과 무동력 활강</title>
-<desc id="desc">단 분리 이후 귀환 단계별 주추진제와 RCS 소모량, 무동력 격자핀 활강 구간 및 487케이스 잔여 추진제 분포입니다.</desc>
-<style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.mono{font-family:Consolas,'Courier New',monospace}</style>
-<rect width="1200" height="650" fill="#111D25"/>
-<text x="48" y="60" font-size="36" fill="#EDF4F4" font-weight="750">RTLS 귀환 단계별 추진제 예산</text>
-<text x="48" y="98" font-size="21" fill="#A9BFC9">무동력 격자핀 활강으로 연료를 절약하고, 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 궤적 + 487케이스 통계)</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="670" viewBox="0 0 1200 670" role="img" aria-labelledby="title desc">
+<title id="title">DM100 100톤 메탈록스 RTLS 귀환 추진제 예산 및 2단 700 km 궤도 여유</title>
+<desc id="desc">단 분리 이후 귀환 단계별 주추진제와 RCS 소모량, 약 29.4 km 무동력 격자핀 활강 구간 및 487케이스 1단·2단 잔여 추진제 통계입니다.</desc>
+<style>text{font-family:'Malgun Gothic','Noto Sans KR','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}.eyebrow{letter-spacing:1.6px;font-weight:700}.mono{font-family:Consolas,'Courier New',monospace}</style>
+<rect width="1200" height="670" fill="#002147"/>
+<rect width="1200" height="6" fill="#C8A452"/>
+<text x="48" y="46" font-size="13" fill="#DEC074" class="eyebrow">PROPELLANT BUDGET · LCH₄/LOX 7-ENGINE CLUSTER</text>
+<text x="48" y="88" font-size="34" fill="#F5F3EE" font-weight="700">RTLS 귀환 단계별 추진제 예산</text>
+<text x="48" y="118" font-size="18" fill="#9CB4CE">초음속·아음속 무동력 격자핀 활강으로 연료를 절약하고 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 + 487케이스)</text>
 
-<rect x="48" y="132" width="1104" height="444" rx="18" fill="#152631" stroke="#2B4250"/>
-<text x="72" y="172" font-size="22" fill="#48B7C8" font-weight="700">분리 이후 귀환 단계별 주추진제 소모 (상승 47,306 kg 제외 · 총 재점화 3회)</text>
-<text x="72" y="220" font-size="19" fill="#EDF4F4" font-weight="650">저동압 플립 (Flip)</text><rect x="370" y="204" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="204" width="4.0" height="22" rx="7" fill="#7EA8BE"/><text x="868" y="220" font-size="16" fill="#C6D7DF">주추진제 0.0 kg · RCS 23.7 kg (32.3 s)</text><text x="72" y="274" font-size="19" fill="#EDF4F4" font-weight="650">부스트백 (Boostback)</text><rect x="370" y="258" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="258" width="181.3" height="22" rx="7" fill="#9AB8C9"/><text x="868" y="274" font-size="16" fill="#C6D7DF">주추진제 2,714.9 kg · RCS 0.2 kg (6.5 s)</text><text x="72" y="328" font-size="19" fill="#EDF4F4" font-weight="650">탄도 코스트 (Coast)</text><rect x="370" y="312" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="312" width="4.0" height="22" rx="7" fill="#6E91A8"/><text x="868" y="328" font-size="16" fill="#C6D7DF">주추진제 10.6 kg · RCS 14.0 kg (173.3 s)</text><text x="72" y="382" font-size="19" fill="#EDF4F4" font-weight="650">단축 재진입 (Entry Burn)</text><rect x="370" y="366" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="366" width="480.0" height="22" rx="7" fill="#E07A5F"/><text x="868" y="382" font-size="16" fill="#C6D7DF">주추진제 7,189.0 kg · RCS 0.0 kg (25.0 s)</text><text x="72" y="436" font-size="19" fill="#EDF4F4" font-weight="650">무동력 격자핀 활강 (Glide)</text><rect x="370" y="420" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="420" width="4.0" height="22" rx="7" fill="#48B7C8"/><text x="868" y="436" font-size="16" fill="#C6D7DF">스로틀 0% · 12.4 km 활강 (테일오프 6.6 kg)</text><text x="72" y="490" font-size="19" fill="#EDF4F4" font-weight="650">3→1 호버슬램 (Landing)</text><rect x="370" y="474" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="474" width="212.6" height="22" rx="7" fill="#6BCB8B"/><text x="868" y="490" font-size="16" fill="#C6D7DF">주추진제 3,184.4 kg · RCS 4.4 kg (22.7 s)</text><text x="72" y="544" font-size="19" fill="#EDF4F4" font-weight="650">5초 직립 안정 (Standing)</text><rect x="370" y="528" width="480" height="22" rx="7" fill="#1F3440"/><rect x="370" y="528" width="4.0" height="22" rx="7" fill="#52A874"/><text x="868" y="544" font-size="16" fill="#C6D7DF">주추진제 2.2 kg · RCS 0.0 kg (5.0 s)</text>
+<rect x="48" y="142" width="1104" height="432" rx="4" fill="#082C56" stroke="#1E4673"/>
+<text x="70" y="178" font-size="18" fill="#DEC074" font-weight="700">분리 이후 귀환 단계별 주추진제 소모 <tspan fill="#9CB4CE" font-weight="400">(1단 총 69,500 kg 중 상승 57,167 kg 제외 · 재점화 3/3회)</tspan></text>
+<text x="70" y="222" font-size="17" fill="#F5F3EE" font-weight="600">저동압 플립 (Flip)</text><rect x="376" y="207" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="207" width="4.0" height="20" rx="2" fill="#94B3D6"/><text x="836" y="222" font-size="15" fill="#9CB4CE">주추진제 0.0 kg · RCS 13.0 kg (18.0 s)</text><text x="70" y="274" font-size="17" fill="#F5F3EE" font-weight="600">부스트백 (Boostback · 3엔진)</text><rect x="376" y="259" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="259" width="444.0" height="20" rx="2" fill="#A8C3E0"/><text x="836" y="274" font-size="15" fill="#9CB4CE">주추진제 5,883.7 kg · RCS 0.0 kg (38.8 s)</text><text x="70" y="326" font-size="17" fill="#F5F3EE" font-weight="600">탄도 코스트 (Coast)</text><rect x="376" y="311" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="311" width="4.0" height="20" rx="2" fill="#7394BA"/><text x="836" y="326" font-size="15" fill="#9CB4CE">주추진제 3.1 kg · RCS 9.8 kg (237.0 s)</text><text x="70" y="378" font-size="17" fill="#F5F3EE" font-weight="600">단축 재진입 (Entry Burn · 3엔진)</text><rect x="376" y="363" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="363" width="206.7" height="20" rx="2" fill="#D96C62"/><text x="836" y="378" font-size="15" fill="#9CB4CE">주추진제 2,739.1 kg · RCS 0.1 kg (25.7 s)</text><text x="70" y="430" font-size="17" fill="#F5F3EE" font-weight="600">무동력 격자핀 활강 (Glide)</text><rect x="376" y="415" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="415" width="4.0" height="20" rx="2" fill="#6FA4DC"/><text x="836" y="430" font-size="15" fill="#9CB4CE">스로틀 0% · 29.4 km 활강 (테일오프 1.9 kg)</text><text x="70" y="482" font-size="17" fill="#F5F3EE" font-weight="600">3→1 호버슬램 (Landing)</text><rect x="376" y="467" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="467" width="81.9" height="20" rx="2" fill="#52B780"/><text x="836" y="482" font-size="15" fill="#9CB4CE">주추진제 1,085.9 kg · RCS 1.8 kg (28.4 s)</text><text x="70" y="534" font-size="17" fill="#F5F3EE" font-weight="600">5초 직립 안정 (Standing)</text><rect x="376" y="519" width="444" height="20" rx="2" fill="#001630" stroke="#163B66" stroke-width="0.8"/><rect x="376" y="519" width="4.0" height="20" rx="2" fill="#3E8E63"/><text x="836" y="534" font-size="15" fill="#9CB4CE">주추진제 0.9 kg · RCS 0.0 kg (5.0 s)</text>
 
-<rect x="48" y="592" width="354" height="44" rx="10" fill="#1C3340"/>
-<text x="225" y="621" font-size="19" fill="#6BCB8B" font-weight="700" text-anchor="middle">잔여 주추진제 중앙 9,772 kg (최소 9,294)</text>
-<rect x="423" y="592" width="354" height="44" rx="10" fill="#1C3340"/>
-<text x="600" y="621" font-size="19" fill="#48B7C8" font-weight="700" text-anchor="middle">무동력 활강 중앙 12.39 km (9.6–14.5 km)</text>
-<rect x="798" y="592" width="354" height="44" rx="10" fill="#1C3340"/>
-<text x="975" y="621" font-size="19" fill="#E3A378" font-weight="700" text-anchor="middle">잔여 RCS 중앙 252.2 kg (최소 167.5)</text>
+<rect x="48" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="48" y="592" width="354" height="3" fill="#52B780"/>
+<text x="225" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">1단 잔여 주추진제 (487케이스)</text>
+<text x="225" y="636" font-size="17" fill="#52B780" font-weight="700" text-anchor="middle">중앙 2,613 kg · 최소 932 kg</text>
+
+<rect x="423" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="423" y="592" width="354" height="3" fill="#6FA4DC"/>
+<text x="600" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">무동력 격자핀 활강 거리</text>
+<text x="600" y="636" font-size="17" fill="#6FA4DC" font-weight="700" text-anchor="middle">중앙 29.42 km (25.0–43.0 km)</text>
+
+<rect x="798" y="592" width="354" height="54" rx="4" fill="#001630" stroke="#1E4673"/>
+<rect x="798" y="592" width="354" height="3" fill="#C8A452"/>
+<text x="975" y="615" font-size="13" fill="#8AA2BC" text-anchor="middle">2단 700 km 원궤도 (1,800 kg)</text>
+<text x="975" y="636" font-size="17" fill="#DEC074" font-weight="700" text-anchor="middle">최대 오차 3.25 km · 최소 잔여 182 kg</text>
 </svg>

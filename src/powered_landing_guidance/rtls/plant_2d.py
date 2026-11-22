@@ -31,7 +31,12 @@ from powered_landing_guidance.apr_recovery import (
 )
 from powered_landing_guidance.integrators import rk4_step
 from powered_landing_guidance.observation_models import SensorSettings
-from powered_landing_guidance.recovery_physics import G0, AtmosphereSettings, LandingAcceptance
+from powered_landing_guidance.recovery_physics import (
+    EARTH_RADIUS_M,
+    G0,
+    AtmosphereSettings,
+    LandingAcceptance,
+)
 from powered_landing_guidance.rtls.contact import ContactSettings, evaluate_ground_contact
 from powered_landing_guidance.rtls.forces import (
     OMEGA_EARTH,
@@ -43,6 +48,7 @@ from powered_landing_guidance.rtls.forces import (
     compute_body_aero,
     compute_engine_thrust,
     compute_forces_and_torques,
+    compute_stagnation_heat_flux_w_m2,
     fast_gravity,
     fast_mass_gradients,
     fast_mass_properties,
@@ -55,6 +61,7 @@ from powered_landing_guidance.rtls.interfaces import (
     TelemetryPacket,
     pitch_to_quat_wxyz,
 )
+from powered_landing_guidance.rtls.orbit import UpperStageSettings, evaluate_upper_stage_orbit
 from powered_landing_guidance.vehicle_systems import (
     FeedSettings,
     FeedState,
@@ -76,7 +83,7 @@ class PlantConfig:
     integration_dt_s: float = 0.01
     control_dt_s: float = 0.02
     contact_dt_s: float = 0.002
-    deadline_s: float = 520.0
+    deadline_s: float = 680.0
     landing_mode: str = "contact_dynamics"  # "contact_dynamics" or "kinematic_touchdown"
     replay_hz: float = 50.0
     record_replay: bool = True
@@ -203,6 +210,7 @@ class Plant2D:
         self.main_consumed_kg: float = 0.0
         self.rcs_consumed_kg: float = 0.0
         self.max_q_pa: float = 0.0
+        self.max_heat_flux_w_m2: float = 0.0
         self.max_q_alpha_kpa_deg: float = 0.0
         self.max_ascent_high_q_alpha_deg: float = 0.0
         self.max_ascent_axial_g: float = 0.0
@@ -221,9 +229,10 @@ class Plant2D:
         self.feed_supply_ok: bool = True
         self.slosh_domain_ok: bool = True
 
-        # Separation, first-touchdown, and post-contact stability records
+        # Separation, upper-stage orbit, first-touchdown, and post-contact stability records
         self.separation_record: dict | None = None
         self.upper_state: dict | None = None
+        self.upper_orbit_record: dict | None = None
         self.first_contact_record: dict | None = None
         self.touchdown_time_s: float | None = None
         self.max_leg_stroke_m: float = 0.0
@@ -456,8 +465,11 @@ class Plant2D:
         tau_ext = ft.torque_nm + contact.torque_nm
 
         g_loc = fast_gravity(float(st[1]))
-        ax = fx / mass - 2.0 * self.coriolis_om * float(st[3])
-        az = fz / mass - g_loc + 2.0 * self.coriolis_om * float(st[2])
+        r_orb = EARTH_RADIUS_M + max(float(st[1]), 0.0)
+        vx_s = float(st[2])
+        vz_s = float(st[3])
+        ax = fx / mass - 2.0 * self.coriolis_om * vz_s
+        az = fz / mass - g_loc + 2.0 * self.coriolis_om * vx_s + (vx_s * vx_s) / r_orb
 
         gear_rate = (
             1.0 / PHYSICS.gear.deployment_time_s
@@ -715,6 +727,7 @@ class Plant2D:
 
         checks = {
             "altitude": abs(float(st[1]) - s.separation_altitude_m) <= s.separation_tolerance_m,
+            "speed": hypot(float(st[2]), float(st[3])) >= s.separation_min_speed_m_s,
             "dynamic_pressure": q <= s.separation_max_q_pa,
             "angular_rate": abs(float(st[5]) * (180.0 / pi)) <= s.separation_max_rate_deg_s,
             "alpha": abs(alpha_deg) <= s.separation_max_alpha_deg,
@@ -770,9 +783,24 @@ class Plant2D:
             "theta": float(st[4]),
             "omega": float(imp["upper_angular_rate_rad_s"]),
         }
+        self.upper_orbit_record = evaluate_upper_stage_orbit(
+            z_sep_m=float(imp["upper_position_m"][1]),
+            vx_sep_m_s=float(imp["upper_velocity_m_s"][0]),
+            vz_sep_m_s=float(imp["upper_velocity_m_s"][1]),
+            latitude_deg=self.conditions.latitude_deg,
+            settings=UpperStageSettings(
+                payload_mass_kg=self.design.payload_mass_kg,
+                propellant_mass_kg=max(
+                    0.0, self.design.upper_mass_kg - self.design.payload_mass_kg - 1_550.0
+                ),
+            ),
+        )
         self.separation_record = {
             "time_s": self.time_s,
             "altitude_m": float(self.state[1]),
+            "downrange_m": float(self.state[0]),
+            "speed_m_s": hypot(float(self.state[2]), float(self.state[3])),
+            "pitch_deg": float(self.state[4]) * (180.0 / pi),
             "main_propellant_kg": float(self.state[6]),
             "rcs_propellant_kg": float(self.state[7]),
             "checks_before_separation": checks,
@@ -859,6 +887,15 @@ class Plant2D:
         elif self.touchdown_time_s is None:
             self.max_recovery_g = max(
                 self.max_recovery_g, hypot(diag["prop_ax"], diag["prop_lat"]) / G0
+            )
+            _, _, rho_cur = self.atmo_lut.at(float(st[1]))
+            rel_v = hypot(
+                float(st[2]) - self.wind_lut.horizontal(float(st[1]), self.time_s),
+                float(st[3]) - self.wind_lut.vertical(float(st[1])),
+            )
+            self.max_heat_flux_w_m2 = max(
+                self.max_heat_flux_w_m2,
+                compute_stagnation_heat_flux_w_m2(rho_cur, rel_v, PHYSICS.geometry.body_radius_m),
             )
 
         if self.touchdown_time_s is None:
@@ -1182,6 +1219,7 @@ class Plant2D:
         contact_mode = self.config.landing_mode == "contact_dynamics"
         criteria = {
             "dynamic_pressure": self.max_q_pa <= s.max_q_pa + eps,
+            "entry_heat_flux": self.max_heat_flux_w_m2 <= s.max_heat_flux_w_m2 + eps,
             "ascent_q_alpha": self.max_q_alpha_kpa_deg <= s.max_q_alpha_kpa_deg + eps,
             "ascent_high_q_alpha": self.max_ascent_high_q_alpha_deg <= s.max_high_q_alpha_deg + eps,
             "ascent_axial_g": self.max_ascent_axial_g <= s.max_ascent_axial_g + eps,
@@ -1198,6 +1236,9 @@ class Plant2D:
             "feed_supply": self.feed_supply_ok,
             "slosh_model_domain": self.slosh_domain_ok,
             "separation": sep_ok,
+            "upper_stage_orbit": bool(
+                self.upper_orbit_record and self.upper_orbit_record["orbit_inserted"]
+            ),
             "touchdown": touch_ok,
             "leg_stroke": (self.max_leg_stroke_m <= cs.max_leg_stroke_m + eps)
             if contact_mode
@@ -1255,7 +1296,9 @@ class Plant2D:
             "tilt_deg": fc.get("tilt_deg"),
             "contact_rate_deg_s": fc.get("contact_rate_deg_s"),
             "peak_dynamic_pressure_pa": self.max_q_pa,
+            "peak_heat_flux_w_m2": self.max_heat_flux_w_m2,
             "peak_q_alpha_kpa_deg": self.max_q_alpha_kpa_deg,
+            "peak_ascent_high_q_alpha_deg": self.max_ascent_high_q_alpha_deg,
             "peak_ascent_axial_g": self.max_ascent_axial_g,
             "peak_recovery_g": self.max_recovery_g,
             "peak_angular_rate_deg_s": self.max_rate_deg_s,
@@ -1273,6 +1316,7 @@ class Plant2D:
                 "final_tilt_deg": abs(float(self.state[4]) * (180.0 / pi)),
             },
             "separation": self.separation_record,
+            "upper_stage_orbit": self.upper_orbit_record,
             "first_contact": self.first_contact_record,
             "phases": phase_summary,
             "replay_frame_count": len(self.replay_frames),

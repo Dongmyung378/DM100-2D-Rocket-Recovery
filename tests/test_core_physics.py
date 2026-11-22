@@ -48,7 +48,9 @@ def test_standard_atmosphere_and_gravity_monotone() -> None:
 def test_design_mass_budget_consistency() -> None:
     d = Design()
     assert d.launch_mass_kg == pytest.approx(100_000.0)
-    assert d.dry_mass_kg + d.main_propellant_kg + d.rcs_propellant_kg == pytest.approx(82_500.0)
+    assert d.dry_mass_kg + d.main_propellant_kg + d.rcs_propellant_kg == pytest.approx(76_000.0)
+    assert d.upper_mass_kg == pytest.approx(24_000.0)
+    assert d.payload_mass_kg == pytest.approx(1_800.0)
 
 
 def test_operating_envelope_validation_rejects_out_of_range() -> None:

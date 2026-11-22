@@ -27,7 +27,7 @@ def test_initial_feed_inventory_is_not_extra_propellant():
     state = initial_feed_state(70_000.0, settings)
     result = feed_rates(70_000.0, 0.0, 9.80665, state, settings)
     assert state.buffer_kg == 1500.0
-    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(65.0)
+    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(75.0)
     assert result.tank_pressure_pa == pytest.approx(350_000.0)
     assert 20e6 < result.bottle_pressure_pa < 35e6
     assert result.inventory_valid
@@ -73,7 +73,7 @@ def test_retained_buffer_bridges_restart_settling_without_mass_creation():
     assert main + consumed == pytest.approx(initial_main, abs=1e-7)
     initial_bulk = initial_main - settings.buffer_capacity_kg
     assert main - state.buffer_kg == pytest.approx(initial_bulk - total_pickup, abs=1e-7)
-    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(65.0, abs=1e-10)
+    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(75.0, abs=1e-10)
     assert result.tank_pressure_pa == pytest.approx(350_000.0, abs=1.0)
 
 
@@ -90,7 +90,7 @@ def test_feed_initial_state_respects_remaining_main(remaining):
 
 def test_buffer_cannot_feed_engine_without_inlet_pressure():
     state = initial_feed_state(22_000.0)
-    state = replace(state, tank_gas_kg=0.0, bottle_gas_kg=65.0)
+    state = replace(state, tank_gas_kg=0.0, bottle_gas_kg=75.0)
     result = feed_rates(22_000.0, 500, 15, state)
     assert result.delivered_flow_kg_s == 0
     assert result.demand_shortfall_kg_s == 500
@@ -354,8 +354,8 @@ def test_separation_rejects_invalid_mass_and_normal_range():
 def test_conceptual_hardware_allocations_stay_within_existing_dry_mass():
     budget = design_budget_check()
     assert budget["theoretical_budget_consistent"]
-    assert budget["total_systems_allocation_kg"] == 1015
-    assert budget["other_airframe_systems_mass_kg"] == 7685
+    assert budget["total_systems_allocation_kg"] == 1025
+    assert budget["other_airframe_systems_mass_kg"] == 7675
     assert budget["ideal_spherical_bottle_wall_lower_bound_kg"] < 160
     assert budget["buffer_full_flow_endurance_s"] > 2.7
     assert budget["hardware_certified"] is False
@@ -364,12 +364,12 @@ def test_conceptual_hardware_allocations_stay_within_existing_dry_mass():
 
 def test_new_main_inventory_fits_existing_theoretical_feed_budget():
     assert design_budget_check() == design_budget_check(initial_main_kg=70_200.0)
-    budget = design_budget_check(initial_main_kg=70_200.0)
+    budget = design_budget_check(initial_main_kg=69_500.0)
     assert budget["theoretical_budget_consistent"]
     assert budget["hardware_certified"] is False
-    state = initial_feed_state(70_200.0)
-    result = feed_rates(70_200.0, 0.0, 9.80665, state)
+    state = initial_feed_state(69_500.0)
+    result = feed_rates(69_500.0, 0.0, 9.80665, state)
     assert state.buffer_kg == 1500.0
-    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(65.0)
+    assert state.tank_gas_kg + state.bottle_gas_kg == pytest.approx(75.0)
     assert result.inventory_valid
     assert result.tank_pressure_pa == pytest.approx(350_000.0)

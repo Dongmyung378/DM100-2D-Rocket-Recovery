@@ -711,6 +711,8 @@ def _run_case(case: dict) -> dict:
     ).run()
     ag = res["phases"].get("aero_glide", {})
     glide_km = max(0.0, (ag.get("start_z_m", 0.0) - ag.get("end_z_m", 0.0)) / 1000.0)
+    sep = res.get("separation") or {}
+    orb = res.get("upper_stage_orbit") or {}
     return {
         "case_id": case["case_id"],
         "split": case["split"],
@@ -727,11 +729,22 @@ def _run_case(case: dict) -> dict:
         "tilt_deg": res["tilt_deg"],
         "contact_rate_deg_s": res["contact_rate_deg_s"],
         "peak_q_pa": res["peak_dynamic_pressure_pa"],
+        "peak_heat_flux_w_m2": res["peak_heat_flux_w_m2"],
+        "peak_q_alpha_kpa_deg": res["peak_q_alpha_kpa_deg"],
+        "peak_ascent_high_q_alpha_deg": res["peak_ascent_high_q_alpha_deg"],
+        "peak_ascent_axial_g": res["peak_ascent_axial_g"],
         "peak_recovery_g": res["peak_recovery_g"],
         "peak_rate_deg_s": res["peak_angular_rate_deg_s"],
         "peak_accel_deg_s2": res["peak_angular_acceleration_deg_s2"],
         "peak_fin_deg": res["peak_fin_deflection_deg"],
         "peak_fin_hinge_nm": res["peak_fin_hinge_nm"],
+        "separation_altitude_km": sep.get("altitude_m", 0.0) / 1000.0,
+        "separation_downrange_km": sep.get("downrange_m", 0.0) / 1000.0,
+        "separation_speed_m_s": sep.get("speed_m_s", 0.0),
+        "separation_pitch_deg": sep.get("pitch_deg", 0.0),
+        "orbit_inserted": bool(orb.get("orbit_inserted", False)),
+        "orbit_altitude_km": orb.get("final_apogee_km", 0.0),
+        "upper_propellant_remaining_kg": orb.get("upper_propellant_remaining_kg", 0.0),
         "glide_duration_s": ag.get("duration_s", 0.0),
         "glide_distance_km": glide_km,
         "glide_main_used_kg": ag.get("main_used_kg", 0.0),
@@ -780,6 +793,23 @@ def _summarize_group(rows: list[dict]) -> dict:
             "peak_q_kpa": [
                 min(r["peak_q_pa"] for r in rows) / 1000.0,
                 max(r["peak_q_pa"] for r in rows) / 1000.0,
+            ],
+            "peak_heat_flux_kw_m2": [
+                min(r["peak_heat_flux_w_m2"] for r in rows) / 1000.0,
+                max(r["peak_heat_flux_w_m2"] for r in rows) / 1000.0,
+            ],
+            "orbit_altitude_km": [
+                min(r["orbit_altitude_km"] for r in rows),
+                max(r["orbit_altitude_km"] for r in rows),
+            ],
+            "orbit_inserted_count": sum(1 for r in rows if r["orbit_inserted"]),
+            "separation_altitude_km": [
+                min(r["separation_altitude_km"] for r in rows),
+                max(r["separation_altitude_km"] for r in rows),
+            ],
+            "separation_downrange_km": [
+                min(r["separation_downrange_km"] for r in rows),
+                max(r["separation_downrange_km"] for r in rows),
             ],
             "peak_accel_deg_s2": [
                 min(r["peak_accel_deg_s2"] for r in rows),
