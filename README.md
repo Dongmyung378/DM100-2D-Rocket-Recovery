@@ -1,4 +1,4 @@
-# DM100 — 100 t Methalox 700 km Orbital Launch & First-Stage Reusable RTLS
+# DM100 · 100 t Methalox 700 km Orbital Launch & First-Stage Reusable RTLS
 
 [한국어](README.ko.md) | [Validation Results](docs/results.md) | [Model Specification](docs/spec.md) | [Validation Protocol](docs/validation.md) | [Roadmap (KO)](docs/roadmap.ko.md)
 
@@ -19,7 +19,7 @@ The offline local browser workbench defaults to English with instant Korean togg
   - Supersonic high-altitude (`z ≥ 27 km`) grid-fin AoA cap (`5°`), low-altitude (`z < 12 km`) high-authority glide tracking, and causal online drag/density-scale IIP estimation (`_predict_rtls_iip`).
   - Analytical zero-tilt unwind predictor (`_predict_zero_tilt_state`) paired with low-pass filtered horizontal acceleration bias (`bias_x`).
   - Smooth `0.28 s` angular-acceleration ramp on vertical-body entry, distance-aware terminal horizontal braking, convex LP terminal reference planner, and priority control allocation (`grid fins → TVC gimbal → RCS`).
-- **Stack**: Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JS, Matplotlib/FFmpeg. Uses explicit physics & GNC models — **no machine-learning policies**.
+- **Stack**: Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JS, Matplotlib/FFmpeg. Uses explicit physics & GNC models (**no machine-learning policies**).
 
 ## Full 487-Case Validation Campaign (All Constraints ≤ 79.3%)
 

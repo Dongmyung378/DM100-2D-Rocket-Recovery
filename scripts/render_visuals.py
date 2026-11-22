@@ -10,6 +10,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -101,6 +102,28 @@ def _phase_segments(frames: list[dict], sx, sy) -> list[tuple[str, list[tuple[fl
     if cur_phase is not None and cur_pts:
         segs.append((cur_phase, cur_pts))
     return segs
+
+
+def _rocket_badge_svg(x: float, y: float, size: float = 46.0) -> str:
+    """Site-matched Rocket Engineering emblem framed in Oxford Blue & Brass."""
+    scale = (size - 16.0) / 24.0
+    tx = x + 8.0
+    ty = y + 8.0
+    return (
+        f'<g aria-hidden="true">'
+        f'<rect x="{x:.1f}" y="{y:.1f}" width="{size:.1f}" height="{size:.1f}" rx="9" '
+        f'fill="{OXFORD_SURFACE}" stroke="{OXFORD_BRASS}" stroke-opacity="0.65" stroke-width="1.3"/>'
+        f'<g transform="translate({tx:.1f} {ty:.1f}) scale({scale:.4f})" fill="none" '
+        f'stroke-linecap="round" stroke-linejoin="round">'
+        f'<path d="M12 15l-3-3a22 22 0 0 1 3-5c3-3 7-4 10-4 0 3-1 7-4 10a22 22 0 0 1-5 3Z" '
+        f'fill="{OXFORD_IVORY}" fill-opacity="0.10" stroke="{OXFORD_IVORY}" stroke-width="1.55"/>'
+        f'<path d="M9 12H4s.6-3 2-4c1.6-1 4-1 4-1m3 8v5s3-.6 4-2c1-1.6 1-4 1-4" '
+        f'stroke="{OXFORD_IVORY}" stroke-width="1.55"/>'
+        f'<path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2" '
+        f'stroke="{OXFORD_BRASS_LT}" stroke-width="1.65"/>'
+        f'<circle cx="16" cy="7" r="1.25" fill="{OXFORD_BRASS_LT}"/>'
+        f"</g></g>"
+    )
 
 
 def _compute_peak_utilization_pct(rows: list[dict]) -> float:
@@ -221,6 +244,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict) -> str:
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="760" fill="{OXFORD_BLUE}"/>
 <rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
+{_rocket_badge_svg(1106, 30, 46)}
 <text x="48" y="48" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">DM100 · ORBITAL REUSABLE RTLS · 700 KM LEO</text>
 <text x="48" y="96" font-size="40" fill="{OXFORD_IVORY}" font-weight="700">DM100 · 100톤 메탈록스 궤도 발사 및 1단 RTLS</text>
 <text x="48" y="132" font-size="19" fill="{OXFORD_SLATE}">700 km 원궤도 1,800 kg 투입 · {min_glide:.0f}–{max_glide:.0f} km 무동력 격자핀 활강 · 3→1 호버슬램 · 접지 후 5초 직립 동역학</text>
@@ -337,6 +361,7 @@ def render_validation_svg(summary: dict) -> str:
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="730" fill="{OXFORD_BLUE}"/>
 <rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
+{_rocket_badge_svg(1106, 28, 46)}
 <text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">VALIDATION SCORECARD · ALL 7,792 CHECKS ≤ 80% OF LIMIT</text>
 <text x="48" y="88" font-size="34" fill="{OXFORD_IVORY}" font-weight="700">전체 487케이스 일괄 검증 및 안전 여유 분포</text>
 <text x="48" y="118" font-size="18" fill="{OXFORD_SLATE}">487/487 통과 (100.0%) · 2단 700 km 원궤도 487/487 · 5초 직립 487/487 · 전 제약 최대 사용률 {peak_util:.1f}%</text>
@@ -415,6 +440,7 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict) -> str:
 <style>{FONT_STYLE}</style>
 <rect width="1200" height="670" fill="{OXFORD_BLUE}"/>
 <rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
+{_rocket_badge_svg(1106, 28, 46)}
 <text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">PROPELLANT BUDGET · LCH₄/LOX 7-ENGINE CLUSTER</text>
 <text x="48" y="88" font-size="34" fill="{OXFORD_IVORY}" font-weight="700">RTLS 귀환 단계별 추진제 예산</text>
 <text x="48" y="118" font-size="18" fill="{OXFORD_SLATE}">초음속·아음속 무동력 격자핀 활강으로 연료를 절약하고 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 + 487케이스)</text>
@@ -449,9 +475,10 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
     all_z = [f["pos_enu_m"][2] / 1000.0 for f in c_sub + w_sub]
     x_lo = math.floor(min(0.0, min(all_x)) / 10.0) * 10.0 if min(all_x) < -2.0 else 0.0
     x_hi = max(80.0, math.ceil(max(all_x) / 20.0) * 20.0)
-    z_hi = max(140.0, math.ceil(max(all_z) / 25.0) * 25.0)
+    z_hi = max(175.0, math.ceil((max(all_z) + 12.0) / 25.0) * 25.0)
 
-    lx0, lx1, ly0, ly1 = 104.0, 560.0, 198.0, 566.0
+    # Left panel: 1st-stage trajectory
+    lx0, lx1, ly0, ly1 = 102.0, 560.0, 198.0, 582.0
 
     def lsx(f: dict) -> float:
         return lx0 + ((f["pos_enu_m"][0] / 1000.0) - x_lo) / (x_hi - x_lo) * (lx1 - lx0)
@@ -462,25 +489,48 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
     l_segs = _phase_segments(c_sub, lsx, lsy)
     w_pts = [(lsx(f), lsy(f)) for f in w_sub]
 
-    rx0, rx1, ry0, ry1 = 674.0, 1110.0, 198.0, 566.0
+    sep_f = next(f for f in calm_frames if f["phase"] == "flip")
+    apo_f = max(calm_frames, key=lambda f: f["pos_enu_m"][2])
+    gld_f = next(f for f in calm_frames if f["phase"] == "aero_glide")
+
+    # Right stacked panels: Top = Dynamic Pressure (kPa), Bottom = Main Engine Throttle (%)
+    rx0, rx1 = 674.0, 1128.0
+    qy0, qy1 = 196.0, 358.0
+    ty0, ty1 = 456.0, 586.0
     t_hi = max(
         580.0, math.ceil(max(calm_frames[-1]["time_s"], weather_frames[-1]["time_s"]) / 50.0) * 50.0
     )
-    q_hi = 45.0
+    q_hi = 48.0
+    thr_hi = 118.0
 
     def rsx(t_s: float) -> float:
         return rx0 + (t_s / t_hi) * (rx1 - rx0)
 
     def rsy_q(q_kpa: float) -> float:
-        return ry1 - (q_kpa / q_hi) * (ry1 - ry0)
+        return qy1 - (q_kpa / q_hi) * (qy1 - qy0)
 
     def rsy_thr(thr_pct: float) -> float:
-        return ry1 - (thr_pct / 100.0) * (ry1 - ry0)
+        return ty1 - (thr_pct / thr_hi) * (ty1 - ty0)
 
     q_pts = [(rsx(f["time_s"]), rsy_q(f["dynamic_pressure_pa"] / 1000.0)) for f in c_sub]
     thr_pts = [(rsx(f["time_s"]), rsy_thr(f["throttle"] * 100.0)) for f in c_sub]
+    q_area = [(rx0, qy1), *q_pts, (q_pts[-1][0], qy1)]
+    thr_area = [(rx0, ty1), *thr_pts, (thr_pts[-1][0], ty1)]
+
+    asc_frames = [f for f in calm_frames if f["phase"] == "ascent"]
+    rec_frames = [
+        f for f in calm_frames if f["phase"] in ("entry_burn", "aero_glide", "landing_burn")
+    ]
+    asc_q_f = max(asc_frames, key=lambda f: f["dynamic_pressure_pa"])
+    rec_q_f = max(rec_frames, key=lambda f: f["dynamic_pressure_pa"])
+    asc_q_kpa = asc_q_f["dynamic_pressure_pa"] / 1000.0
+    rec_q_kpa = rec_q_f["dynamic_pressure_pa"] / 1000.0
 
     glide_frames = [f for f in calm_frames if f["phase"] == "aero_glide"]
+    boost_frames = [f for f in calm_frames if f["phase"] == "boostback"]
+    entry_frames = [f for f in calm_frames if f["phase"] == "entry_burn"]
+    land_frames = [f for f in calm_frames if f["phase"] == "landing_burn"]
+
     gx0 = rsx(glide_frames[0]["time_s"])
     gx1 = rsx(glide_frames[-1]["time_s"])
     glide_dur = glide_frames[-1]["time_s"] - glide_frames[0]["time_s"]
@@ -493,35 +543,42 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
         yy = ly1 - (zv / z_hi) * (ly1 - ly0)
         l_grid.append(
             f'<line x1="{lx0:.0f}" y1="{yy:.1f}" x2="{lx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{lx0 - 10:.0f}" y="{yy + 6:.1f}" font-size="15" fill="{OXFORD_MUTED}" text-anchor="end">{zv:.0f}</text>'
+            f'<text x="{lx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="end">{zv:.0f}</text>'
         )
     for i in range(5):
         xv = x_lo + (x_hi - x_lo) * i / 4.0
         xx = lx0 + (lx1 - lx0) * i / 4.0
         l_grid.append(
             f'<line x1="{xx:.1f}" y1="{ly0:.0f}" x2="{xx:.1f}" y2="{ly1:.0f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{xx:.1f}" y="{ly1 + 24:.0f}" font-size="15" fill="{OXFORD_MUTED}" text-anchor="middle">{xv:.0f}</text>'
+            f'<text x="{xx:.1f}" y="{ly1 + 22:.0f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="middle">{xv:.0f}</text>'
         )
 
-    r_grid = []
+    q_grid = []
     for qv in (0, 15, 30, 45):
         yy = rsy_q(qv)
-        r_grid.append(
+        q_grid.append(
             f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{rx0 - 10:.0f}" y="{yy + 6:.1f}" font-size="15" fill="{OXFORD_SKY}" text-anchor="end">{qv}</text>'
+            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_SKY}" text-anchor="end">{qv}</text>'
         )
+
+    thr_grid = []
     for tp in (0, 50, 100):
         yy = rsy_thr(tp)
-        r_grid.append(
-            f'<text x="{rx1 + 8:.0f}" y="{yy + 5:.1f}" font-size="13" fill="{OXFORD_BRASS_LT}">{tp}%</text>'
+        thr_grid.append(
+            f'<line x1="{rx0:.0f}" y1="{yy:.1f}" x2="{rx1:.0f}" y2="{yy:.1f}" stroke="{OXFORD_GRID}"/>'
+            f'<text x="{rx0 - 10:.0f}" y="{yy + 5:.1f}" font-size="14" fill="{OXFORD_BRASS_LT}" text-anchor="end">{tp}%</text>'
         )
+
     t_step = 150 if t_hi <= 600 else 200
     tv = 0
     while tv <= t_hi:
         xx = rsx(tv)
-        r_grid.append(
-            f'<line x1="{xx:.1f}" y1="{ry0:.0f}" x2="{xx:.1f}" y2="{ry1:.0f}" stroke="{OXFORD_GRID}"/>'
-            f'<text x="{xx:.1f}" y="{ry1 + 24:.0f}" font-size="15" fill="{OXFORD_MUTED}" text-anchor="middle">{tv}</text>'
+        q_grid.append(
+            f'<line x1="{xx:.1f}" y1="{qy0:.0f}" x2="{xx:.1f}" y2="{qy1:.0f}" stroke="{OXFORD_GRID}"/>'
+        )
+        thr_grid.append(
+            f'<line x1="{xx:.1f}" y1="{ty0:.0f}" x2="{xx:.1f}" y2="{ty1:.0f}" stroke="{OXFORD_GRID}"/>'
+            f'<text x="{xx:.1f}" y="{ty1 + 22:.0f}" font-size="14" fill="{OXFORD_MUTED}" text-anchor="middle">{tv}</text>'
         )
         tv += t_step
 
@@ -531,41 +588,84 @@ def render_trajectory_svg(calm_frames: list[dict], weather_frames: list[dict]) -
         for ph, pts in l_segs
     )
 
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="710" viewBox="0 0 1200 710" role="img" aria-labelledby="title desc">
-<title id="title">DM100 궤도 RTLS 비행 궤적 및 동압·스로틀 프로파일</title>
-<desc id="desc">무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 3회 재점화 스로틀 펄스, 약 {glide_dur:.0f}초 무동력 격자핀 활강 구간 및 동압 한계(42 kPa, 80% 목표 33.6 kPa) 준수 결과입니다.</desc>
-<style>{FONT_STYLE}</style>
-<rect width="1200" height="710" fill="{OXFORD_BLUE}"/>
-<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
-<text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">FLIGHT TELEMETRY · TRAJECTORY &amp; AEROTHERMAL ENVELOPE</text>
-<text x="48" y="88" font-size="34" fill="{OXFORD_IVORY}" font-weight="700">RTLS 궤적 및 무동력 활강 · 동압 프로파일</text>
-<text x="48" y="118" font-size="18" fill="{OXFORD_SLATE}">무풍 기준(실선)과 복합 기상(점선) 비교 · 재점화 3회(부스트백·재진입·착륙) 및 {glide_dur:.0f}초 무동력 격자핀 활강</text>
+    sep_x, sep_y = lsx(sep_f), lsy(sep_f)
+    apo_x, apo_y = lsx(apo_f), lsy(apo_f)
+    gld_x, gld_y = lsx(gld_f), lsy(gld_f)
+    aqx, aqy = rsx(asc_q_f["time_s"]), rsy_q(asc_q_kpa)
+    rqx, rqy = rsx(rec_q_f["time_s"]), rsy_q(rec_q_kpa)
 
-<rect x="48" y="140" width="538" height="492" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<text x="72" y="176" font-size="18" fill="{OXFORD_IVORY}" font-weight="700">1단 상승·귀환 궤적 (고도 km vs 수평 거리 km)</text>
+    t_boost_mid = 0.5 * (boost_frames[0]["time_s"] + boost_frames[-1]["time_s"])
+    boost_thr_max = max(f["throttle"] * 100.0 for f in boost_frames)
+    t_entry_mid = 0.5 * (entry_frames[0]["time_s"] + entry_frames[-1]["time_s"])
+    entry_thr_max = max(f["throttle"] * 100.0 for f in entry_frames)
+    t_land_mid = 0.5 * (land_frames[0]["time_s"] + land_frames[-1]["time_s"])
+    land_thr_max = max(f["throttle"] * 100.0 for f in land_frames)
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="730" viewBox="0 0 1200 730" role="img" aria-labelledby="title desc">
+<title id="title">DM100 궤도 RTLS 비행 궤적 및 분리형 동압·스로틀 프로파일</title>
+<desc id="desc">무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 독립 패널로 분리된 동압 프로파일(상승 {asc_q_kpa:.1f} kPa, 재진입 {rec_q_kpa:.1f} kPa, 한계 42 kPa 및 80% 목표 33.6 kPa 미만 유지)과 주엔진 스로틀 프로파일(재점화 3회, {glide_dur:.0f}초 무동력 격자핀 활강)입니다.</desc>
+<style>{FONT_STYLE}</style>
+<rect width="1200" height="730" fill="{OXFORD_BLUE}"/>
+<rect width="1200" height="6" fill="{OXFORD_BRASS}"/>
+{_rocket_badge_svg(1106, 28, 46)}
+<text x="48" y="46" font-size="13" fill="{OXFORD_BRASS_LT}" class="eyebrow">FLIGHT TELEMETRY · TRAJECTORY &amp; AEROTHERMAL ENVELOPE</text>
+<text x="48" y="88" font-size="34" fill="{OXFORD_IVORY}" font-weight="700">RTLS 궤적 및 동압 · 스로틀 프로파일</text>
+<text x="48" y="118" font-size="18" fill="{OXFORD_SLATE}">무풍 기준(실선)과 복합 기상(점선) 비교 · 동압(상단)과 스로틀(하단)을 독립 축으로 분리해 표시합니다</text>
+
+<rect x="48" y="142" width="538" height="506" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
+<rect x="48" y="142" width="538" height="3" fill="{OXFORD_BRASS}"/>
+<text x="72" y="176" font-size="18" fill="{OXFORD_IVORY}" font-weight="700">1단 상승·귀환 궤적 <tspan font-size="14" fill="{OXFORD_SLATE}" font-weight="400">(고도 km vs 수평 거리 km)</tspan></text>
 {"".join(l_grid)}
 <polyline points="{_polyline(w_pts)}" fill="none" stroke="{OXFORD_IVORY}" stroke-width="1.6" stroke-dasharray="5 5" opacity="0.58"/>
 {l_paths}
-<text x="332" y="618" font-size="16" fill="{OXFORD_SLATE}" text-anchor="middle">수평 거리 (km)</text>
+<circle cx="{sep_x:.1f}" cy="{sep_y:.1f}" r="4.8" fill="{OXFORD_BRASS_LT}" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
+<line x1="{sep_x + 5:.1f}" y1="{sep_y + 5:.1f}" x2="{sep_x + 36:.1f}" y2="{sep_y + 52:.1f}" stroke="{OXFORD_BRASS_LT}" stroke-width="1.2" opacity="0.85"/>
+<text x="{sep_x + 42:.1f}" y="{sep_y + 57:.1f}" font-size="13.5" fill="{OXFORD_BRASS_LT}" font-weight="700">단 분리 ({sep_f["pos_enu_m"][2] / 1000.0:.1f} km)</text>
+<circle cx="{apo_x:.1f}" cy="{apo_y:.1f}" r="4.8" fill="#A8C3E0" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
+<text x="{apo_x:.1f}" y="{apo_y - 12:.1f}" font-size="13.5" fill="#D5E4F4" font-weight="700" text-anchor="middle">정점 {apo_f["pos_enu_m"][2] / 1000.0:.1f} km</text>
+<circle cx="{gld_x:.1f}" cy="{gld_y:.1f}" r="4.8" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.5"/>
+<line x1="{gld_x + 6:.1f}" y1="{gld_y - 6:.1f}" x2="{gld_x + 118:.1f}" y2="{gld_y - 128:.1f}" stroke="{OXFORD_SKY}" stroke-width="1.2" opacity="0.85"/>
+<text x="{gld_x + 124:.1f}" y="{gld_y - 124:.1f}" font-size="13.5" fill="{OXFORD_SKY}" font-weight="700">무동력 활강 시작</text>
+<text x="332" y="632" font-size="15" fill="{OXFORD_SLATE}" text-anchor="middle">수평 거리 (km)</text>
 
-<rect x="614" y="140" width="538" height="492" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
-<text x="638" y="176" font-size="18" fill="{OXFORD_IVORY}" font-weight="700">동압 (kPa) 및 주엔진 스로틀 (%) 프로파일</text>
-<rect x="{gx0:.1f}" y="{ry0:.0f}" width="{gx1 - gx0:.1f}" height="{ry1 - ry0:.0f}" fill="{OXFORD_SKY}" opacity="0.16"/>
-<text x="{(gx0 + gx1) / 2:.1f}" y="{ry0 + 52:.0f}" font-size="14" fill="{OXFORD_SKY}" font-weight="700" text-anchor="middle">무동력 활강 ({glide_dur:.0f} s)</text>
-{"".join(r_grid)}
+<rect x="614" y="142" width="538" height="244" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
+<rect x="614" y="142" width="538" height="3" fill="{OXFORD_SKY}"/>
+<text x="636" y="175" font-size="17" fill="{OXFORD_IVORY}" font-weight="700">동압 프로파일 (kPa)</text>
+<text x="1130" y="175" font-size="13.5" fill="{OXFORD_SKY}" font-weight="600" text-anchor="end">상승 {asc_q_kpa:.1f} · 재진입 {rec_q_kpa:.1f} kPa</text>
+<rect x="{gx0:.1f}" y="{qy0:.0f}" width="{gx1 - gx0:.1f}" height="{qy1 - qy0:.0f}" fill="{OXFORD_SKY}" opacity="0.14"/>
+{"".join(q_grid)}
 <line x1="{rx0:.0f}" y1="{y_q42:.1f}" x2="{rx1:.0f}" y2="{y_q42:.1f}" stroke="{OXFORD_CRIMSON}" stroke-width="1.5" stroke-dasharray="6 4"/>
-<text x="{rx0 + 168:.0f}" y="{y_q42 - 6:.1f}" font-size="13" fill="{OXFORD_CRIMSON}" font-weight="700">동압 한계 42 kPa</text>
-<line x1="{rx0:.0f}" y1="{y_q336:.1f}" x2="{rx1:.0f}" y2="{y_q336:.1f}" stroke="{OXFORD_BRASS_LT}" stroke-width="1.2" stroke-dasharray="3 4"/>
-<text x="{rx0 + 168:.0f}" y="{y_q336 - 6:.1f}" font-size="12" fill="{OXFORD_BRASS_LT}">80% 여유선 (33.6 kPa)</text>
-<polyline points="{_polyline(thr_pts)}" fill="none" stroke="{OXFORD_BRASS_LT}" stroke-width="2.1" opacity="0.90"/>
-<polyline points="{_polyline(q_pts)}" fill="none" stroke="{OXFORD_SKY}" stroke-width="2.8"/>
-<text x="892" y="618" font-size="16" fill="{OXFORD_SLATE}" text-anchor="middle">비행 시간 (s)</text>
+<text x="{rsx(285):.1f}" y="{y_q42 - 6:.1f}" font-size="12.5" fill="{OXFORD_CRIMSON}" font-weight="700" text-anchor="middle">동압 한계 42 kPa</text>
+<line x1="{rx0:.0f}" y1="{y_q336:.1f}" x2="{rx1:.0f}" y2="{y_q336:.1f}" stroke="{OXFORD_BRASS_LT}" stroke-width="1.3" stroke-dasharray="3 4"/>
+<text x="{rsx(285):.1f}" y="{y_q336 - 6:.1f}" font-size="12" fill="{OXFORD_BRASS_LT}" font-weight="600" text-anchor="middle">80% 여유선 33.6 kPa</text>
+<polygon points="{_polyline(q_area)}" fill="{OXFORD_SKY}" opacity="0.18"/>
+<polyline points="{_polyline(q_pts)}" fill="none" stroke="{OXFORD_SKY}" stroke-width="2.6" stroke-linejoin="round"/>
+<circle cx="{aqx:.1f}" cy="{aqy:.1f}" r="4.0" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.3"/>
+<text x="{aqx + 12:.1f}" y="{aqy + 4:.1f}" font-size="12.5" fill="{OXFORD_IVORY}" font-weight="700">{asc_q_kpa:.1f} kPa</text>
+<circle cx="{rqx:.1f}" cy="{rqy:.1f}" r="4.0" fill="{OXFORD_SKY}" stroke="{OXFORD_IVORY}" stroke-width="1.3"/>
+<text x="{rqx - 10:.1f}" y="{rqy + 4:.1f}" font-size="12.5" fill="{OXFORD_IVORY}" font-weight="700" text-anchor="end">{rec_q_kpa:.1f} kPa</text>
 
-<rect x="48" y="648" width="1104" height="44" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
-<line x1="70" y1="670" x2="96" y2="670" stroke="{OXFORD_BRASS_LT}" stroke-width="3.5"/><text x="106" y="676" font-size="15" fill="{OXFORD_IVORY}">상승 / 스로틀(%)</text>
-<line x1="274" y1="670" x2="300" y2="670" stroke="{OXFORD_SKY}" stroke-width="3.5"/><text x="310" y="676" font-size="15" fill="{OXFORD_IVORY}">무동력 격자핀 활강 / 동압(kPa)</text>
-<line x1="596" y1="670" x2="622" y2="670" stroke="{OXFORD_GREEN}" stroke-width="3.5"/><text x="632" y="676" font-size="15" fill="{OXFORD_IVORY}">3→1 호버슬램 착륙</text>
-<line x1="816" y1="670" x2="846" y2="670" stroke="{OXFORD_IVORY}" stroke-width="2.0" stroke-dasharray="5 4"/><text x="856" y="676" font-size="15" fill="{OXFORD_IVORY}">복합 기상 궤적</text>
+<rect x="614" y="402" width="538" height="246" rx="4" fill="{OXFORD_SURFACE}" stroke="{OXFORD_BORDER}"/>
+<rect x="614" y="402" width="538" height="3" fill="{OXFORD_BRASS}"/>
+<text x="636" y="435" font-size="17" fill="{OXFORD_IVORY}" font-weight="700">주엔진 스로틀 (%)</text>
+<text x="1130" y="435" font-size="13.5" fill="{OXFORD_BRASS_LT}" font-weight="600" text-anchor="end">재점화 3회 · 무동력 활강 {glide_dur:.0f} s (0%)</text>
+<rect x="{gx0:.1f}" y="{ty0:.0f}" width="{gx1 - gx0:.1f}" height="{ty1 - ty0:.0f}" fill="{OXFORD_SKY}" opacity="0.14"/>
+<text x="{(gx0 + gx1) / 2:.1f}" y="{ty0 + 22:.1f}" font-size="12" fill="{OXFORD_SKY}" font-weight="700" text-anchor="middle">무동력 활강 (0%)</text>
+{"".join(thr_grid)}
+<polygon points="{_polyline(thr_area)}" fill="{OXFORD_BRASS}" opacity="0.18"/>
+<polyline points="{_polyline(thr_pts)}" fill="none" stroke="{OXFORD_BRASS_LT}" stroke-width="2.4" stroke-linejoin="round"/>
+<text x="{rsx(62):.1f}" y="{rsy_thr(100) - 6:.1f}" font-size="12" fill="{OXFORD_BRASS_LT}" font-weight="700" text-anchor="middle">상승 (7엔진)</text>
+<text x="{rsx(t_boost_mid):.1f}" y="{rsy_thr(boost_thr_max) - 7:.1f}" font-size="12" fill="{OXFORD_SLATE}" font-weight="600" text-anchor="middle">부스트백</text>
+<text x="{rsx(t_entry_mid) - 6:.1f}" y="{rsy_thr(entry_thr_max) - 7:.1f}" font-size="12" fill="{OXFORD_CRIMSON}" font-weight="600" text-anchor="end">재진입</text>
+<text x="{min(rx1 - 2, rsx(t_land_mid) + 8):.1f}" y="{rsy_thr(land_thr_max) - 10:.1f}" font-size="12" fill="{OXFORD_GREEN}" font-weight="700" text-anchor="end">착륙 3→1</text>
+<text x="900" y="636" font-size="15" fill="{OXFORD_SLATE}" text-anchor="middle">비행 시간 (s)</text>
+
+<rect x="48" y="664" width="1104" height="44" rx="4" fill="{OXFORD_DEEP}" stroke="{OXFORD_BORDER}"/>
+<line x1="70" y1="686" x2="96" y2="686" stroke="{OXFORD_BRASS_LT}" stroke-width="3.5"/><text x="106" y="692" font-size="14.5" fill="{OXFORD_IVORY}">상승 (7엔진) / 스로틀</text>
+<line x1="296" y1="686" x2="322" y2="686" stroke="{OXFORD_CRIMSON}" stroke-width="3.5"/><text x="332" y="692" font-size="14.5" fill="{OXFORD_IVORY}">재진입 연소</text>
+<line x1="454" y1="686" x2="480" y2="686" stroke="{OXFORD_SKY}" stroke-width="3.5"/><text x="490" y="692" font-size="14.5" fill="{OXFORD_IVORY}">무동력 활강 / 동압</text>
+<line x1="666" y1="686" x2="692" y2="686" stroke="{OXFORD_GREEN}" stroke-width="3.5"/><text x="702" y="692" font-size="14.5" fill="{OXFORD_IVORY}">3→1 호버슬램 착륙</text>
+<line x1="882" y1="686" x2="912" y2="686" stroke="{OXFORD_IVORY}" stroke-width="2.0" stroke-dasharray="5 4"/><text x="922" y="692" font-size="14.5" fill="{OXFORD_IVORY}">복합 기상 궤적</text>
 </svg>
 """
 
@@ -584,11 +684,25 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
 
     glide_t = [f["time_s"] for f in calm_frames if f["phase"] == "aero_glide"]
     gt0, gt1 = glide_t[0], glide_t[-1]
+    asc_q_max = (
+        max(f["dynamic_pressure_pa"] for f in calm_frames if f["phase"] == "ascent") / 1000.0
+    )
+    rec_q_max = (
+        max(
+            f["dynamic_pressure_pa"]
+            for f in calm_frames
+            if f["phase"] in ("entry_burn", "aero_glide", "landing_burn")
+        )
+        / 1000.0
+    )
     final_main = calm_frames[-1]["main_propellant_kg"]
     final_x = abs(calm_frames[-1]["pos_enu_m"][0])
 
-    fig, axes = plt.subplots(2, 2, figsize=(13.5, 8.2), dpi=160)
+    fig = plt.figure(figsize=(13.6, 8.4), dpi=160)
     fig.patch.set_facecolor("#F7F6F1")
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig, hspace=0.28, wspace=0.22, left=0.065, right=0.975, top=0.915, bottom=0.075
+    )
     fig.suptitle(
         f"DM100 Orbital RTLS · Calm Baseline (700.0 km LEO | 1,800 kg | Main rem {final_main:,.0f} kg | |x|={final_x:.3f} m | 5 s Standing PASS)",
         fontsize=12.0,
@@ -597,83 +711,94 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
     )
 
     # 1. Altitude vs Downrange by phase
-    ax = axes[0, 0]
+    ax_traj = fig.add_subplot(gs[0, 0])
     for ph in ("ascent", "flip", "boostback", "coast", "entry_burn", "aero_glide", "landing_burn"):
         idx = [i for i, f in enumerate(sub) if f["phase"] == ph]
         if idx:
-            ax.plot(
+            ax_traj.plot(
                 x_km[idx],
                 z_km[idx],
                 color=PNG_PHASE_COLORS[ph],
                 lw=2.4 if ph in ("ascent", "aero_glide", "landing_burn") else 1.7,
                 label=ph.replace("_", " "),
             )
-    ax.set_xlabel("Horizontal distance (km)")
-    ax.set_ylabel("Altitude (km)")
-    ax.legend(
+    ax_traj.set_xlabel("Horizontal distance (km)")
+    ax_traj.set_ylabel("Altitude (km)")
+    ax_traj.legend(
         fontsize=8, loc="upper left", ncol=2, frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
     )
 
     # 2. Velocity
-    ax = axes[0, 1]
-    ax.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide")
-    ax.plot(t, vx, color=OXFORD_BLUE, lw=1.9, label="Horizontal vx")
-    ax.plot(t, vz, color="#9E7B2F", lw=1.9, label="Vertical vz")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Velocity (m/s)")
-    ax.legend(
+    ax_vel = fig.add_subplot(gs[0, 1])
+    ax_vel.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide")
+    ax_vel.plot(t, vx, color=OXFORD_BLUE, lw=1.9, label="Horizontal vx")
+    ax_vel.plot(t, vz, color="#9E7B2F", lw=1.9, label="Vertical vz")
+    ax_vel.set_xlabel("Time (s)")
+    ax_vel.set_ylabel("Velocity (m/s)")
+    ax_vel.legend(
         fontsize=8.5, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
     )
 
     # 3. Attitude & Grid-Fin Deflection
-    ax = axes[1, 0]
-    ax.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16)
-    ax.plot(t, pitch, color=OXFORD_BLUE, lw=1.9, label="Pitch (deg)")
-    ax.plot(t, fin_deg, color="#1B5E3A", lw=1.5, label="Grid-fin deflection (deg)")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Angle (deg)")
-    ax.legend(
+    ax_att = fig.add_subplot(gs[1, 0])
+    ax_att.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16)
+    ax_att.plot(t, pitch, color=OXFORD_BLUE, lw=1.9, label="Pitch (deg)")
+    ax_att.plot(t, fin_deg, color="#1B5E3A", lw=1.5, label="Grid-fin deflection (deg)")
+    ax_att.set_xlabel("Time (s)")
+    ax_att.set_ylabel("Angle (deg)")
+    ax_att.legend(
         fontsize=8.5, loc="lower right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
     )
 
-    # 4. Dynamic Pressure & Throttle
-    ax = axes[1, 1]
-    ax.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide (0% cmd)")
-    ax.plot(t, q_kpa, color=OXFORD_BLUE, lw=2.0, label="Dynamic pressure (kPa)")
-    ax.axhline(42.0, color="#9E2A2B", ls="--", lw=1.4, label="Max-Q limit (42 kPa)")
-    ax.axhline(33.6, color="#9E7B2F", ls=":", lw=1.2, label="80% margin (33.6 kPa)")
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Dynamic pressure (kPa)", color=OXFORD_BLUE)
-    ax.set_ylim(-1.5, 56.0)
-    ax2 = ax.twinx()
-    ax2.plot(t, thr_pct, color="#9E7B2F", lw=1.4, alpha=0.85, label="Main throttle (%)")
-    ax2.set_ylabel("Main throttle (%)", color="#9E7B2F")
-    ax2.set_ylim(-5.0, 134.0)
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["right"].set_color("#B8C2CE")
-    lines1, labels1 = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(
-        lines1 + lines2,
-        labels1 + labels2,
-        fontsize=7.8,
-        loc="upper right",
-        ncol=2,
+    # 4. Separate stacked panels: Top = Dynamic Pressure (kPa), Bottom = Main Throttle (%)
+    sub_gs = gridspec.GridSpecFromSubplotSpec(
+        2, 1, subplot_spec=gs[1, 1], height_ratios=[1.15, 0.85], hspace=0.16
+    )
+    ax_q = fig.add_subplot(sub_gs[0, 0])
+    ax_q.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16)
+    ax_q.fill_between(t, 0.0, q_kpa, color=OXFORD_BLUE, alpha=0.10)
+    ax_q.plot(
+        t,
+        q_kpa,
+        color=OXFORD_BLUE,
+        lw=2.0,
+        label=f"Dynamic pressure (peak {asc_q_max:.1f} / {rec_q_max:.1f} kPa)",
+    )
+    ax_q.axhline(42.0, color="#9E2A2B", ls="--", lw=1.35, label="Max-Q limit (42 kPa)")
+    ax_q.axhline(33.6, color="#9E7B2F", ls=":", lw=1.25, label="80% margin (33.6 kPa)")
+    ax_q.set_ylabel("Dyn. pressure (kPa)", fontsize=9.5, color=OXFORD_BLUE)
+    ax_q.set_ylim(-1.5, 48.0)
+    ax_q.set_yticks([0, 15, 30, 42])
+    ax_q.tick_params(labelbottom=False)
+    ax_q.legend(
+        fontsize=7.6,
+        loc="lower center",
+        bbox_to_anchor=(0.50, 0.06),
         frameon=True,
         facecolor="#FFFFFF",
         edgecolor="#D8D6CE",
     )
 
-    for axis in axes.flat:
+    ax_thr = fig.add_subplot(sub_gs[1, 0], sharex=ax_q)
+    ax_thr.axvspan(gt0, gt1, color="#6FA4DC", alpha=0.16, label="Unpowered glide (0% cmd)")
+    ax_thr.fill_between(t, 0.0, thr_pct, color="#9E7B2F", alpha=0.15)
+    ax_thr.plot(t, thr_pct, color="#9E7B2F", lw=1.8, label="Main engine throttle (%)")
+    ax_thr.set_xlabel("Time (s)")
+    ax_thr.set_ylabel("Throttle (%)", fontsize=9.5, color="#9E7B2F")
+    ax_thr.set_ylim(-6.0, 118.0)
+    ax_thr.set_yticks([0, 50, 100])
+    ax_thr.legend(
+        fontsize=7.6, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor="#D8D6CE"
+    )
+
+    for axis in (ax_traj, ax_vel, ax_att, ax_q, ax_thr):
         axis.set_facecolor("#FFFFFF")
         axis.grid(True, color="#E2E0D8", alpha=0.8, linewidth=0.7)
         axis.spines["top"].set_visible(False)
-        if axis is not axes[1, 1]:
-            axis.spines["right"].set_visible(False)
+        axis.spines["right"].set_visible(False)
         for sp in ("bottom", "left"):
             axis.spines[sp].set_color("#B8C2CE")
 
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.955))
     fig.savefig(out_path, dpi=160, facecolor=fig.get_facecolor())
     plt.close(fig)
 

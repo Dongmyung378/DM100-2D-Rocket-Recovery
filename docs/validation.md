@@ -23,7 +23,7 @@ This document defines the **487-case validation protocol** and exact reproductio
 | `holdout` | **96** | `configs/validation-study-v1.json` combined disturbance holdout |
 | `sensor-holdout` | **57** | `configs/validation-study-v1.json` extended IMU noise/bias/dropout holdout |
 | `regression-*` | **286** | `configs/apr-regression-v1.json` (`development` 205 + `previous-holdout` 72 + `supplemental` 9) |
-| **Total** | **487** | **Simultaneous Stage 2 700 km orbit, flight safety (q, heat flux, loads, accel), first touchdown, propellant conservation & 5 s upright standing — all 16 limits certified ≤ 79.3%** |
+| **Total** | **487** | **Simultaneous Stage 2 700 km orbit, flight safety (q, heat flux, loads, accel), first touchdown, propellant conservation & 5 s upright standing (all 16 limits certified ≤ 79.3%)** |
 
 ---
 

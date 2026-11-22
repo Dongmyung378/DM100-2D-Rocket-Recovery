@@ -9,7 +9,7 @@
 ## 1. 전체 아키텍처 전략
 
 ```text
-[Stage 1: 본 저장소 — 2D Orbital RTLS] ──▶ [Stage 2: 신규 3D 저장소 — MuJoCo 6-DOF] ──▶ [Stage 3: UE5 시네마틱 영상]
+[Stage 1: 본 저장소 · 2D Orbital RTLS] ──▶ [Stage 2: 신규 3D 저장소 · MuJoCo 6-DOF] ──▶ [Stage 3: UE5 시네마틱 영상]
   · 100 t 7× 메탈록스 · 700 km 원궤도         · MJCF 1단 + 독립 4핀 + 4다리                · 50 Hz ENU+Quaternion 리플레이
   · Plant ↔ Forces ↔ GNC 완전 분리           · 2D Forces/GNC → 6-DOF 3D 확장             · UE5 Python Sequencer 임포트
   · 25–43 km 무동력 격자핀 활강              · MEKF 쿼터니언 + 3D SOCP + 롤/요 배분       · Niagara 메탈록스 플룸·재진입
