@@ -75,7 +75,7 @@ Global orbital & reserve summary:
 ## 5. Key Engineering Improvements Behind the ≤ 80% Certification
 
 1. **100 t Methalox 7 Engine Redesign + Real 700 km Stage 2 Orbital Integrator (`rtls/orbit.py`)**: Two burn spherical Earth orbital propagation with latitude dependent Earth rotation passes all 487 cases including zero rotation polar launch (`edge-31`).
-2. **Entry Burn Ignition Throttle Ramp (`0.85 s`) & Dual Aerothermal Trigger**: Eliminates vacuum slosh torque shocks at MECO 2 restart while capping peak dynamic pressure at `33.31 kPa` (`79.3%`) and stagnation heat flux at `21.05 kW/m²` (`26.3%`).
+2. **Entry Burn Ignition Throttle Ramp (`0.85 s`) & Dual Aerothermal Trigger**: Eliminates vacuum slosh torque shocks at MECO-2 restart while capping peak dynamic pressure at `33.31 kPa` (`79.3%`) and stagnation heat flux at `21.05 kW/m²` (`26.3%`).
 3. **Supersonic High Altitude Grid Fin AoA Cap (`z ≥ 27 km`, `≤ 5°`) & Low Altitude High Authority Glide**: Removes supersonic fin+RCS saturation spikes and eliminates low altitude proportional wind droop.
 4. **Low Pass Filtered Kalman Horizontal Bias (`bias_x`) + Analytical Zero Tilt Predictor**: Suppresses sensor noise excited Stage B attitude ringing.
 5. **Smooth `0.28 s` Vertical Body Accel Ramp & Distance Aware Terminal Horizontal Braking**: Removes mode transition acceleration steps (`≤ 3.81 deg/s²`) and balances worst corner position (`1.500 m`) and horizontal speed (`0.360 m/s`) cleanly inside 75% of limits.

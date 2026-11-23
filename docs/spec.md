@@ -2,7 +2,7 @@
 
 [한국어](spec.ko.md) | [README](../README.md) | [Validation Protocol](validation.md) | [Validation Results](results.md)
 
-DM100 is a theoretical **2D conceptual software model**, not a flight qualified vehicle specification. The deterministic baseline seed is **378**. A 100 t two stage Methalox (LCH₄/LOX) launch vehicle lifts off on a 7 engine cluster, executes high altitude cold stage separation (`53~71 km`), propagates **Stage 2 into a 700 km circular orbit (1,800 kg payload)** via a two burn spherical Earth transfer, and recovers **Stage 1 via RTLS** through unpowered grid fin glide, 3→1 hoverslam, and 5 s post touchdown upright landing leg dynamics.
+DM100 is a theoretical **2D conceptual software model**, not a flight qualified vehicle specification. The deterministic baseline seed is **378**. A 100 t two-stage Methalox (LCH₄/LOX) launch vehicle lifts off on a 7 engine cluster, executes high altitude cold stage separation (`53~71 km`), propagates **Stage 2 into a 700 km circular orbit (1,800 kg payload)** via a two burn spherical Earth transfer, and recovers **Stage 1 via RTLS** through unpowered grid fin glide, 3→1 hoverslam, and 5 s post-touchdown upright landing leg dynamics.
 
 ---
 
@@ -38,20 +38,20 @@ DM100 is a theoretical **2D conceptual software model**, not a flight qualified 
 | RCS Isp / max torque | 260 s / 100,000 N·m |
 | Stage 2 vacuum thrust / Isp | 240 kN / 380 s (2 burn 700 km circularization with Earth rotation) |
 | Ascent / tail first descent axial drag | $C_{D,\text{ascent}} = 0.38$ / $C_{D,\text{descent}} = 1.65$ (transonic rise included) |
-| Stagnation heat flux model | Sutton Graves ($\dot{q} \le 80\ \text{kW/m}^2$) |
+| Stagnation heat flux model | Sutton-Graves ($\dot{q} \le 80\ \text{kW/m}^2$) |
 
 ### Flight Phases (`rtls/guidance.py`, `rtls/orbit.py`)
-1. **7 Engine Ascent & Cold Separation (`ascent`)**: Gravity turn ascent to the MECO 1 propellant reserve gate (`53~71 km` altitude) followed by momentum conserving cold separation.
-2. **Stage 2 700 km Circular Orbit (`rtls/orbit.py`)**: Propagates the detached upper stage from the exact MECO 1 state plus latitude dependent Earth rotational velocity through Burn 1 (transfer apogee raise) and Burn 2 (apogee circularization), verifying `700 ± 15 km` circular orbit with positive propellant margin.
+1. **7 Engine Ascent & Cold Separation (`ascent`)**: Gravity turn ascent to the MECO-1 propellant reserve gate (`53~71 km` altitude) followed by momentum conserving cold separation.
+2. **Stage 2 700 km Circular Orbit (`rtls/orbit.py`)**: Propagates the detached upper stage from the exact MECO-1 state plus latitude dependent Earth rotational velocity through Burn 1 (transfer apogee raise) and Burn 2 (apogee circularization), verifying `700 ± 15 km` circular orbit with positive propellant margin.
 3. **Low q Flip (`flip`)**: Rapid RCS attitude reversal in near vacuum immediately after separation.
 4. **3 Engine Boostback (`boostback`, Restart #1)**: Finite burn predictor and corrector targeting the launch site aerodynamic glide entry corridor.
 5. **Ballistic Coast (`coast`)**: Apogee arc (`120~170 km`) and grid fin deployment prior to atmospheric interface.
-6. **Short Entry Burn (`entry_burn`, Restart #2)**: 3 engine burn triggered only when unpowered prediction exceeds `26.5 kPa` or `62 kW/m²`, featuring a `0.85 s` ignition throttle ramp to suppress vacuum slosh shocks before MECO 2 cutoff.
+6. **Short Entry Burn (`entry_burn`, Restart #2)**: 3 engine burn triggered only when unpowered prediction exceeds `26.5 kPa` or `62 kW/m²`, featuring a `0.85 s` ignition throttle ramp to suppress vacuum slosh shocks before MECO-2 cutoff.
 7. **Unpowered Grid Fin Glide (`aero_glide`)**: `0%` throttle command across `25.0~43.0 km` altitude drop. Supersonic high altitude (`z ≥ 27 km`) `5°` AoA cap and causal online drag/density scale IIP estimation (`_predict_rtls_iip`) guide the booster cleanly over the pad.
 8. **3→1 Minimum Throttle Hoverslam (`landing_burn`, Restart #3) & 5 s Upright Standing (`touchdown_settle`)**:
    - High thrust 3 engine deceleration (Stage A) stepping down to single engine hoverslam (Stage B, non hoverable).
    - Analytical zero tilt unwind predictor (`_predict_zero_tilt_state`), low pass filtered `bias_x`, smooth `0.28 s` vertical body angular acceleration ramp, distance aware horizontal braking, convex LP terminal reference, and priority control allocation (`grid fins → TVC → RCS`).
-   - Engine cutoff at touchdown followed by **5 s engine off landing leg contact & upright stability** verification.
+   - Engine cutoff at touchdown followed by **5 s engine-off landing leg contact & upright stability** verification.
 
 ---
 
