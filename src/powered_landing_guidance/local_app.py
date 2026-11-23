@@ -80,7 +80,7 @@ _FIELD_ROWS = (
     (
         "gust_altitude_half_width_m",
         "돌풍 고도 반폭",
-        "Gust altitude half-width",
+        "Gust altitude half width",
         "m",
         100,
         5000,
@@ -123,31 +123,31 @@ _FAILURE_LABELS = {
     "dynamic_pressure": ("동압 한계 초과", "Dynamic pressure limit exceeded"),
     "entry_heat_flux": (
         "재진입 정체 열유속 한계 초과",
-        "Reentry stagnation heat-flux limit exceeded",
+        "Reentry stagnation heat flux limit exceeded",
     ),
-    "ascent_q_alpha": ("상승 동압·받음각 한계 초과", "Ascent q-alpha limit exceeded"),
+    "ascent_q_alpha": ("상승 동압·받음각 한계 초과", "Ascent q·alpha limit exceeded"),
     "ascent_high_q_alpha": (
         "고동압 구간 받음각 한계 초과",
-        "High-q angle-of-attack limit exceeded",
+        "High q angle of attack limit exceeded",
     ),
     "ascent_axial_g": ("상승 축방향 하중 한계 초과", "Ascent axial load limit exceeded"),
     "flight_load_g": ("비행 하중 한계 초과", "Flight load limit exceeded"),
-    "angular_rate": ("비행 각속도 한계 초과", "Flight angular-rate limit exceeded"),
+    "angular_rate": ("비행 각속도 한계 초과", "Flight angular rate limit exceeded"),
     "angular_acceleration": (
         "비행 각가속도 한계 초과",
-        "Flight angular-acceleration limit exceeded",
+        "Flight angular acceleration limit exceeded",
     ),
-    "gimbal": ("짐벌각 한계 초과", "Gimbal-angle limit exceeded"),
-    "fin_hinge": ("핀 힌지 모멘트 한계 초과", "Fin hinge-moment limit exceeded"),
+    "gimbal": ("짐벌각 한계 초과", "Gimbal angle limit exceeded"),
+    "fin_hinge": ("핀 힌지 모멘트 한계 초과", "Fin hinge moment limit exceeded"),
     "fin_model_envelope": ("핀 모델 적용 범위 초과", "Fin model envelope exceeded"),
-    "mass_balance": ("추진제 질량 보존 오차 초과", "Propellant mass-balance tolerance exceeded"),
+    "mass_balance": ("추진제 질량 보존 오차 초과", "Propellant mass balance tolerance exceeded"),
     "weather_profile_domain": (
         "기상 프로필 고도 범위 초과",
         "Weather profile altitude domain exceeded",
     ),
     "feed_inventory": ("공급계 추진제 재고 기준 미충족", "Feed inventory check failed"),
     "feed_supply": ("추진제 공급 기준 미충족", "Propellant supply check failed"),
-    "helium_mass_balance": ("헬륨 질량 보존 오차 초과", "Helium mass-balance tolerance exceeded"),
+    "helium_mass_balance": ("헬륨 질량 보존 오차 초과", "Helium mass balance tolerance exceeded"),
     "slosh_model_domain": ("슬로시 모델 적용 범위 초과", "Slosh model domain exceeded"),
     "separation_momentum": ("분리 운동량 보존 기준 미충족", "Separation momentum check failed"),
     "separation_pulse_estimate": (
@@ -157,20 +157,20 @@ _FAILURE_LABELS = {
     "separation": ("단 분리 조건 미충족", "Stage separation check failed"),
     "upper_stage_orbit": (
         "2단 700 km 원궤도 투입 기준 미충족",
-        "Upper-stage 700 km circular orbit insertion failed",
+        "Upper stage 700 km circular orbit insertion failed",
     ),
     "touchdown": ("착륙 판정 기준 미충족", "Touchdown acceptance checks failed"),
-    "contact.position": ("착륙 위치 오차 한계 초과", "Landing position-error limit exceeded"),
+    "contact.position": ("착륙 위치 오차 한계 초과", "Landing position error limit exceeded"),
     "contact.vertical_foot_speed": (
         "착륙 수직속도 한계 초과",
-        "Landing vertical-speed limit exceeded",
+        "Landing vertical speed limit exceeded",
     ),
     "contact.horizontal_foot_speed": (
         "착륙 수평속도 한계 초과",
-        "Landing horizontal-speed limit exceeded",
+        "Landing horizontal speed limit exceeded",
     ),
     "contact.tilt": ("착륙 기울기 한계 초과", "Landing tilt limit exceeded"),
-    "contact.angular_rate": ("착륙 각속도 한계 초과", "Landing angular-rate limit exceeded"),
+    "contact.angular_rate": ("착륙 각속도 한계 초과", "Landing angular rate limit exceeded"),
     "contact.main_propellant": (
         "주엔진 추진제 잔량 기준 미충족",
         "Main propellant reserve check failed",
@@ -218,15 +218,15 @@ _FAILURE_LABELS = {
         "결과 수치의 유효성 기준 미충족",
         "Result metrics contain invalid numeric values",
     ),
-    "leg_stroke": ("착륙다리 압축 한계 초과", "Landing-leg stroke limit exceeded"),
-    "leg_force": ("착륙다리 하중 한계 초과", "Landing-leg force limit exceeded"),
+    "leg_stroke": ("착륙다리 압축 한계 초과", "Landing leg stroke limit exceeded"),
+    "leg_force": ("착륙다리 하중 한계 초과", "Landing leg force limit exceeded"),
     "contact_load_g": ("접지 구조 하중 한계 초과", "Contact structural load limit exceeded"),
     "engine_off_standing": (
         "접지 후 무동력 직립 안정 미충족",
-        "Post-contact engine-off standing stability failed",
+        "Post contact engine off standing stability failed",
     ),
     "tip_over": ("접지 후 기체 전도 발생", "Vehicle tipped over after contact"),
-    "standing_unstable": ("접지 후 직립 안정화 실패", "Post-contact upright settling failed"),
+    "standing_unstable": ("접지 후 직립 안정화 실패", "Post contact upright settling failed"),
     "inconsistent_acceptance": (
         "결과 판정 정보 불일치",
         "Acceptance result is internally inconsistent",
@@ -332,13 +332,13 @@ def _error(field: str, message: str, *, code: str = "input_invalid") -> dict:
         (
             "지상값",
             "profile_ground_value",
-            f"{field}: the first value must match the sea-level input.",
+            f"{field}: the first value must match the sea level input.",
         ),
         ("온도 기울기", "temperature_shear", "Temperature gradients must not exceed 0.02 K/m."),
         (
             "정상 대기",
             "temperature_profile_constraint",
-            "Temperature must remain within 150–330 K and within 25 K of the reference profile.",
+            "Temperature must remain within 150~330 K and within 25 K of the reference profile.",
         ),
         (
             "정역학",
@@ -356,7 +356,7 @@ def _error(field: str, message: str, *, code: str = "input_invalid") -> dict:
             "pressure_profile_gradient",
             "Pressure gradients must be consistent with the supplied temperature profile.",
         ),
-        ("0~600", "gust_window", "An enabled gust must overlap the 0–600 s flight window."),
+        ("0~600", "gust_window", "An enabled gust must overlap the 0~600 s flight window."),
         ("JSON 객체", "json_object", "Settings must be a JSON object."),
         ("JSON 입력", "json_syntax", "Check the JSON syntax."),
         ("영상 너비", "video_width", "Video width must be 640, 1280 or 1920."),
@@ -401,7 +401,7 @@ def _error(field: str, message: str, *, code: str = "input_invalid") -> dict:
         bounds = re.search(r"([\d.]+)~([\d.]+)", message)
         english = "Use start < end inside the saved flight interval."
         if bounds:
-            english += f" Saved bounds: {bounds[1]}–{bounds[2]} s."
+            english += f" Saved bounds: {bounds[1]}~{bounds[2]} s."
     return dict(field=field, message=message, code=code, label=dict(ko=korean, en=english))
 
 
@@ -724,7 +724,7 @@ def summarize_result(raw: dict, job_id: str) -> dict:
         (
             "ascent_q_alpha",
             "최대 동압·받음각",
-            "Peak q-alpha",
+            "Peak q·alpha",
             "max_ascent_q_alpha_kpa_deg",
             "max_q_alpha_kpa_deg",
             "kPa·°",
@@ -1713,8 +1713,8 @@ def create_app(output_dir: Path | None = None, manager: JobManager | None = None
                 dict(
                     id="extreme_maxq",
                     label=dict(
-                        ko="극한 Max-Q 경계 (고밀도·저항력·고추력)",
-                        en="Extreme Max-Q boundary corner",
+                        ko="극한 최대 동압 경계 (고밀도·저항력·고추력)",
+                        en="Extreme max q boundary corner",
                     ),
                     settings=DEFAULTS
                     | dict(
@@ -1727,7 +1727,7 @@ def create_app(output_dir: Path | None = None, manager: JobManager | None = None
                 ),
                 dict(
                     id="extreme_heavy",
-                    label=dict(ko="극한 중량·저추력 경계", en="Extreme heavy low-thrust corner"),
+                    label=dict(ko="극한 중량·저추력 경계", en="Extreme heavy low thrust corner"),
                     settings=DEFAULTS
                     | dict(
                         density_scale=0.9,

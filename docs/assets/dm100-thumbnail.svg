@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
 <title id="title">DM100 100톤 메탈록스 700 km 원궤도 발사 및 1단 재사용 RTLS</title>
-<desc id="desc">100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, 25.0–43.0 km 무동력 격자핀 활강, 3->1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다.</desc>
+<desc id="desc">100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, 25.0~43.0 km 무동력 격자핀 활강, 3→1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다.</desc>
 <style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}</style>
 <rect width="1200" height="760" fill="#F4F6F9"/>
 <text x="44" y="78" font-size="46" fill="#002147" font-weight="750">100톤 메탈록스 궤도 발사 및 1단 회수</text>
@@ -10,7 +10,7 @@
 <rect x="44" y="172" width="352" height="410" rx="16" fill="#FFFFFF" stroke="#D4DDE7" stroke-width="1"/>
 <text x="70" y="216" font-size="21" fill="#002147" font-weight="700">주요 설계 · 검증 지표</text>
 <line x1="70" y1="234" x2="370" y2="234" stroke="#CDD8E4" stroke-width="1"/>
-<text x="70" y="266" font-size="16" fill="#556473">목표 궤도</text><text x="370" y="266" font-size="17" fill="#002147" font-weight="700" text-anchor="end">700 km · 1,800 kg</text><line x1="70" y1="284" x2="370" y2="284" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="316" font-size="16" fill="#556473">최대 제약 사용률</text><text x="370" y="316" font-size="17" fill="#1F5A3D" font-weight="700" text-anchor="end">79.3% (≤ 80%)</text><line x1="70" y1="334" x2="370" y2="334" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="366" font-size="16" fill="#556473">무동력 격자핀 활강</text><text x="370" y="366" font-size="17" fill="#2D537B" font-weight="700" text-anchor="end">25.0–43.0 km</text><line x1="70" y1="384" x2="370" y2="384" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="416" font-size="16" fill="#556473">잔여 주추진제 중앙</text><text x="370" y="416" font-size="17" fill="#002147" font-weight="700" text-anchor="end">2,613 kg</text><line x1="70" y1="434" x2="370" y2="434" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="466" font-size="16" fill="#556473">접지 위치 중앙값</text><text x="370" y="466" font-size="17" fill="#002147" font-weight="700" text-anchor="end">0.020 m</text><line x1="70" y1="484" x2="370" y2="484" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="516" font-size="16" fill="#556473">5초 착륙다리 직립</text><text x="370" y="516" font-size="17" fill="#1F5A3D" font-weight="700" text-anchor="end">487 / 487</text>
+<text x="70" y="266" font-size="16" fill="#556473">목표 궤도</text><text x="370" y="266" font-size="17" fill="#002147" font-weight="700" text-anchor="end">700 km · 1,800 kg</text><line x1="70" y1="284" x2="370" y2="284" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="316" font-size="16" fill="#556473">최대 제약 사용률</text><text x="370" y="316" font-size="17" fill="#1F5A3D" font-weight="700" text-anchor="end">79.3% (≤ 80%)</text><line x1="70" y1="334" x2="370" y2="334" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="366" font-size="16" fill="#556473">무동력 격자핀 활강</text><text x="370" y="366" font-size="17" fill="#2D537B" font-weight="700" text-anchor="end">25.0~43.0 km</text><line x1="70" y1="384" x2="370" y2="384" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="416" font-size="16" fill="#556473">잔여 주추진제 중앙</text><text x="370" y="416" font-size="17" fill="#002147" font-weight="700" text-anchor="end">2,613 kg</text><line x1="70" y1="434" x2="370" y2="434" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="466" font-size="16" fill="#556473">접지 위치 중앙값</text><text x="370" y="466" font-size="17" fill="#002147" font-weight="700" text-anchor="end">0.020 m</text><line x1="70" y1="484" x2="370" y2="484" stroke="#E6ECF2" stroke-width="1"/><text x="70" y="516" font-size="16" fill="#556473">5초 착륙다리 직립</text><text x="370" y="516" font-size="17" fill="#1F5A3D" font-weight="700" text-anchor="end">487 / 487</text>
 
 <rect x="418" y="172" width="738" height="410" rx="16" fill="#FFFFFF" stroke="#D4DDE7" stroke-width="1"/>
 <text x="444" y="214" font-size="20" fill="#002147" font-weight="700">1단 상승·귀환 비행 궤적 <tspan font-size="15" fill="#556473" font-weight="400">(고도 km vs 수평 거리 km)</tspan></text>
@@ -20,7 +20,7 @@
 
 <circle cx="724.0" cy="425.7" r="5.0" fill="#002147" stroke="#FFFFFF" stroke-width="1.8"/>
 <line x1="729.0" y1="430.7" x2="758.0" y2="467.7" stroke="#002147" stroke-width="1.2"/>
-<text x="764.0" y="472.7" font-size="15" fill="#002147" font-weight="700">MECO-1 단 분리 (65.0 km)</text>
+<text x="764.0" y="472.7" font-size="15" fill="#002147" font-weight="700">단 분리 (65.0 km)</text>
 
 <circle cx="787.3" cy="292.2" r="5.0" fill="#6E8AA8" stroke="#FFFFFF" stroke-width="1.8"/>
 <text x="787.3" y="279.2" font-size="15" fill="#1C2B3B" font-weight="700" text-anchor="middle">정점 163.1 km · 탄도 귀환</text>

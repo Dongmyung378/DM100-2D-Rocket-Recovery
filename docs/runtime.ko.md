@@ -8,8 +8,8 @@ DM100은 Windows와 Linux에서 추가 시스템 패키지 설치 없이 Python 
 
 ## 자동 설치 지원 환경
 
-- Windows 10/11 x86-64: `launch-dm100.bat` 실행
-- glibc 2.28 이상인 Linux x86-64: `sh launch-dm100.sh` 실행
+- Windows 10/11 x64: `launch-dm100.bat` 실행
+- glibc 2.28 이상인 Linux x64: `sh launch-dm100.sh` 실행
 - `--setup-only`로 환경만 준비하고 `--doctor`로 폰트와 인코더 확인
 
 GPU나 시스템 FFmpeg, 한글 폰트, 관리자 권한 설치가 필요하지 않습니다.

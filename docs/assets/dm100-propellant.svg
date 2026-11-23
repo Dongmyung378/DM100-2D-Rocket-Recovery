@@ -17,7 +17,7 @@
 <text x="232" y="615" font-size="13.5" fill="#C9D8E8" text-anchor="middle">1단 잔여 주추진제 (487케이스)</text>
 <text x="232" y="646" font-size="18" fill="#FFFFFF" font-weight="700" text-anchor="middle">중앙 2,613 kg · 최소 932 kg</text>
 <text x="600" y="615" font-size="13.5" fill="#C9D8E8" text-anchor="middle">무동력 격자핀 활강 거리</text>
-<text x="600" y="646" font-size="18" fill="#FFFFFF" font-weight="700" text-anchor="middle">중앙 29.42 km (25.0–43.0 km)</text>
+<text x="600" y="646" font-size="18" fill="#FFFFFF" font-weight="700" text-anchor="middle">중앙 29.42 km (25.0~43.0 km)</text>
 <text x="968" y="615" font-size="13.5" fill="#C9D8E8" text-anchor="middle">2단 700 km 원궤도 (1,800 kg)</text>
 <text x="968" y="646" font-size="18" fill="#FFFFFF" font-weight="700" text-anchor="middle">최대 오차 3.25 km · 최소 잔여 182 kg</text>
 </svg>

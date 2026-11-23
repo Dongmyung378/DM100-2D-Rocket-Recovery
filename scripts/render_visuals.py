@@ -184,7 +184,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         [
             ("Target orbit", "700 km · 1,800 kg", OXFORD_BLUE),
             ("Peak limit usage", f"{peak_util:.1f}% (≤ 80%)", FOREST),
-            ("Unpowered glide", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_MID),
+            ("Unpowered glide", f"{min_glide:.1f}~{max_glide:.1f} km", OXFORD_MID),
             ("Median main rem", f"{med_main:,.0f} kg", OXFORD_BLUE),
             ("Median pos error", f"{med_pos:.3f} m", OXFORD_BLUE),
             ("5 s leg standing", f"{passed} / {total}", FOREST),
@@ -193,7 +193,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         else [
             ("목표 궤도", "700 km · 1,800 kg", OXFORD_BLUE),
             ("최대 제약 사용률", f"{peak_util:.1f}% (≤ 80%)", FOREST),
-            ("무동력 격자핀 활강", f"{min_glide:.1f}–{max_glide:.1f} km", OXFORD_MID),
+            ("무동력 격자핀 활강", f"{min_glide:.1f}~{max_glide:.1f} km", OXFORD_MID),
             ("잔여 주추진제 중앙", f"{med_main:,.0f} kg", OXFORD_BLUE),
             ("접지 위치 중앙값", f"{med_pos:.3f} m", OXFORD_BLUE),
             ("5초 착륙다리 직립", f"{passed} / {total}", FOREST),
@@ -222,21 +222,21 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     lnd_z0 = land_f["pos_enu_m"][2] / 1000.0
 
     svg_title = (
-        "DM100 100 t Methalox 700 km Orbital Launch and First-Stage Reusable RTLS"
+        "DM100 100 t Methalox 700 km Orbital Launch and First Stage Reusable RTLS"
         if en
         else "DM100 100톤 메탈록스 700 km 원궤도 발사 및 1단 재사용 RTLS"
     )
     svg_desc = (
-        f"487-case validation of a 100-ton 7-engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first-stage RTLS, {min_glide:.1f}–{max_glide:.1f} km unpowered grid-fin glide, 3->1 hoverslam, and 5 s upright standing."
+        f"Full 487 case validation of a 100 ton 7 engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first stage RTLS, {min_glide:.1f}~{max_glide:.1f} km unpowered grid fin glide, 3→1 hoverslam, and 5 s upright standing."
         if en
-        else f"100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, {min_glide:.1f}–{max_glide:.1f} km 무동력 격자핀 활강, 3->1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다."
+        else f"100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, {min_glide:.1f}~{max_glide:.1f} km 무동력 격자핀 활강, 3→1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다."
     )
     h1_text = (
         "100 t Methalox Orbital Launch &amp; RTLS" if en else "100톤 메탈록스 궤도 발사 및 1단 회수"
     )
     h1_size = 44 if en else 46
     sub_text = (
-        "700 km circular orbit (1,800 kg), unpowered grid-fin glide, 3→1 hoverslam &amp; 5 s standing"
+        "700 km circular orbit (1,800 kg), unpowered grid fin glide, 3→1 hoverslam &amp; 5 s standing"
         if en
         else "700 km 원궤도(1,800 kg) 투입, 무동력 격자핀 활강과 접지 후 5초 직립 동역학"
     )
@@ -248,7 +248,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         else f'1단 상승·귀환 비행 궤적 <tspan font-size="15" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
     calm_lbl = f"Calm ({t_end:.1f} s)" if en else f"무풍 기준 ({t_end:.1f} s)"
-    sep_lbl = f"MECO-1 Sep ({sep_z_km:.1f} km)" if en else f"MECO-1 단 분리 ({sep_z_km:.1f} km)"
+    sep_lbl = f"MECO 1 Sep ({sep_z_km:.1f} km)" if en else f"단 분리 ({sep_z_km:.1f} km)"
     apo_lbl = f"Apogee {apo_z_km:.1f} km" if en else f"정점 {apo_z_km:.1f} km · 탄도 귀환"
     gld_lbl = (
         f"Glide ({gld_z0:.1f}→{lnd_z0:.1f} km)"
@@ -258,7 +258,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     lnd_lbl = "3→1 Hoverslam · Pad Touchdown" if en else "3→1 호버슬램 · 발사장 착륙"
     x_lbl = "Horizontal distance (km)" if en else "수평 거리 (km)"
     pad_lbl = "Launch pad (0, 0)" if en else "발사장 원점 (0, 0)"
-    ban_top = "487-Case Full Validation Passed" if en else "전체 487케이스 전수 검증 통과"
+    ban_top = "All 487 Validation Cases Passed" if en else "전체 487케이스 전수 검증 통과"
     ban_sub = (
         f"All 16 constraints ≤ {peak_util:.1f}% (under 80% cap) · 2D conceptual model"
         if en
@@ -397,17 +397,17 @@ def render_validation_svg(summary: dict, *, lang: str = "ko") -> str:
 
     peak_util = _compute_peak_utilization_pct(rows)
     svg_title = (
-        "DM100 487-Case Validation and Sub-80% Safety Margin Distribution"
+        "DM100 Full 487 Case Validation and Safety Margin Distribution"
         if en
         else "DM100 전체 487케이스 검증 및 80% 이하 안전 여유 분포"
     )
     svg_desc = (
-        f"487-case validation pass rate (100.0%) across 32 extreme edge, 96 combined holdout, 57 extended sensor, and 302 regression/development flights, with all 16 constraints bounded at or below {peak_util:.1f}% of limit."
+        f"Full 487 case validation pass rate (100.0%) across 32 extreme edge, 96 combined holdout, 57 extended sensor, and 302 regression/development flights, with all 16 constraints bounded at or below {peak_util:.1f}% of limit."
         if en
         else f"극한 엣지 32케이스, 복합 홀드아웃 96케이스, 확장 센서 57케이스, 회귀·개발 302케이스 총 487케이스 100% 통과 결과와 모든 16개 물리 제약 항목의 80% 이하(최대 {peak_util:.1f}%) 안전 여유 분포입니다."
     )
     h1_text = (
-        "487-Case Validation &amp; Safety Margin Distribution"
+        "Full Validation &amp; Safety Margin Distribution"
         if en
         else "전체 487케이스 일괄 검증 및 안전 여유 분포"
     )
@@ -462,11 +462,11 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
     phase_order = (
         [
             ("ascent", "Ascent (7 Engines)", OXFORD_BLUE),
-            ("flip", "Low-q Flip (RCS)", OXFORD_STEEL),
+            ("flip", "Attitude Flip (RCS)", OXFORD_STEEL),
             ("boostback", "Boostback Burn (3 Engines)", OXFORD_BLUE),
             ("coast", "Ballistic Coast", OXFORD_PALE),
             ("entry_burn", "Short Entry Burn (3 Engines)", CRIMSON),
-            ("aero_glide", "Unpowered Grid-Fin Glide", OXFORD_MID),
+            ("aero_glide", "Unpowered Grid Fin Glide", OXFORD_MID),
             ("landing_burn", "3→1 Hoverslam Landing", FOREST),
             ("touchdown_settle", "5 s Upright Standing", "#4E7A62"),
         ]
@@ -506,7 +506,7 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
         w = max(5.0, (main_used / max(max_fuel, 1.0)) * bw)
         if en:
             extra = (
-                f"0% cmd · {z0 - z1:.1f} km glide (tail-off {main_used:.1f} kg)"
+                f"0% cmd · {z0 - z1:.1f} km glide (tailoff {main_used:.1f} kg)"
                 if ph == "aero_glide"
                 else f"Main {main_used:,.1f} kg · RCS {rcs_used:.1f} kg ({dur:.1f} s)"
             )
@@ -538,19 +538,19 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
         else "DM100 100톤 메탈록스 RTLS 귀환 추진제 예산 및 2단 700 km 궤도 여유"
     )
     svg_desc = (
-        "Post-separation main and RCS propellant consumption by phase, 29.4 km unpowered grid-fin glide, and 487-case Stage 1 and Stage 2 propellant reserves."
+        "Main and RCS propellant consumption after separation by phase, 29.4 km unpowered grid fin glide, and 487 case Stage 1 and Stage 2 propellant reserves."
         if en
         else "단 분리 이후 귀환 단계별 주추진제와 RCS 소모량, 약 29.4 km 무동력 격자핀 활강 구간 및 487케이스 1단·2단 잔여 추진제 통계입니다."
     )
     h1_text = "RTLS Recovery Propellant Budget by Phase" if en else "RTLS 귀환 단계별 추진제 예산"
     sub_text = (
-        "Unpowered grid-fin glide conserves propellant before terminal 3→1 hoverslam (Calm + 487-case stats)"
+        "Unpowered grid fin glide conserves propellant before terminal 3→1 hoverslam (Calm + 487 cases)"
         if en
         else "무동력 격자핀 활강으로 연료를 절약하고 종말 3→1 호버슬램으로 착륙합니다 (무풍 기준 + 487케이스)"
     )
     sub_size = 18.5 if en else 20
     sec_hdr = (
-        f'Post-Separation Main Propellant Usage <tspan fill="{INK_MUTED}" font-weight="400">(excl. {asc_used:,.0f} kg ascent of 69,500 kg · 3/3 restarts)</tspan>'
+        f'Main Propellant Usage After Separation <tspan fill="{INK_MUTED}" font-weight="400">(excl. {asc_used:,.0f} kg ascent of 69,500 kg · 3/3 restarts)</tspan>'
         if en
         else f'분리 이후 귀환 단계별 주추진제 소모 <tspan fill="{INK_MUTED}" font-weight="400">(1단 총 69,500 kg 중 상승 {asc_used:,.0f} kg 제외 · 재점화 3/3회)</tspan>'
     )
@@ -561,11 +561,11 @@ def render_propellant_svg(calm_frames: list[dict], summary: dict, *, lang: str =
         if en
         else f"중앙 {med_main:,.0f} kg · 최소 {min(mains):,.0f} kg"
     )
-    k2_lbl = "Unpowered Grid-Fin Glide" if en else "무동력 격자핀 활강 거리"
+    k2_lbl = "Unpowered Grid Fin Glide" if en else "무동력 격자핀 활강 거리"
     k2_val = (
-        f"Median {med_glide:.2f} km ({min(glides):.1f}–{max(glides):.1f} km)"
+        f"Median {med_glide:.2f} km ({min(glides):.1f}~{max(glides):.1f} km)"
         if en
-        else f"중앙 {med_glide:.2f} km ({min(glides):.1f}–{max(glides):.1f} km)"
+        else f"중앙 {med_glide:.2f} km ({min(glides):.1f}~{max(glides):.1f} km)"
     )
     k3_lbl = "Stage 2 700 km Orbit (1,800 kg)" if en else "2단 700 km 원궤도 (1,800 kg)"
     k3_val = (
@@ -745,7 +745,7 @@ def render_trajectory_svg(
         else "DM100 궤도 RTLS 비행 궤적 및 분리형 동압·스로틀 프로파일"
     )
     svg_desc = (
-        f"Calm baseline vs. complex weather 2D recovery trajectory with independent dynamic pressure (ascent {asc_q_kpa:.1f} kPa, entry {rec_q_kpa:.1f} kPa, both well below 42 kPa limit and 33.6 kPa 80% margin) and main engine throttle (3 restarts, {glide_dur:.0f} s unpowered grid-fin glide) panels."
+        f"Calm baseline vs. complex weather 2D recovery trajectory with independent dynamic pressure (ascent {asc_q_kpa:.1f} kPa, entry {rec_q_kpa:.1f} kPa, both well below 42 kPa limit and 33.6 kPa 80% margin) and main engine throttle (3 restarts, {glide_dur:.0f} s unpowered grid fin glide) panels."
         if en
         else f"무풍 기준과 복합 기상 비행의 2차원 귀환 궤적, 독립 패널로 분리된 동압 프로파일(상승 {asc_q_kpa:.1f} kPa, 재진입 {rec_q_kpa:.1f} kPa, 한계 42 kPa 및 80% 목표 33.6 kPa 미만 유지)과 주엔진 스로틀 프로파일(재점화 3회, {glide_dur:.0f}초 무동력 격자핀 활강)입니다."
     )
@@ -765,7 +765,7 @@ def render_trajectory_svg(
         if en
         else f'1단 상승·귀환 궤적 <tspan font-size="14" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
-    sep_lbl = f"MECO-1 Sep ({sep_z:.1f} km)" if en else f"단 분리 ({sep_z:.1f} km)"
+    sep_lbl = f"MECO 1 Sep ({sep_z:.1f} km)" if en else f"단 분리 ({sep_z:.1f} km)"
     apo_lbl = f"Apogee {apo_z:.1f} km" if en else f"정점 {apo_z:.1f} km"
     gld_lbl = "Glide start" if en else "무동력 활강 시작"
     x_dist_lbl = "Horizontal distance (km)" if en else "수평 거리 (km)"
@@ -775,7 +775,7 @@ def render_trajectory_svg(
         if en
         else f"상승 {asc_q_kpa:.1f} · 재진입 {rec_q_kpa:.1f} kPa"
     )
-    q42_lbl = "Max-Q limit 42 kPa" if en else "동압 한계 42 kPa"
+    q42_lbl = "Max q limit 42 kPa" if en else "동압 한계 42 kPa"
     q336_lbl = "80% margin 33.6 kPa" if en else "80% 여유선 33.6 kPa"
     thr_hdr = "Main Engine Throttle (%)" if en else "주엔진 스로틀 (%)"
     thr_kpi = (
@@ -809,7 +809,7 @@ def render_trajectory_svg(
         )
     )
     footer_txt = (
-        "Generated from 50 Hz recorded calm and complex-weather replay telemetry; both dynamic pressure peaks remain below the 33.6 kPa (80%) margin."
+        "Generated from 50 Hz recorded calm and complex weather replay telemetry; both dynamic pressure peaks remain below the 33.6 kPa (80%) margin."
         if en
         else "50 Hz 무풍 기준 및 복합 기상 비행 기록에서 직접 생성했습니다. 상승·재진입 동압 피크 모두 80% 여유선(33.6 kPa) 아래를 유지합니다."
     )
@@ -954,11 +954,11 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
         fontsize=8.5, loc="upper right", frameon=True, facecolor="#FFFFFF", edgecolor=CARD_BORDER
     )
 
-    # 3. Attitude & Grid-Fin Deflection
+    # 3. Attitude & Grid Fin Deflection
     ax_att = fig.add_subplot(gs[1, 0])
     ax_att.axvspan(gt0, gt1, color=GLIDE_TINT, alpha=0.85)
     ax_att.plot(t, pitch, color=OXFORD_BLUE, lw=1.9, label="Pitch (deg)")
-    ax_att.plot(t, fin_deg, color=FOREST, lw=1.5, label="Grid-fin deflection (deg)")
+    ax_att.plot(t, fin_deg, color=FOREST, lw=1.5, label="Grid fin deflection (deg)")
     ax_att.set_xlabel("Time (s)")
     ax_att.set_ylabel("Angle (deg)")
     ax_att.legend(
@@ -979,7 +979,7 @@ def render_trajectory_png(calm_frames: list[dict], out_path: Path) -> None:
         lw=2.0,
         label=f"Dynamic pressure (peak {asc_q_max:.1f} / {rec_q_max:.1f} kPa)",
     )
-    ax_q.axhline(42.0, color=CRIMSON, ls="--", lw=1.35, label="Max-Q limit (42 kPa)")
+    ax_q.axhline(42.0, color=CRIMSON, ls="--", lw=1.35, label="Max q limit (42 kPa)")
     ax_q.axhline(33.6, color=OCHRE, ls=":", lw=1.25, label="80% margin (33.6 kPa)")
     ax_q.set_ylabel("Dyn. pressure (kPa)", fontsize=9.5, color=OXFORD_BLUE)
     ax_q.set_ylim(-1.5, 48.0)

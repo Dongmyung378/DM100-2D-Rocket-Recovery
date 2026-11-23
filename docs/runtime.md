@@ -8,8 +8,8 @@ on Windows and Linux without requiring system packages or administrator access.
 
 ## Supported automatic setup
 
-- Windows 10/11 x86-64: run `launch-dm100.bat`.
-- Linux x86-64 with glibc 2.28 or newer: run `sh launch-dm100.sh`.
+- Windows 10/11 x64: run `launch-dm100.bat`.
+- Linux x64 with glibc 2.28 or newer: run `sh launch-dm100.sh`.
 - Use `--setup-only` to prepare dependencies, or `--doctor` to check runtime assets.
 
 No GPU, system FFmpeg, system Korean font or administrator installation is needed.
@@ -28,7 +28,7 @@ environment is preserved under `.local/environment-backups/` and rebuilt.
 Python location and pip destination overrides are removed from child processes.
 Network certificate/proxy settings remain available. An explicit `DM100_PYTHON`
 must point to Python 3.12; otherwise setup stops with a useful explanation.
-`DM100_USE_MANAGED_PYTHON=1` exercises the automatic-download path when needed.
+`DM100_USE_MANAGED_PYTHON=1` exercises the automatic download path when needed.
 
 ## Fonts and video
 
@@ -44,4 +44,4 @@ The [recorded compatibility checks](results/runtime-compatibility.json) cover
 fresh managed Windows and Linux Python 3.12.15 environments, Korean and space
 characters in checkout paths, local HTTP startup, Korean H.264 generation,
 contaminated environment variables, offline reuse, dependency drift repair and
-installed wheel assets. Missing-glyph warnings are treated as test failures in CI.
+installed wheel assets. Missing glyph warnings are treated as test failures in CI.

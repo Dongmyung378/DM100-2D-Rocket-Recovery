@@ -18,7 +18,7 @@
 
 | 평가 집단 | 케이스 수 | 입력 출처 및 목적 |
 |---|---:|---|
-| 극한 엣지 케이스 (`edge-cases`) | **32** | [evaluate_validation.py](../scripts/evaluate_validation.py) 내장: 최대 동/서풍, 극한 전단풍, 상승/재진입/활강/착륙 5 m/s 돌풍, Max-Q·중량저추력 코너, 남/북극(자전 보너스 0)·적도 코리올리, 최대 항법·IMU 편향·패킷 누락(2/20), <strong>허용 상하한 100% 끝단을 동시 결합한 초극한 복합 악조건(<code>edge-23 ~ edge-32</code>)</strong> |
+| 극한 엣지 케이스 (`edge-cases`) | **32** | [evaluate_validation.py](../scripts/evaluate_validation.py) 내장: 최대 동/서풍, 극한 전단풍, 상승/재진입/활강/착륙 5 m/s 돌풍, 최대 동압·중량저추력 코너, 남/북극(자전 보너스 0)·적도 코리올리, 최대 항법·IMU 편향·패킷 누락(2/20), <strong>허용 상하한 100% 끝단을 동시 결합한 초극한 복합 악조건(<code>edge-23</code>~<code>edge-32</code>)</strong> |
 | 개발 조건 (`development`) | **16** | `configs/validation-study-v1.json` 개발 분할 |
 | 복합 홀드아웃 (`holdout`) | **96** | `configs/validation-study-v1.json` 복합 외란 홀드아웃 |
 | 확장 센서 홀드아웃 (`sensor-holdout`) | **57** | `configs/validation-study-v1.json` IMU 잡음·편향·드롭아웃 홀드아웃 |
