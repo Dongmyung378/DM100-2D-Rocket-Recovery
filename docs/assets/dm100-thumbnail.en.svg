@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-<title id="title">DM100 100 t Methalox 700 km Orbital Launch and First Stage Reusable RTLS</title>
-<desc id="desc">Full 487 case validation of a 100 ton 7 engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first stage RTLS, 25.0~43.0 km unpowered grid fin glide, 3→1 hoverslam, and 5 s upright standing.</desc>
+<title id="title">DM100 100 t Methalox 700 km Orbital Launch and First-Stage Reusable RTLS</title>
+<desc id="desc">Full 487-case validation of a 100 ton 7-engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first-stage RTLS, 25.0~43.0 km unpowered grid-fin glide, 3→1 hoverslam, and 5 s upright standing.</desc>
 <style>text{font-family:'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo','Segoe UI',sans-serif;font-variant-numeric:tabular-nums}</style>
 <rect width="1200" height="760" fill="#F4F6F9"/>
 <text x="44" y="78" font-size="44" fill="#002147" font-weight="750">100 t Methalox Orbital Launch &amp; RTLS</text>
-<text x="46" y="124" font-size="23" fill="#556473">700 km circular orbit (1,800 kg), unpowered grid fin glide, 3→1 hoverslam &amp; 5 s standing</text>
+<text x="46" y="124" font-size="23" fill="#556473">700 km circular orbit (1,800 kg), unpowered grid-fin glide, 3→1 hoverslam &amp; 5 s standing</text>
 <line x1="44" y1="148" x2="1156" y2="148" stroke="#CDD8E4" stroke-width="1"/>
 
 <rect x="44" y="172" width="352" height="410" rx="16" fill="#FFFFFF" stroke="#D4DDE7" stroke-width="1"/>
@@ -20,7 +20,7 @@
 
 <circle cx="724.0" cy="425.7" r="5.0" fill="#002147" stroke="#FFFFFF" stroke-width="1.8"/>
 <line x1="729.0" y1="430.7" x2="758.0" y2="467.7" stroke="#002147" stroke-width="1.2"/>
-<text x="764.0" y="472.7" font-size="15" fill="#002147" font-weight="700">MECO 1 Sep (65.0 km)</text>
+<text x="764.0" y="472.7" font-size="15" fill="#002147" font-weight="700">MECO-1 Sep (65.0 km)</text>
 
 <circle cx="787.3" cy="292.2" r="5.0" fill="#6E8AA8" stroke="#FFFFFF" stroke-width="1.8"/>
 <text x="787.3" y="279.2" font-size="15" fill="#1C2B3B" font-weight="700" text-anchor="middle">Apogee 163.1 km</text>

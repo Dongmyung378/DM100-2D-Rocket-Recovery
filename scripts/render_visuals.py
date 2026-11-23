@@ -222,12 +222,12 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     lnd_z0 = land_f["pos_enu_m"][2] / 1000.0
 
     svg_title = (
-        "DM100 100 t Methalox 700 km Orbital Launch and First Stage Reusable RTLS"
+        "DM100 100 t Methalox 700 km Orbital Launch and First-Stage Reusable RTLS"
         if en
         else "DM100 100톤 메탈록스 700 km 원궤도 발사 및 1단 재사용 RTLS"
     )
     svg_desc = (
-        f"Full 487 case validation of a 100 ton 7 engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first stage RTLS, {min_glide:.1f}~{max_glide:.1f} km unpowered grid fin glide, 3→1 hoverslam, and 5 s upright standing."
+        f"Full 487-case validation of a 100 ton 7-engine Methalox launcher delivering 1,800 kg to a 700 km circular orbit with first-stage RTLS, {min_glide:.1f}~{max_glide:.1f} km unpowered grid-fin glide, 3→1 hoverslam, and 5 s upright standing."
         if en
         else f"100톤 메탈록스 7엔진 2단 로켓의 700 km 원궤도(1,800 kg) 투입과 1단 발사장 귀환, {min_glide:.1f}~{max_glide:.1f} km 무동력 격자핀 활강, 3→1 호버슬램 착륙 및 5초 직립 동역학 487케이스 전수 검증 결과입니다."
     )
@@ -236,7 +236,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
     )
     h1_size = 44 if en else 46
     sub_text = (
-        "700 km circular orbit (1,800 kg), unpowered grid fin glide, 3→1 hoverslam &amp; 5 s standing"
+        "700 km circular orbit (1,800 kg), unpowered grid-fin glide, 3→1 hoverslam &amp; 5 s standing"
         if en
         else "700 km 원궤도(1,800 kg) 투입, 무동력 격자핀 활강과 접지 후 5초 직립 동역학"
     )
@@ -248,7 +248,7 @@ def render_thumbnail_svg(calm_frames: list[dict], summary: dict, *, lang: str = 
         else f'1단 상승·귀환 비행 궤적 <tspan font-size="15" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
     calm_lbl = f"Calm ({t_end:.1f} s)" if en else f"무풍 기준 ({t_end:.1f} s)"
-    sep_lbl = f"MECO 1 Sep ({sep_z_km:.1f} km)" if en else f"단 분리 ({sep_z_km:.1f} km)"
+    sep_lbl = f"MECO-1 Sep ({sep_z_km:.1f} km)" if en else f"단 분리 ({sep_z_km:.1f} km)"
     apo_lbl = f"Apogee {apo_z_km:.1f} km" if en else f"정점 {apo_z_km:.1f} km · 탄도 귀환"
     gld_lbl = (
         f"Glide ({gld_z0:.1f}→{lnd_z0:.1f} km)"
@@ -765,7 +765,7 @@ def render_trajectory_svg(
         if en
         else f'1단 상승·귀환 궤적 <tspan font-size="14" fill="{INK_MUTED}" font-weight="400">(고도 km vs 수평 거리 km)</tspan>'
     )
-    sep_lbl = f"MECO 1 Sep ({sep_z:.1f} km)" if en else f"단 분리 ({sep_z:.1f} km)"
+    sep_lbl = f"MECO-1 Sep ({sep_z:.1f} km)" if en else f"단 분리 ({sep_z:.1f} km)"
     apo_lbl = f"Apogee {apo_z:.1f} km" if en else f"정점 {apo_z:.1f} km"
     gld_lbl = "Glide start" if en else "무동력 활강 시작"
     x_dist_lbl = "Horizontal distance (km)" if en else "수평 거리 (km)"
@@ -858,7 +858,7 @@ def render_trajectory_svg(
 <text x="634" y="441" font-size="17" fill="{OXFORD_BLUE}" font-weight="700">{thr_hdr}</text>
 <text x="1130" y="441" font-size="13.5" fill="{OCHRE}" font-weight="600" text-anchor="end">{thr_kpi}</text>
 <rect x="{gx0:.1f}" y="{ty0:.0f}" width="{gx1 - gx0:.1f}" height="{ty1 - ty0:.0f}" fill="{GLIDE_TINT}"/>
-<text x="{(gx0 + gx1) / 2:.1f}" y="{ty0 + 20:.1f}" font-size="11.5" fill="{OXFORD_MID}" font-weight="700" text-anchor="middle">{thr_glide_lbl}</text>
+<text x="{(gx0 + gx1) / 2:.1f}" y="{rsy_thr(100) - 6:.1f}" font-size="11.5" fill="{OXFORD_MID}" font-weight="700" text-anchor="middle">{thr_glide_lbl}</text>
 {"".join(thr_grid)}
 <polygon points="{_polyline(thr_area)}" fill="{OCHRE}" opacity="0.14"/>
 <polyline points="{_polyline(thr_pts)}" fill="none" stroke="{OCHRE}" stroke-width="2.3" stroke-linejoin="round"/>

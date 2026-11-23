@@ -39,7 +39,7 @@
 
 ## 3. Stage 2 & Stage 3 계획 (별도 신규 3D 저장소에서 착수)
 
-본 저장소(`Powered-Landing-Guidance`)는 2D DM100 궤도 RTLS 플랫폼을 완성·유지하며, Stage 2(3D MuJoCo 6DOF)와 Stage 3(Unreal Engine 5)은 별도의 **신규 3D 저장소**에서 시작합니다.
+본 저장소(`DM100-2D-Rocket-Recovery`)는 2D DM100 궤도 RTLS 플랫폼을 완성·유지하며, Stage 2(3D MuJoCo 6DOF)와 Stage 3(Unreal Engine 5)은 별도의 **신규 3D 저장소**에서 시작합니다.
 
 | 단계 | 핵심 구성 | 2D → 3D 매핑 |
 |---|---|---|
