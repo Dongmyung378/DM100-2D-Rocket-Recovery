@@ -52,7 +52,7 @@ Reference 50 Hz 3D replay exports (`ENU` meters + unit quaternion `wxyz` for UE5
 - **Strictly Causal Navigation & Attitude Estimation**: Noise, bias, observation/action delays, engine lag, and scheduled packet dropouts using only past observations (zero access to hidden plant truth).
 - **Robust RTLS GNC (All 16 Constraints ≤ 80% of Limit)**:
   - `0.85 s` entry-burn ignition throttle ramp with dual dynamic pressure & heat flux triggers (`26.5 kPa`, `62 kW/m²`) eliminating vacuum slosh torque shocks.
-  - Supersonic high-altitude (`z ≥ 27 km`) grid-fin AoA cap (`5°`), low-altitude (`z < 12 km`) high-authority glide tracking, and causal online drag/density scale IIP estimation (`_predict_rtls_iip`).
+  - Supersonic high-altitude (`z ≥ 27 km`) grid-fin AoA cap (`5°`), low-altitude high-authority glide tracking (`k_glide ≤ 0.28 deg/m`), and causal online drag/density scale IIP estimation (`_predict_rtls_iip`).
   - Analytical zero-tilt unwind predictor (`_predict_zero_tilt_state`) paired with low-pass filtered horizontal acceleration bias (`bias_x`).
   - Smooth `0.28 s` angular acceleration ramp on vertical body entry, distance-aware terminal horizontal braking, convex LP terminal reference planner, and priority control allocation (`grid fins → TVC gimbal → RCS`).
 - **Stack**: Python 3.12, NumPy/SciPy, FastAPI/Uvicorn, HTML/CSS/JS, Matplotlib/FFmpeg. Uses explicit physics & GNC models (**no machine learning policies**).
@@ -64,7 +64,7 @@ Reference 50 Hz 3D replay exports (`ENU` meters + unit quaternion `wxyz` for UE5
 | Gross liftoff mass / Stage 1 initial mass | 100,000 / 76,000 kg |
 | Stage 1 dry / main propellant (LCH₄·LOX) / RCS | 6,200 / 69,500 / 300 kg |
 | Stage 2 dry / main propellant / payload | 1,550 / 20,650 / 1,800 kg |
-| Stage 1 airframe (length / diameter) | 25.5 m / 3.1 m |
+| Stage 1 airframe (length / diameter) | 24.0 m / 3.1 m |
 | Stage 1 7-engine cluster thrust (SL / vacuum) | 1,550 / 1,693 kN |
 | Stage 1 Isp (SL / vacuum) | 325 / 355 s |
 | Stage 2 vacuum thrust / Isp | 240 kN / 380 s |
