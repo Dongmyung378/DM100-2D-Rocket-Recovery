@@ -98,8 +98,10 @@
 python scripts/evaluate_validation.py --suite edge-cases --workers 8
 
 # 전체 487케이스 일괄 검증 및 JSON 저장
-python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+python scripts/evaluate_validation.py --suite full-487 --workers 14 \
+  --out-json artifacts/validation-487.json
 
 # 단일 대표 비행 및 50 Hz 3D 리플레이 JSON 내보내기
-python scripts/run_flight.py --scenario example-weather --export-replay artifacts/example_weather_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather \
+  --export-replay artifacts/example_weather_replay_50hz.json
 ```

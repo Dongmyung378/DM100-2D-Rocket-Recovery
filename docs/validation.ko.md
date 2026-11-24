@@ -23,7 +23,7 @@
 | 복합 홀드아웃 (`holdout`) | **96** | `configs/validation-study-v1.json` 복합 외란 홀드아웃 |
 | 확장 센서 홀드아웃 (`sensor-holdout`) | **57** | `configs/validation-study-v1.json` IMU 잡음·편향·드롭아웃 홀드아웃 |
 | 전체 운용 회귀 셋 (`regression-*`) | **286** | `configs/apr-regression-v1.json` (`development` 205 + `previous-holdout` 72 + `supplemental` 9) |
-| **전체 합계** | **487** | **2단 700 km 궤도·비행 안전(동압·열유속·하중·각가속도)·최초 접지·추진제 보존·5초 무동력 직립 동시 판정 (전 제약 ≤ 80% 여유 달성)** |
+| **전체 합계** | **487** | **2단 700 km 궤도·비행 안전(동압·열유속·하중·각가속도)·최초 접지·추진제 보존·5초 무동력 직립 동시 판정 (16개 전 제약 ≤ 79.3% 인증 · 80% 여유 달성)** |
 
 ---
 
@@ -31,14 +31,17 @@
 
 ```bash
 # 단일 비행 실행 및 50 Hz 3D 리플레이 JSON(ENU + 단위 쿼터니언) 내보내기
-python scripts/run_flight.py --scenario calm --export-replay artifacts/calm_replay_50hz.json
-python scripts/run_flight.py --scenario example-weather --export-replay artifacts/weather_replay_50hz.json
+python scripts/run_flight.py --scenario calm \
+  --export-replay artifacts/calm_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather \
+  --export-replay artifacts/weather_replay_50hz.json
 
 # 극한 엣지 32케이스 병렬 검증
 python scripts/evaluate_validation.py --suite edge-cases --workers 12
 
 # 전체 487케이스 전수 병렬 검증
-python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+python scripts/evaluate_validation.py --suite full-487 --workers 14 \
+  --out-json artifacts/validation-487.json
 
 # 소프트웨어·물리·궤도·제어·로컬 UI 자동화 테스트 및 린트
 python -m pytest -q -p no:cacheprovider

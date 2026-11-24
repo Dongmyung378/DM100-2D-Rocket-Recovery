@@ -1,6 +1,6 @@
 # DM100 · 100 t Methalox 700 km Orbital Launch & First-Stage Reusable RTLS
 
-[한국어](README.ko.md) | [Validation Results](docs/results.md) | [Model Specification](docs/spec.md) | [Validation Protocol](docs/validation.md) | [Runtime Guide](docs/runtime.md) | [Roadmap (KO)](docs/roadmap.ko.md)
+[한국어](README.ko.md) | [Validation Results](docs/results.md) | [Model Specification](docs/spec.md) | [Validation Protocol](docs/validation.md) | [Runtime Guide](docs/runtime.md) | [Roadmap](docs/roadmap.md)
 
 **DM100** is a **2D conceptual physics & GNC simulator** modeling a **100 t two-stage Methalox (LCH₄/LOX) launch vehicle** that delivers a **1,800 kg payload to a 700 km circular orbit (LEO/SSO)** while recovering the first stage via **Return-to-Launch-Site (RTLS)**. After a 7-engine cluster ascent and high-altitude cold stage separation, Stage 2 is propagated through a two-burn spherical Earth transfer and apogee circularization into a 700 ± 15 km circular orbit, while Stage 1 executes a low-q flip, 3-engine boostback, short entry burn (MECO-2), **25.0~43.0 km unpowered grid-fin aerodynamic glide (0% throttle command)**, **3→1 minimum-throttle hoverslam**, and **5 s post-touchdown engine-off landing-leg contact & upright stability dynamics** inside a unified engine with a strict `Plant ↔ Forces ↔ GNC` boundary.
 
@@ -83,16 +83,20 @@ On Windows x64, clone or extract the repository and run [launch-dm100.bat](launc
 ```bash
 # Manual setup & local web UI launch
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video]"
+.venv/bin/python -m pip install \
+  -c requirements/runtime-constraints.txt -e ".[ui,video]"
 .venv/bin/python -m powered_landing_guidance.local_app
 
 # Single flight & 50 Hz 3D replay JSON export
-python scripts/run_flight.py --scenario calm --export-replay artifacts/calm_replay_50hz.json
-python scripts/run_flight.py --scenario example-weather --export-replay artifacts/example_weather_replay_50hz.json
+python scripts/run_flight.py --scenario calm \
+  --export-replay artifacts/calm_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather \
+  --export-replay artifacts/example_weather_replay_50hz.json
 
 # Fast 32-case extreme edge check or full 487-case parallel certification
 python scripts/evaluate_validation.py --suite edge-cases --workers 8
-python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+python scripts/evaluate_validation.py --suite full-487 --workers 14 \
+  --out-json artifacts/validation-487.json
 ```
 
 ---
@@ -113,22 +117,22 @@ All **223 pytest tests (+ 11 subtests)**, `ruff check`, and `ruff format --check
 ## Repository Layout
 
 ```text
-configs/                          Operating, regression (286), and validation study (169) inputs
-docs/spec.md, spec.ko.md          English & Korean physics model specifications
-docs/validation.md, validation.ko.md  Validation protocol and reproduction commands
-docs/results.md, results.ko.md    Full 487-case validation & ≤80% safety margin report
-docs/roadmap.ko.md                2D Orbital RTLS → 3D 6DOF MuJoCo → UE5 expansion roadmap
-docs/results/                     validation-487.json and 50 Hz 3D replay JSON exports
-docs/assets/                      Oxford Blue local UI screenshots and EN/KO SVG figures
-requirements/                     Verified runtime & development dependency constraints
-scripts/                          Single flight CLI (run_flight.py), 487-case evaluator (evaluate_validation.py)
-src/powered_landing_guidance/     Core physics, reusable RTLS engine (rtls/), Stage 2 orbit integrator, local UI
-tests/                            Automated physics, RTLS GNC, estimator, and UI test suite (223 tests)
-launch-dm100.bat / .sh            Windows & Linux auto-provisioning launchers
+configs/                        Operating, regression (286) & study (169) inputs
+docs/spec.md, spec.ko.md        English & Korean physics model specifications
+docs/validation.md, .ko.md      Validation protocol and reproduction commands
+docs/results.md, results.ko.md  Full 487-case validation & <=80% margin report
+docs/roadmap.md, roadmap.ko.md  2D Orbital RTLS -> 3D 6DOF MuJoCo -> UE5 plan
+docs/results/                   validation-487.json & 50 Hz 3D replay JSONs
+docs/assets/                    Oxford Blue UI screenshots & EN/KO SVG figures
+requirements/                   Verified runtime & dev dependency constraints
+scripts/                        Flight CLI (run_flight.py) & 487-case evaluator
+src/powered_landing_guidance/   Physics, RTLS GNC (rtls/), Stage 2 orbit, UI
+tests/                          Physics, RTLS GNC, estimator & UI tests (223)
+launch-dm100.bat / .sh          Windows & Linux auto-provisioning launchers
 ```
 
 ---
 
 ## Scope & Limitations
 
-DM100 is a 2D theoretical software simulator covering planar translation, pitch rotation, and spherical Earth 2D Stage 2 two-burn orbital insertion. Coefficients are conceptual engineering assumptions rather than flight-measured hardware tables. Structural flexibility, 3D aerodynamic plume CFD, material fatigue, 6DOF 3D flight, and real-vehicle flight qualification are out of scope. 3D 6DOF MuJoCo physics and Unreal Engine 5 cinematic rendering are planned for a dedicated 3D repository ([docs/roadmap.ko.md](docs/roadmap.ko.md)).
+DM100 is a 2D theoretical software simulator covering planar translation, pitch rotation, and spherical Earth 2D Stage 2 two-burn orbital insertion. Coefficients are conceptual engineering assumptions rather than flight-measured hardware tables. Structural flexibility, 3D aerodynamic plume CFD, material fatigue, 6DOF 3D flight, and real-vehicle flight qualification are out of scope. 3D 6DOF MuJoCo physics and Unreal Engine 5 cinematic rendering are planned for a dedicated 3D repository ([docs/roadmap.md](docs/roadmap.md)).

@@ -31,14 +31,17 @@ This document defines the **487-case validation protocol** and exact reproductio
 
 ```bash
 # Single flight & 50 Hz 3D replay JSON export (ENU + unit quaternion)
-python scripts/run_flight.py --scenario calm --export-replay artifacts/calm_replay_50hz.json
-python scripts/run_flight.py --scenario example-weather --export-replay artifacts/weather_replay_50hz.json
+python scripts/run_flight.py --scenario calm \
+  --export-replay artifacts/calm_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather \
+  --export-replay artifacts/weather_replay_50hz.json
 
 # Fast 32-case extreme edge check
 python scripts/evaluate_validation.py --suite edge-cases --workers 12
 
 # Full 487-case parallel certification
-python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+python scripts/evaluate_validation.py --suite full-487 --workers 14 \
+  --out-json artifacts/validation-487.json
 
 # Automated unit/integration tests and linting
 python -m pytest -q -p no:cacheprovider

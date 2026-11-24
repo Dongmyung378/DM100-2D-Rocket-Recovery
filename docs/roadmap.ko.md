@@ -1,6 +1,6 @@
 # DM100 개발 로드맵 (2D 700 km 궤도 RTLS 완성 → 3D 6자유도 MuJoCo + Unreal Engine 5)
 
-[README](../README.ko.md) | [모델 명세](spec.ko.md) | [검증 설계](validation.ko.md) | [검증 결과](results.ko.md)
+[English](roadmap.md) | [README](../README.ko.md) | [모델 명세](spec.ko.md) | [검증 설계](validation.ko.md) | [검증 결과](results.ko.md)
 
 이 문서는 **100톤 메탈록스 700 km 원궤도(1,800 kg) 투입 + 1단 재사용 RTLS 시뮬레이터 DM100**의 2D 완성 아키텍처와, 이를 계승해 별도의 신규 저장소에서 진행할 **3차원 6자유도(6DOF) 물리엔진(MuJoCo) + 시네마틱 시각화(Unreal Engine 5)** 확장 계획을 정리합니다.
 
@@ -9,12 +9,23 @@
 ## 1. 전체 아키텍처 전략
 
 ```text
-[Stage 1: 본 저장소 · 2D Orbital RTLS] → [Stage 2: 신규 3D 저장소 · MuJoCo 6DOF] → [Stage 3: UE5 시네마틱 영상]
-  · 100 t 7× 메탈록스 · 700 km 원궤도       · MJCF 1단 + 독립 4핀 + 4다리              · 50 Hz ENU+Quaternion 리플레이
-  · Plant ↔ Forces ↔ GNC 완전 분리         · 2D Forces/GNC → 6DOF 3D 확장            · UE5 Python Sequencer 임포트
-  · 25~43 km 무동력 격자핀 활강            · MEKF 쿼터니언 + 3D SOCP + 롤/요 배분     · Niagara 메탈록스 플룸·재진입
-  · 3→1 호버슬램 · 487/487 전 제약 ≤ 80%   · 3D 횡풍·크로스레인지 Headless 검증        · 지상 / 온보드 / 착륙장 멀티캠
-  · 접지 후 5초 착륙다리 접촉·직립 동역학
+[Stage 1: 본 저장소 · 2D Orbital RTLS]
+  · 100 t 7x 메탈록스 · 700 km 원궤도 (1,800 kg 탑재체)
+  · Plant <-> Forces <-> GNC 경계 완전 분리
+  · 25.0~43.0 km 무동력 격자핀 활강 · 3->1 호버슬램 · 5초 직립
+  · 487/487 통과 · 16개 전 제약 <= 79.3% (80% 안전 여유 인증)
+        |
+        v  50 Hz 3D 리플레이 JSON (ENU 미터 + 단위 쿼터니언 wxyz)
+[Stage 2: 신규 3D 저장소 · MuJoCo 6DOF]
+  · MJCF 1단 강체 + 독립 4핀 + 착륙다리 4스트럿
+  · 2D Forces/GNC -> 6DOF 3D 확장 (MEKF + 3D SOCP + 롤/요 배분)
+  · 3D 횡풍·크로스레인지 Headless 대량 검증
+        |
+        v  검증 통과 50 Hz 리플레이 스트림
+[Stage 3: Unreal Engine 5 시네마틱 영상]
+  · UE5 Python Level Sequence 자동 임포트 (ENU m -> UE5 cm)
+  · Niagara 메탈록스 플룸 · RCS · 재진입 공력 가열
+  · 지상 / 온보드 / 착륙장 멀티캠 Movie Render Queue
 ```
 
 ### 역할 분리 원칙

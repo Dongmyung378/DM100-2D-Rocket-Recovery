@@ -90,7 +90,8 @@ Windows x64에서는 저장소를 복제하거나 ZIP을 푼 뒤 [launch-dm100.b
 
 # 수동 설치 및 실행
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -c requirements/runtime-constraints.txt -e ".[ui,video]"
+.\.venv\Scripts\python.exe -m pip install `
+  -c requirements/runtime-constraints.txt -e ".[ui,video]"
 .\.venv\Scripts\python.exe -m powered_landing_guidance.local_app
 ```
 
@@ -106,12 +107,15 @@ sh launch-dm100.sh --doctor
 
 ```bash
 # 단일 대표 비행 실행 및 50 Hz 3D 리플레이 JSON 내보내기
-python scripts/run_flight.py --scenario calm --export-replay artifacts/calm_replay_50hz.json
-python scripts/run_flight.py --scenario example-weather --export-replay artifacts/example_weather_replay_50hz.json
+python scripts/run_flight.py --scenario calm \
+  --export-replay artifacts/calm_replay_50hz.json
+python scripts/run_flight.py --scenario example-weather \
+  --export-replay artifacts/example_weather_replay_50hz.json
 
 # 극한 엣지 32케이스 빠른 검증 또는 전체 487케이스 병렬 검증
 python scripts/evaluate_validation.py --suite edge-cases --workers 8
-python scripts/evaluate_validation.py --suite full-487 --workers 14 --out-json artifacts/validation-487.json
+python scripts/evaluate_validation.py --suite full-487 --workers 14 \
+  --out-json artifacts/validation-487.json
 ```
 
 CPU `float64` 연산을 사용하며, 다중 프로세스 실행 시 `OPENBLAS_NUM_THREADS=1`, `OMP_NUM_THREADS=1` 설정을 권장합니다.
@@ -134,18 +138,18 @@ python -m ruff format --check --no-cache .
 ## 저장소 구성
 
 ```text
-configs/                          운용, 회귀(286) 및 검증 연구(169) 고정 입력
-docs/spec.md, spec.ko.md          영어·한국어 물리 모델 명세
-docs/validation.md, validation.ko.md  검증 설계와 재현 명령
-docs/results.md, results.ko.md    487케이스 검증 및 ≤80% 여유 달성 보고서
-docs/roadmap.ko.md                2D Orbital RTLS → 3D 6DOF MuJoCo → UE5 확장 로드맵
-docs/results/                     validation-487.json 및 50 Hz 3D 리플레이 JSON
-docs/assets/                      옥스포드 블루 로컬 UI 스크린샷 및 한·영 SVG 시각화 자료
-requirements/                     검증한 런타임·개발 의존성 제약 조건
-scripts/                          단일 비행 CLI(run_flight.py), 487케이스 평가기(evaluate_validation.py)
-src/powered_landing_guidance/     공통 물리, 재사용 RTLS 엔진(rtls/), 2단 궤도 적분기(rtls/orbit.py), 로컬 UI
-tests/                            물리, RTLS 유도·제어, 추정기, 로컬 UI 자동 테스트 (223건)
-launch-dm100.bat / .sh            Windows·Linux 자동 환경 준비 및 앱 실행기
+configs/                        운용, 회귀(286) 및 검증 연구(169) 고정 입력
+docs/spec.md, spec.ko.md        영어·한국어 물리 모델 명세
+docs/validation.md, .ko.md      검증 설계와 재현 명령
+docs/results.md, results.ko.md  487케이스 검증 및 <=80% 여유 달성 보고서
+docs/roadmap.md, roadmap.ko.md  2D Orbital RTLS -> 3D 6DOF MuJoCo -> UE5 계획
+docs/results/                   validation-487.json 및 50 Hz 3D 리플레이 JSON
+docs/assets/                    옥스포드 블루 UI 스크린샷 및 한·영 SVG 자료
+requirements/                   검증한 런타임·개발 의존성 제약 조건
+scripts/                        단일 비행 CLI(run_flight.py), 487케이스 평가기
+src/powered_landing_guidance/   물리, 재사용 RTLS(rtls/), 2단 궤도, 로컬 UI
+tests/                          물리, RTLS 유도·제어, 추정기, UI 테스트(223건)
+launch-dm100.bat / .sh          Windows·Linux 자동 환경 준비 및 앱 실행기
 ```
 
 ---
