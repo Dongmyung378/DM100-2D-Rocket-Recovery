@@ -31,15 +31,16 @@ def _ffmpeg_available() -> bool:
 
 
 def _recovery_sky(altitudes: NDArray[np.float64]) -> NDArray[np.float64]:
-    levels = (0.0, 2500.0, 6500.0, 11_000.0, 30_000.0, 80_000.0)
+    levels = (0.0, 2200.0, 7000.0, 14_000.0, 30_000.0, 58_000.0, 90_000.0)
     colors = np.asarray(
         (
-            (0.78, 0.91, 0.98),
-            (0.48, 0.75, 0.92),
-            (0.24, 0.49, 0.73),
-            (0.10, 0.25, 0.45),
-            (0.025, 0.07, 0.15),
-            (0.005, 0.01, 0.025),
+            (0.68, 0.85, 0.96),
+            (0.38, 0.68, 0.89),
+            (0.18, 0.41, 0.68),
+            (0.075, 0.19, 0.39),
+            (0.022, 0.065, 0.16),
+            (0.008, 0.022, 0.062),
+            (0.004, 0.010, 0.028),
         )
     )
     return np.stack([np.interp(altitudes, levels, colors[:, i]) for i in range(3)], axis=-1)
@@ -232,6 +233,20 @@ class _NominalFlightReplay:
         self.flight = flight
         self.design = flight["design"]
         self.phases = [row["phase"] for row in replay_steps]
+        self.active_engines = [
+            int(
+                row["active_engines"]
+                if row.get("active_engines") is not None
+                else (
+                    7
+                    if row["phase"] == "ascent"
+                    else 3
+                    if row["phase"] in {"boostback", "entry", "entry_burn", "landing_burn"}
+                    else 1
+                )
+            )
+            for row in replay_steps
+        ]
         self.separation_s = (
             float(flight["separation"]["time_s"]) if flight.get("separation") else np.inf
         )
@@ -483,11 +498,35 @@ class _NominalFlightAnimationScene:
 
     def __init__(self, flight: dict[str, Any], *, width: int = 1920) -> None:
         self.replay = _NominalFlightReplay(flight)
-        self.fig = plt.figure(figsize=(16, 9), dpi=width / 16, facecolor="#001730")
+        self.fig = plt.figure(figsize=(16, 9), dpi=width / 16, facecolor="#040E1D")
+        self.fig.add_artist(
+            Rectangle(
+                (0.0, 0.884),
+                1.0,
+                0.116,
+                transform=self.fig.transFigure,
+                facecolor="#071830",
+                edgecolor="none",
+                zorder=0,
+            )
+        )
+        self.fig.add_artist(
+            FancyBboxPatch(
+                (0.036, 0.200),
+                0.573,
+                0.665,
+                transform=self.fig.transFigure,
+                boxstyle="round,pad=0.002,rounding_size=0.008",
+                facecolor="#051326",
+                edgecolor="#244975",
+                linewidth=1.1,
+                zorder=0,
+            )
+        )
         self.camera = self.fig.add_axes((0.04, 0.205, 0.565, 0.655))
         self.camera_aspect = (16 * 0.565) / (9 * 0.655)
-        self.overview = self.fig.add_axes((0.660, 0.700, 0.295, 0.155), facecolor="#002147")
-        self.info = self.fig.add_axes((0.645, 0.205, 0.32, 0.43))
+        self.overview = self.fig.add_axes((0.656, 0.686, 0.300, 0.152), facecolor="#061529")
+        self.info = self.fig.add_axes((0.645, 0.205, 0.32, 0.432))
         self.info.axis("off")
         self.display_engine_on = False
         self.displayed_thrust_n = 0.0
@@ -499,23 +538,35 @@ class _NominalFlightAnimationScene:
         recovery_only = flight.get("ascent_simulated") is False or (
             flight.get("simulation_scope") == "37km_separation_to_touchdown"
         )
+        self.fig.add_artist(
+            Rectangle(
+                (0.04, 0.935),
+                0.006,
+                0.042,
+                transform=self.fig.transFigure,
+                facecolor="#D4AF5A",
+                edgecolor="none",
+                zorder=2,
+            )
+        )
         self.title = self.fig.text(
-            0.04, 0.944, "DM100", color="#F5F3EE", fontsize=25, weight="bold"
+            0.054, 0.943, "DM100", color="#F7F5F0", fontsize=25, weight="bold"
         )
         self.subtitle = self.fig.text(
-            0.205,
-            0.948,
-            "100톤 메탈록스 700 km 궤도 발사 및 1단 RTLS 회수",
-            color="#B8C7D9",
-            fontsize=14,
+            0.160,
+            0.949,
+            "100톤 메탈록스 700 km 원궤도 발사 · 1단 재사용 RTLS",
+            color="#C4D4E6",
+            fontsize=13.5,
         )
         self.mission_label = self.fig.text(
             0.956,
-            0.95,
+            0.950,
             "1단 회수" if recovery_only else "700 km LEO · RTLS",
             ha="right",
-            color="#D4AF5A",
+            color="#E5C573",
             fontsize=12,
+            weight="bold",
         )
         conditions = flight.get("conditions", {})
         calm = not conditions.get("gust_amplitude_m_s", 0) and not any(
@@ -524,34 +575,44 @@ class _NominalFlightAnimationScene:
             for _, speed in conditions.get(key, ())
         )
         self.record_note = self.fig.text(
-            0.04,
-            0.902,
-            "무풍 기준" if calm else "설정 외란",
-            color="#93ABC4",
-            fontsize=10,
+            0.054,
+            0.903,
+            "무풍 기준 비행 · LCH4/LOX 7→3→1 클러스터"
+            if calm
+            else "외란 조건 비행 · LCH4/LOX 7→3→1 클러스터",
+            color="#8DA8C6",
+            fontsize=9.8,
         )
         self.clock = self.fig.text(
-            0.956, 0.902, "", ha="right", color="#F5F3EE", fontsize=13, family="DejaVu Sans"
+            0.956,
+            0.902,
+            "",
+            ha="right",
+            color="#F5F3EE",
+            fontsize=13.5,
+            weight="bold",
+            family="DejaVu Sans",
         )
         has_orbit = bool(flight.get("upper_stage_orbit"))
         self.footer = self.fig.text(
             0.04,
-            0.035,
+            0.025,
             (
                 "DM100 2D 개념 모델 · 2단 700 km 원궤도(1,800 kg) 별도 적분 판정 · 1단 RTLS 회수"
                 if has_orbit
                 else "2D 모델 · 1단 RTLS 회수 시뮬레이션"
             ),
-            color="#93ABC4",
+            color="#8DA8C6",
             fontsize=9,
         )
         self.fig.add_artist(
             Rectangle(
                 (0.04, 0.883),
                 0.92,
-                0.0015,
+                0.0022,
                 transform=self.fig.transFigure,
-                facecolor="#1F436E",
+                facecolor="#D4AF5A",
+                alpha=0.72,
                 edgecolor="none",
             )
         )
@@ -560,72 +621,84 @@ class _NominalFlightAnimationScene:
         self.sky = self.camera.imshow(
             np.zeros((96, 96, 3), dtype=np.uint8), origin="lower", aspect="auto", zorder=0
         )
+        self.earth_limb = Ellipse(
+            (0.5, -1.72),
+            3.2,
+            3.65,
+            transform=self.camera.transAxes,
+            facecolor="#1E6CA8",
+            edgecolor="#6DD5FA",
+            linewidth=2.4,
+            alpha=0.0,
+            zorder=0.6,
+        )
+        self.camera.add_patch(self.earth_limb)
         scenery_rng = np.random.default_rng(378)
         self.stars = self.camera.scatter(
-            scenery_rng.uniform(0.05, 0.95, 45),
-            scenery_rng.uniform(0.1, 0.95, 45),
-            s=scenery_rng.uniform(0.3, 2.2, 45),
+            scenery_rng.uniform(0.03, 0.97, 92),
+            scenery_rng.uniform(0.08, 0.96, 92),
+            s=scenery_rng.uniform(0.4, 3.2, 92),
             transform=self.camera.transAxes,
-            color="#dceafb",
+            color="#E4F0FF",
             alpha=0,
             zorder=1,
         )
         self.clouds = []
-        for cx, cy, size in ((0.18, 0.68, 0.18), (0.80, 0.47, 0.24), (0.52, 0.86, 0.13)):
+        for cx, cy, size in ((0.18, 0.70, 0.20), (0.80, 0.49, 0.25), (0.52, 0.86, 0.14)):
             for dx, dy, factor in ((-0.3, 0, 0.65), (0, 0.04, 1), (0.3, -0.01, 0.7)):
                 cloud = Ellipse(
                     (cx + dx * size, cy + dy * size),
                     size * factor,
-                    size * 0.19 * factor,
+                    size * 0.18 * factor,
                     transform=self.camera.transAxes,
-                    facecolor="#ffffff",
+                    facecolor="#EBF4FC",
                     edgecolor="none",
-                    alpha=0.18,
+                    alpha=0.16,
                     zorder=1,
                 )
                 self.camera.add_patch(cloud)
                 self.clouds.append(cloud)
         self.hills = []
-        for color, peak, opacity in (("#849fa5", 3.3, 0.28), ("#667f7b", 1.8, 0.5)):
+        for color, peak, opacity in (("#4F6D7E", 3.4, 0.34), ("#35505C", 1.9, 0.56)):
             hill = Polygon(
                 np.zeros((7, 2)), facecolor=color, alpha=opacity, edgecolor="none", zorder=1
             )
             self.camera.add_patch(hill)
             self.hills.append((hill, peak))
-        self.terrain = Polygon(np.zeros((4, 2)), facecolor="#526353", edgecolor="none", zorder=2)
+        self.terrain = Polygon(np.zeros((4, 2)), facecolor="#2D3E36", edgecolor="none", zorder=2)
         self.camera.add_patch(self.terrain)
-        self.soil = Polygon(np.zeros((4, 2)), facecolor="#3d443e", edgecolor="none", zorder=2.1)
+        self.soil = Polygon(np.zeros((4, 2)), facecolor="#1E2824", edgecolor="none", zorder=2.1)
         self.camera.add_patch(self.soil)
         self.camera.add_patch(
             Rectangle(
-                (-20, -0.5),
-                40,
-                0.5,
-                facecolor="#829091",
-                edgecolor="#bac7c7",
-                linewidth=0.5,
+                (-22, -0.55),
+                44,
+                0.55,
+                facecolor="#5C6C75",
+                edgecolor="#98ABB5",
+                linewidth=0.6,
                 zorder=3,
             )
         )
         span = self.replay.settings.gear.pad_half_width_m
         self.camera.add_patch(
             Rectangle(
-                (-span, -0.14),
+                (-span, -0.16),
                 span * 2,
-                0.14,
-                facecolor="#afb8b4",
-                edgecolor="#d4ddd7",
-                linewidth=0.7,
+                0.16,
+                facecolor="#8F9EA6",
+                edgecolor="#CFDCE3",
+                linewidth=0.8,
                 zorder=4,
             )
         )
         self.camera.plot(
-            (-span + 0.8, span - 0.8), (0.02, 0.02), color="#e7dec0", linewidth=1.2, zorder=4
+            (-span + 0.8, span - 0.8), (0.02, 0.02), color="#E5C573", linewidth=1.4, zorder=4
         )
-        self.camera.plot((-1.1, 1.1), (0.025, 0.025), color="#59c5b6", linewidth=2, zorder=5)
+        self.camera.plot((-1.3, 1.3), (0.03, 0.03), color="#56CCF2", linewidth=2.3, zorder=5)
         for px in (-14, -11.5, 11.5, 14):
             self.camera.add_patch(
-                Rectangle((px, -0.48), 0.28, 0.48, facecolor="#d9b967", edgecolor="none", zorder=4)
+                Rectangle((px, -0.52), 0.32, 0.52, facecolor="#D4AF5A", edgecolor="none", zorder=4)
             )
         # The launch supports are outside the nozzle and do not alter contact geometry.
         self.launch_supports = []
@@ -637,8 +710,8 @@ class _NominalFlightAnimationScene:
                     (sign * 1.35 + 0.12, 1),
                     (sign * 1.35 - 0.12, 1),
                 ),
-                facecolor="#697b83",
-                edgecolor="#c2d1d5",
+                facecolor="#586B78",
+                edgecolor="#B9CAD4",
                 linewidth=0.6,
                 zorder=4,
             )
@@ -646,38 +719,38 @@ class _NominalFlightAnimationScene:
             self.launch_supports.append(support)
         self._draw_ground_facilities()
         (self.trail,) = self.camera.plot(
-            [], [], color="#4b91a3", alpha=0.25, linewidth=0.9, zorder=2
+            [], [], color="#56CCF2", alpha=0.42, linewidth=1.45, zorder=2.2
         )
         self.parts = {}
         geometry, _, _ = _nominal_flight_geometry(self.replay, self.replay.times[0])
         colors = {
-            "body": "#c8d4db",
-            "adapter": "#d5dfe3",
-            "upper_stage": "#e4eced",
-            "upper_nozzle": "#233541",
-            "upper_highlight": "#ffffff",
-            "upper_band_detail": "#456775",
-            "highlight": "#f0f5f3",
-            "panel": "#8b9da7",
-            "nozzle": "#283a45",
-            "upper_band": "#344b58",
-            "lower_band": "#263b47",
-            "separation_band": "#37636d",
-            "fin_left": "#294b55",
-            "fin_right": "#294b55",
+            "body": "#DDE6ED",
+            "adapter": "#E4ECF2",
+            "upper_stage": "#F0F4F8",
+            "upper_nozzle": "#1B2C3B",
+            "upper_highlight": "#FFFFFF",
+            "upper_band_detail": "#0E2A4B",
+            "highlight": "#F8FBFE",
+            "panel": "#7D92A3",
+            "nozzle": "#1E2E3B",
+            "upper_band": "#0D2545",
+            "lower_band": "#172A3D",
+            "separation_band": "#D4AF5A",
+            "fin_left": "#1E364D",
+            "fin_right": "#1E364D",
         }
         for name in geometry:
             patch = Polygon(
                 np.zeros((4, 2)),
-                facecolor=colors.get(name, "#506b77"),
-                edgecolor="#2b424e",
-                linewidth=0.5,
+                facecolor=colors.get(name, "#4B6478"),
+                edgecolor="#1A2E42",
+                linewidth=0.55,
                 zorder=9 if name == "highlight" else 8,
             )
             self.camera.add_patch(patch)
             self.parts[name] = patch
         self.shell_shading = []
-        for color, alpha in (("#8195a0", 0.48), ("#ffffff", 0.6), ("#46616e", 0.4)):
+        for color, alpha in (("#738B9E", 0.48), ("#FFFFFF", 0.66), ("#30495E", 0.44)):
             patch = Polygon(
                 np.zeros((4, 2)), facecolor=color, alpha=alpha, edgecolor="none", zorder=9
             )
@@ -685,14 +758,14 @@ class _NominalFlightAnimationScene:
             self.shell_shading.append(patch)
         self.engine_skirt = Polygon(
             np.zeros((4, 2)),
-            facecolor="#344b57",
-            edgecolor="#78939f",
-            linewidth=0.4,
+            facecolor="#1E3042",
+            edgecolor="#6E8CA3",
+            linewidth=0.45,
             zorder=9,
         )
         self.camera.add_patch(self.engine_skirt)
-        self.seams = LineCollection([], colors="#637c86", linewidths=0.55, zorder=10)
-        self.fin_mesh = LineCollection([], colors="#91adb5", linewidths=0.55, zorder=10)
+        self.seams = LineCollection([], colors="#5C7588", linewidths=0.55, zorder=10)
+        self.fin_mesh = LineCollection([], colors="#C6A65C", linewidths=0.65, zorder=10)
         self.camera.add_collection(self.seams)
         self.camera.add_collection(self.fin_mesh)
         self.body_label = self.camera.text(
@@ -702,48 +775,85 @@ class _NominalFlightAnimationScene:
             ha="center",
             va="center",
             rotation=90,
-            color="#325160",
-            fontsize=9,
+            color="#0B2442",
+            fontsize=9.2,
             weight="bold",
             zorder=11,
         )
+        # Authentic LCH4/LOX Methalox violet-cyan Mach-diamond main plumes
         self.plumes = []
         for color, alpha in (
-            ("#e74b24", 0.23),
-            ("#ff7435", 0.65),
-            ("#ffc164", 0.93),
-            ("#fff5c7", 1),
+            ("#5878FF", 0.24),
+            ("#4FB4FF", 0.66),
+            ("#C4EBFF", 0.93),
+            ("#F8FDFF", 1.0),
         ):
             plume = Polygon(
                 np.zeros((4, 2)), facecolor=color, edgecolor="none", alpha=alpha, zorder=6
             )
             self.camera.add_patch(plume)
             self.plumes.append(plume)
+        self.mach_diamonds = []
+        for _ in range(3):
+            diamond = Polygon(
+                np.zeros((4, 2)), facecolor="#F2FAFF", edgecolor="none", alpha=0.88, zorder=6.4
+            )
+            self.camera.add_patch(diamond)
+            self.mach_diamonds.append(diamond)
         self.upper_plumes = []
         for color, alpha, order in (
-            ("#69a9f5", 0.22, 6),
-            ("#97d5ff", 0.65, 6.1),
-            ("#f0faff", 0.95, 6.2),
+            ("#6086FF", 0.26, 6),
+            ("#8ED6FF", 0.68, 6.1),
+            ("#F4FCFF", 0.96, 6.2),
         ):
             plume = Polygon(
                 np.zeros((4, 2)), facecolor=color, edgecolor="none", alpha=alpha, zorder=order
             )
             self.camera.add_patch(plume)
             self.upper_plumes.append(plume)
+        self.upper_tag = self.camera.text(
+            0,
+            0,
+            "2단 · 700 km 궤도",
+            color="#F5DC93",
+            fontsize=8.5,
+            weight="bold",
+            ha="left",
+            va="center",
+            bbox={
+                "facecolor": "#071830",
+                "edgecolor": "#D4AF5A",
+                "boxstyle": "round,pad=0.3",
+                "alpha": 0.86,
+            },
+            zorder=13,
+        )
+        self.upper_tag.set_visible(False)
+        self.reentry_glows = []
+        for color, max_a, order in (
+            ("#FF5722", 0.20, 7.1),
+            ("#FF9638", 0.30, 7.2),
+            ("#FFE4B5", 0.38, 7.3),
+        ):
+            glow = Polygon(
+                np.zeros((13, 2)), facecolor=color, edgecolor="none", alpha=0.0, zorder=order
+            )
+            self.camera.add_patch(glow)
+            self.reentry_glows.append((glow, max_a))
         self.rcs_jets = []
         for _ in range(2):
             jet = Polygon(
-                np.zeros((3, 2)), facecolor="#daeffa", edgecolor="none", alpha=0.6, zorder=7
+                np.zeros((3, 2)), facecolor="#DDF2FF", edgecolor="none", alpha=0.72, zorder=7
             )
             self.camera.add_patch(jet)
             self.rcs_jets.append(jet)
         self.heat_glow = Ellipse(
-            (0, 0), 10, 1, facecolor="#edb35e", edgecolor="none", alpha=0, zorder=5
+            (0, 0), 10, 1, facecolor="#9AD4FF", edgecolor="none", alpha=0, zorder=5
         )
         self.camera.add_patch(self.heat_glow)
         self.dust = []
         for i in range(8):
-            puff = Ellipse((0, 0), 1, 1, facecolor="#dedcc4", edgecolor="none", alpha=0, zorder=7)
+            puff = Ellipse((0, 0), 1, 1, facecolor="#CFDCE5", edgecolor="none", alpha=0, zorder=7)
             self.camera.add_patch(puff)
             self.dust.append((puff, i))
         self.phase = self.camera.text(
@@ -752,39 +862,46 @@ class _NominalFlightAnimationScene:
             "",
             transform=self.camera.transAxes,
             va="top",
-            color="#eef8ff",
-            fontsize=12,
+            color="#F7F5F0",
+            fontsize=11.5,
             weight="bold",
             bbox={
-                "facecolor": "#0b2533",
-                "edgecolor": "#315260",
-                "boxstyle": "round,pad=0.5",
-                "alpha": 0.9,
+                "facecolor": "#071932",
+                "edgecolor": "#D4AF5A",
+                "boxstyle": "round,pad=0.48",
+                "alpha": 0.92,
+                "linewidth": 1.1,
             },
             zorder=14,
         )
         self.camera_note = self.camera.text(
             0.025,
-            0.03,
+            0.032,
             "",
             transform=self.camera.transAxes,
-            color="#eef8ff",
+            color="#DCE9F5",
             fontsize=9,
             zorder=14,
-            bbox={"facecolor": "#0b2533", "edgecolor": "none", "alpha": 0.78, "pad": 4},
+            bbox={
+                "facecolor": "#071932",
+                "edgecolor": "#244975",
+                "boxstyle": "round,pad=0.35",
+                "alpha": 0.84,
+            },
         )
-        (self.scale_line,) = self.camera.plot([], [], color="#eff8fc", linewidth=1.7, zorder=15)
+        (self.scale_line,) = self.camera.plot([], [], color="#E8F3FA", linewidth=1.8, zorder=15)
         self.scale_label = self.camera.text(
-            0, 0, "", color="#eff8fc", fontsize=8, ha="center", va="bottom", zorder=15
+            0, 0, "", color="#E8F3FA", fontsize=8.2, ha="center", va="bottom", zorder=15
         )
         self.telemetry = []
         self.telemetry_labels = []
+        self.telemetry_bars: dict[int, Rectangle] = {}
         self.telemetry_heading = self.fig.text(
             0.654,
-            0.634,
-            "비행 텔레메트리",
-            color="#a6bfcd",
-            fontsize=9,
+            0.638,
+            "실시간 비행 텔레메트리",
+            color="#E5C573",
+            fontsize=9.5,
             weight="bold",
         )
         labels = (
@@ -803,63 +920,107 @@ class _NominalFlightAnimationScene:
             "핀 전개율",
             "다리 전개율",
         )
-        # Fixed-width tiles keep changing values aligned, with a separate
-        # status strip below the main panels rather than squeezing extra rows in.
+        bar_colors = {6: "#56CCF2", 7: "#D4AF5A", 9: "#56CCF2", 11: "#E5C573"}
+        # Fixed-width tiles keep changing values aligned, with embedded live gauges.
         for i, label in enumerate(labels):
             col, row = i % 2, i // 2
-            xx, yy = 0.015 + col * 0.525, 0.952 - row * 0.140
+            xx, yy = 0.015 + col * 0.522, 0.955 - row * 0.140
             self.info.add_patch(
                 FancyBboxPatch(
-                    (xx, yy - 0.107),
-                    0.455,
-                    0.115,
+                    (xx, yy - 0.109),
+                    0.460,
+                    0.118,
                     transform=self.info.transAxes,
-                    boxstyle="round,pad=0.002,rounding_size=0.012",
-                    facecolor="#0d2130",
-                    edgecolor="#203c4c",
-                    linewidth=0.55,
+                    boxstyle="round,pad=0.002,rounding_size=0.014",
+                    facecolor="#091B33",
+                    edgecolor="#1E3F66",
+                    linewidth=0.75,
                 )
             )
             label_artist = self.info.text(
-                xx + 0.022, yy, label, color="#86a8ba", fontsize=8.5, va="top"
+                xx + 0.022, yy + 0.002, label, color="#8DAAC7", fontsize=8.1, va="top"
             )
             self.telemetry_labels.append(label_artist)
             value = self.info.text(
                 xx + 0.022,
-                yy - 0.050,
+                yy - 0.036,
                 "",
-                color="#79e0cc" if i in (6, 7) else "#e8f2f8",
-                fontsize=13,
+                color="#56CCF2" if i == 6 else "#E5C573" if i in (7, 11) else "#EEF5FB",
+                fontsize=12.2,
+                weight="bold",
                 va="top",
                 family="DejaVu Sans",
             )
             self.telemetry.append(value)
-        self.status = self.fig.text(0.654, 0.142, "", color="#8daebb", fontsize=8.5, va="bottom")
+            if i in bar_colors:
+                self.info.add_patch(
+                    Rectangle(
+                        (xx + 0.020, yy - 0.101),
+                        0.420,
+                        0.011,
+                        transform=self.info.transAxes,
+                        facecolor="#132B49",
+                        edgecolor="none",
+                    )
+                )
+                bar = Rectangle(
+                    (xx + 0.020, yy - 0.101),
+                    0.0,
+                    0.011,
+                    transform=self.info.transAxes,
+                    facecolor=bar_colors[i],
+                    edgecolor="none",
+                )
+                self.info.add_patch(bar)
+                self.telemetry_bars[i] = bar
+        self.status = self.fig.text(0.654, 0.145, "", color="#A8C4DD", fontsize=8.6, va="bottom")
         self.environment_text = self.fig.text(
-            0.654, 0.168, "", color="#86a8ba", fontsize=8.5, va="bottom"
+            0.654, 0.171, "", color="#86A4C2", fontsize=8.4, va="bottom"
         )
         self.event = self.fig.text(
-            0.045, 0.164, "", color="#6ee0c6", fontsize=10, va="center", linespacing=1.55
+            0.045,
+            0.163,
+            "",
+            color="#7AE5D2",
+            fontsize=10.2,
+            weight="bold",
+            va="center",
+            linespacing=1.50,
         )
         self._draw_overview()
         self.timeline = []
-        for i, label in enumerate(("발사", "분리", "귀환", "진입", "접근", "접지")):
-            xx = 0.04 + i * 0.155
+        timeline_labels = ("발사", "단 분리", "귀환", "재진입", "활강", "호버슬램", "직립 착륙")
+        for i, label in enumerate(timeline_labels):
+            xx = 0.04 + i * 0.1325
             card = FancyBboxPatch(
-                (xx, 0.073),
-                0.138,
-                0.054,
+                (xx, 0.068),
+                0.1235,
+                0.056,
                 transform=self.fig.transFigure,
                 boxstyle="round,pad=0.002,rounding_size=0.008",
-                facecolor="#102636",
-                edgecolor="#203d4c",
-                linewidth=0.8,
+                facecolor="#081A32",
+                edgecolor="#1D3E63",
+                linewidth=0.85,
             )
             self.fig.add_artist(card)
-            text = self.fig.text(
-                xx + 0.012, 0.094, f"{i + 1:02}  {label}", color="#7493a5", fontsize=10
+            accent = Rectangle(
+                (xx + 0.003, 0.120),
+                0.1175,
+                0.005,
+                transform=self.fig.transFigure,
+                facecolor="#1D3E63",
+                edgecolor="none",
             )
-            self.timeline.append((card, text))
+            self.fig.add_artist(accent)
+            text = self.fig.text(
+                xx + 0.010,
+                0.092,
+                f"{i + 1:02}  {label}",
+                color="#7E9CB8",
+                fontsize=9.3,
+                weight="bold",
+            )
+            self.timeline.append((card, accent, text))
         self.update(self.replay.times[0])
         from matplotlib.text import Text
 
@@ -895,6 +1056,9 @@ class _NominalFlightAnimationScene:
                 Rectangle(
                     (x - 1.65, 22.7), 3.3, 0.35, facecolor="#8fa6ae", edgecolor="none", zorder=2.7
                 )
+            )
+            self.camera.add_patch(
+                Ellipse((x, 23.35), 0.75, 0.75, facecolor="#FF6B6B", edgecolor="none", zorder=2.8)
             )
         self.camera.add_patch(
             Rectangle(
@@ -975,37 +1139,41 @@ class _NominalFlightAnimationScene:
             alpha=0.4,
             linewidth=1,
         )
-        self.overview.scatter([0], [0], marker="s", color="#63ddce", s=22, zorder=5)
+        self.overview.scatter([0], [0], marker="s", color="#56CCF2", s=26, zorder=5)
         (self.history,) = self.overview.plot(
-            [], [], color="#63ddce", linewidth=1.5, zorder=4, label="1단 계산"
+            [], [], color="#56CCF2", linewidth=1.7, zorder=4, label="1단 계산"
         )
-        (self.marker,) = self.overview.plot([], [], "o", color="#ffcc85", markersize=5, zorder=6)
+        (self.marker_halo,) = self.overview.plot(
+            [], [], "o", color="#E5C573", alpha=0.35, markersize=10, zorder=5.5
+        )
+        (self.marker,) = self.overview.plot([], [], "o", color="#F7DC88", markersize=5.2, zorder=6)
         (self.upper_history,) = self.overview.plot(
-            [], [], "--", color="#f6c56b", linewidth=1.4, zorder=4, label="2단 연출"
+            [], [], "--", color="#E5C573", linewidth=1.5, zorder=4, label="2단 연출"
         )
         (self.upper_marker,) = self.overview.plot(
-            [], [], "^", color="#f6c56b", markersize=5, zorder=6
+            [], [], "^", color="#F7DC88", markersize=5.2, zorder=6
         )
         self.upper_marker.set_visible(False)
         self.overview_legend = None
         if departure is not None:
-            legend = self.overview.legend(loc="upper left", fontsize=7, frameon=False, ncol=2)
+            legend = self.overview.legend(loc="upper left", fontsize=7.2, frameon=False, ncol=2)
             self.overview_legend = legend
             for text in legend.get_texts():
-                text.set_color("#c6dce8")
+                text.set_color("#D3E4F2")
         self.overview.set(
             xlim=(xlow, xhigh),
             ylim=(-1, zhigh),
-            title="비행 경로",
+            title="비행 경로 · 궤도 전개",
         )
-        self.overview.set_xlabel("발사장 거리 (km)", color="#a5bfcc", fontsize=8)
-        self.overview.set_ylabel("고도 (km)", color="#a5bfcc", fontsize=8)
-        self.overview.title.set_color("#c6dce8")
+        self.overview.set_xlabel("발사장 거리 (km)", color="#9BB5CC", fontsize=8)
+        self.overview.set_ylabel("고도 (km)", color="#9BB5CC", fontsize=8)
+        self.overview.title.set_color("#E5C573")
         self.overview.title.set_fontsize(10)
-        self.overview.tick_params(colors="#9ab6c6", labelsize=7)
-        self.overview.grid(alpha=0.13, color="#d2e7ee", linewidth=0.5)
+        self.overview.title.set_weight("bold")
+        self.overview.tick_params(colors="#9BB5CC", labelsize=7)
+        self.overview.grid(alpha=0.14, color="#A8D0F0", linewidth=0.5)
         for spine in self.overview.spines.values():
-            spine.set_color("#335461")
+            spine.set_color("#244975")
 
     def _update_shell(self, parts, base, state, attached) -> None:
         from powered_landing_guidance.recovery_physics import rotation
@@ -1113,9 +1281,10 @@ class _NominalFlightAnimationScene:
         sky = np.clip(sky + light * np.exp(-max(0, z) / 18000), 0, 1)
         self.sky.set_data(np.round(sky * 255).astype(np.uint8))
         self.sky.set_extent((left, right, bottom, bottom + height))
-        self.stars.set_alpha(float(np.clip((z - 28000) / 40000, 0, 0.55)))
+        self.earth_limb.set_alpha(float(np.clip((z - 22_000) / 36_000, 0, 0.24)))
+        self.stars.set_alpha(float(np.clip((z - 16_000) / 36_000, 0, 0.72)))
         for cloud in self.clouds:
-            cloud.set_alpha(float(0.18 * np.exp(-max(0, z) / 2200)))
+            cloud.set_alpha(float(0.16 * np.exp(-max(0, z) / 2200)))
         for hill, peak in self.hills:
             points = np.asarray(
                 (
@@ -1134,15 +1303,17 @@ class _NominalFlightAnimationScene:
         self.soil.set_xy(((left, bottom), (right, bottom), (right, -0.9), (left, -0.9)))
         self.terrain.set_visible(bottom < 0)
         self.soil.set_visible(bottom < -0.9)
-        history = self.replay.bases[max(0, index - 45) : index + 1]
+        history = self.replay.bases[max(0, index - 55) : index + 1]
         self.trail.set_data(history[:, 0], history[:, 1])
         self.history.set_data(
             self.replay.bases[: index + 1, 0] / 1000, self.replay.bases[: index + 1, 1] / 1000
         )
         self.marker.set_data([base[0] / 1000], [base[1] / 1000])
+        self.marker_halo.set_data([base[0] / 1000], [base[1] / 1000])
         upper_sample = departure.sample(shown_time) if departure and not attached else None
         self.upper_history.set_visible(upper_sample is not None)
         self.upper_marker.set_visible(False)
+        self.upper_tag.set_visible(False)
         self.upper_history.set_data([], [])
         self.upper_marker.set_data([], [])
         for plume in self.upper_plumes:
@@ -1161,20 +1332,29 @@ class _NominalFlightAnimationScene:
             exhaust = -np.asarray((np.sin(upper_theta), np.cos(upper_theta)))
             side = np.asarray((np.cos(upper_theta), -np.sin(upper_theta)))
             flicker = 0.96 + 0.04 * np.sin(shown_time * 43)
-            for plume, scale in zip(self.upper_plumes, (1.2, 0.9, 0.5), strict=True):
-                width = 0.6 * np.sqrt(ignition) * scale
-                length = 11 * np.sqrt(ignition) * scale * flicker
+            for plume, scale in zip(self.upper_plumes, (1.35, 0.95, 0.52), strict=True):
+                width = 0.72 * np.sqrt(ignition) * scale
+                length = 13.5 * np.sqrt(ignition) * scale * flicker
                 local = np.asarray(
                     (
                         (-width, 0),
-                        (-width * 1.4, length * 0.2),
+                        (-width * 1.65, length * 0.24),
                         (0, length),
-                        (width * 1.4, length * 0.2),
+                        (width * 1.65, length * 0.24),
                         (width, 0),
                     )
                 )
                 plume.set_xy(upper_base + local[:, :1] * side + local[:, 1:] * exhaust)
                 plume.set_visible(ignition > 0.01 and in_domain)
+            elapsed_sep = shown_time - self.replay.separation_s
+            tag_pos = position + np.asarray((3.2, 2.2))
+            in_view = (
+                left + 2.0 < tag_pos[0] < right - 14.0
+                and bottom + 3.0 < tag_pos[1] < bottom + height - 3.0
+            )
+            if 0.3 <= elapsed_sep <= 12.5 and in_view:
+                self.upper_tag.set_position(tag_pos)
+                self.upper_tag.set_visible(True)
         _, pressure, density = atmosphere(z, self.replay.settings.atmosphere)
         thrust = (
             control[0]
@@ -1190,18 +1370,21 @@ class _NominalFlightAnimationScene:
         exhaust = -np.asarray((np.sin(theta + control[1]), np.cos(theta + control[1])))
         side = np.asarray((np.cos(theta + control[1]), -np.sin(theta + control[1])))
         radius = self.replay.settings.geometry.nozzle_radius_m
+        active_eng = self.replay.active_engines[index]
+        eng_scale = 1.24 if active_eng >= 7 else 0.94 if active_eng >= 3 else 0.64
+        vac_bloom = 1.0 + 0.48 * float(np.clip(z / 42_000, 0.0, 1.0))
         flicker = 0.95 + 0.05 * np.sin(shown_time * 57)
-        length = (0.9 + 22 * radius) * np.sqrt(ratio) * flicker
-        for plume, scale in zip(self.plumes, (1.15, 1, 0.73, 0.43), strict=True):
-            plume_width = radius * (0.35 + 0.85 * np.sqrt(ratio)) * scale
+        length = (1.1 + 24.5 * radius) * np.sqrt(ratio) * flicker * (0.85 + 0.15 * eng_scale)
+        for plume, scale in zip(self.plumes, (1.22, 1.0, 0.72, 0.42), strict=True):
+            plume_width = radius * (0.38 + 0.85 * np.sqrt(ratio)) * scale * eng_scale * vac_bloom
             local = np.asarray(
                 (
                     (-plume_width, 0),
-                    (-plume_width * 1.45, length * 0.18 * scale),
-                    (-plume_width * 0.7, length * 0.55 * scale),
+                    (-plume_width * 1.48, length * 0.20 * scale),
+                    (-plume_width * 0.68, length * 0.56 * scale),
                     (0, length * scale),
-                    (plume_width * 0.7, length * 0.55 * scale),
-                    (plume_width * 1.45, length * 0.18 * scale),
+                    (plume_width * 0.68, length * 0.56 * scale),
+                    (plume_width * 1.48, length * 0.20 * scale),
                     (plume_width, 0),
                 )
             )
@@ -1211,7 +1394,59 @@ class _NominalFlightAnimationScene:
             plume.set_visible(self.display_engine_on and len(vertices) >= 3)
             if len(vertices) >= 3:
                 plume.set_xy(vertices)
+        for idx_d, diamond in enumerate(self.mach_diamonds):
+            if self.display_engine_on and ratio > 0.15:
+                d_center = length * (0.14 + idx_d * 0.18)
+                d_half_w = radius * 0.36 * eng_scale * (1.0 - idx_d * 0.18) * np.sqrt(ratio)
+                d_half_l = length * 0.065 * (1.0 - idx_d * 0.15)
+                local_d = np.asarray(
+                    (
+                        (0.0, d_center - d_half_l),
+                        (d_half_w, d_center),
+                        (0.0, d_center + d_half_l),
+                        (-d_half_w, d_center),
+                    )
+                )
+                d_verts = _clip_plume_at_ground(
+                    nozzle + local_d[:, :1] * side + local_d[:, 1:] * exhaust, 0
+                )
+                diamond.set_visible(len(d_verts) >= 3)
+                if len(d_verts) >= 3:
+                    diamond.set_xy(d_verts)
+            else:
+                diamond.set_visible(False)
+        q = np.interp(shown_time, self.replay.times, self.q)
         transform = rotation(theta)
+        reentry_intensity = (
+            float(np.clip((q - 11_000.0) / 22_000.0, 0.0, 1.0))
+            if (np.isfinite(q) and not attached and not contacted and vz < -120.0)
+            else 0.0
+        )
+        if reentry_intensity > 0.04:
+            br = self.replay.settings.geometry.body_radius_m
+            angles = np.linspace(np.pi * 0.08, np.pi * 0.92, 11)
+            for (glow, max_a), w_sc, d_sc, tail_y in zip(
+                self.reentry_glows,
+                (1.52, 1.32, 1.12),
+                (1.55, 1.05, 0.62),
+                (3.6, 2.2, 1.1),
+                strict=True,
+            ):
+                arc_x = -br * w_sc * np.cos(angles)
+                arc_y = -d_sc * np.sin(angles)
+                local_re = np.vstack(
+                    (
+                        np.asarray(((-br * w_sc * 0.92, tail_y),)),
+                        np.column_stack((arc_x, arc_y)),
+                        np.asarray(((br * w_sc * 0.92, tail_y),)),
+                    )
+                )
+                glow.set_xy(local_re @ transform.T + base)
+                glow.set_alpha(reentry_intensity * max_a)
+                glow.set_visible(True)
+        else:
+            for glow, _ in self.reentry_glows:
+                glow.set_visible(False)
         sign = float(np.sign(control[2]))
         rcs_ratio = float(
             np.clip(abs(control[2]) / self.replay.design["rcs_torque_limit_nm"], 0, 1)
@@ -1268,7 +1503,6 @@ class _NominalFlightAnimationScene:
             "엔진 OFF · 접지 이후 고정 화면" if contacted else f"1단 하단 고도 {base[1]:,.1f} m"
         )
         total_mass = mass + (self.replay.design["upper_mass_kg"] if attached else 0)
-        q = np.interp(shown_time, self.replay.times, self.q)
         q_text = f"{q / 1000:.3f} kPa" if np.isfinite(q) else "-"
         values = (
             f"{z / 1000:,.3f} km",
@@ -1281,13 +1515,25 @@ class _NominalFlightAnimationScene:
             f"{state[7]:,.2f} kg",
             f"{total_mass / 1000:,.3f} t",
             q_text,
-            "OFF / 0 kN" if contacted else f"{thrust / 1000:,.1f} kN",
+            "OFF / 0 kN" if contacted else f"{thrust / 1000:,.1f} kN ({active_eng}기)",
             f"{state[12] * 100:.2f} %",
             f"{state[10] * 100:.0f} %",
             f"{state[8] * 100:.0f} %",
         )
         for artist, value in zip(self.telemetry, values, strict=True):
             artist.set_text(value)
+        main_cap = max(float(self.replay.design.get("main_propellant_kg", 69_500.0)), 1.0)
+        rcs_cap = max(float(self.replay.design.get("rcs_propellant_kg", 300.0)), 1.0)
+        q_frac = float(np.clip((q / 42_000.0) if np.isfinite(q) else 0.0, 0.0, 1.0))
+        self.telemetry_bars[6].set_width(0.420 * float(np.clip(state[6] / main_cap, 0.0, 1.0)))
+        self.telemetry_bars[7].set_width(0.420 * float(np.clip(state[7] / rcs_cap, 0.0, 1.0)))
+        self.telemetry_bars[9].set_width(0.420 * q_frac)
+        self.telemetry_bars[9].set_facecolor(
+            "#EF4444" if q_frac >= 0.78 else "#E5C573" if q_frac >= 0.50 else "#56CCF2"
+        )
+        self.telemetry_bars[11].set_width(
+            0.0 if contacted else 0.420 * float(np.clip(state[12], 0.0, 1.0))
+        )
         self.telemetry_labels[10].set_text("엔진 · 접지 후 연출" if contacted else "주 엔진 추력")
         self.telemetry_labels[11].set_text("접지 순간 스로틀" if contacted else "실제 스로틀")
         self.environment_text.set_text(
@@ -1349,18 +1595,19 @@ class _NominalFlightAnimationScene:
             "coast": 2,
             "entry": 3,
             "entry_burn": 3,
-            "aero_glide": 3,
-            "landing": 4,
-            "landing_burn": 4,
-            "alignment": 4,
-            "approach": 4,
-            "touchdown": 5,
-            "touchdown_settle": 5,
+            "aero_glide": 4,
+            "landing": 5,
+            "landing_burn": 5,
+            "alignment": 5,
+            "approach": 5,
+            "touchdown": 6,
+            "touchdown_settle": 6,
         }.get(phase, 0)
-        for i, (card, text) in enumerate(self.timeline):
-            card.set_facecolor("#0C315E" if i <= stage else "#002147")
-            card.set_edgecolor("#D4AF5A" if i == stage else "#1F436E")
-            text.set_color("#F5F3EE" if i <= stage else "#8BA2BC")
+        for i, (card, accent, text) in enumerate(self.timeline):
+            card.set_facecolor("#0F3562" if i == stage else "#0B2445" if i < stage else "#07162B")
+            card.set_edgecolor("#D4AF5A" if i == stage else "#285385" if i < stage else "#183354")
+            accent.set_facecolor("#D4AF5A" if i == stage else "#56CCF2" if i < stage else "#183354")
+            text.set_color("#F7F5F0" if i == stage else "#C3D8EC" if i < stage else "#6A86A3")
 
 
 class _NominalFlightFrameRenderer:
@@ -1373,9 +1620,11 @@ class _NominalFlightFrameRenderer:
             scene.history,
             scene.upper_history,
             *([scene.overview_legend] if scene.overview_legend is not None else []),
+            scene.marker_halo,
             scene.marker,
             scene.upper_marker,
             *scene.telemetry,
+            *scene.telemetry_bars.values(),
             scene.telemetry_labels[10],
             scene.telemetry_labels[11],
             scene.status,
@@ -1383,7 +1632,7 @@ class _NominalFlightFrameRenderer:
             scene.event,
             scene.clock,
             scene.footer,
-            *(artist for pair in scene.timeline for artist in pair),
+            *(artist for triple in scene.timeline for artist in triple),
         ]
         self.previous_flags = [artist.get_animated() for artist in self.artists]
         for artist in self.artists:

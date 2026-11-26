@@ -4,9 +4,11 @@
 
 **DM100** is a **2D conceptual physics & GNC simulator** modeling a **100 t two-stage Methalox (LCH₄/LOX) launch vehicle** that delivers a **1,800 kg payload to a 700 km circular orbit (LEO/SSO)** while recovering the first stage via **Return-to-Launch-Site (RTLS)**. After a 7-engine cluster ascent and high-altitude cold stage separation, Stage 2 is propagated through a two-burn spherical Earth transfer and apogee circularization into a 700 ± 15 km circular orbit, while Stage 1 executes a low-q flip, 3-engine boostback, short entry burn (MECO-2), **25.0~43.0 km unpowered grid-fin aerodynamic glide (0% throttle command)**, **3→1 minimum-throttle hoverslam**, and **5 s post-touchdown engine-off landing-leg contact & upright stability dynamics** inside a unified engine with a strict `Plant ↔ Forces ↔ GNC` boundary.
 
-The offline local browser workbench defaults to English with instant Korean toggle, featuring an **interactive 2D real-time flight replay**, **50 Hz 3D replay JSON export (right-handed ENU + unit quaternion `wxyz`)**, and optional H.264 MP4 video rendering.
+The offline local browser workbench defaults to English with instant Korean toggle, featuring an **interactive 2D real-time flight replay with Stage 1/2 separation, Methalox Mach-diamond plumes, and mission-control telemetry**, **50 Hz 3D replay JSON export (right-handed ENU + unit quaternion `wxyz`)**, and broadcast-styled H.264 MP4 flight video rendering.
 
-![DM100 Local Browser Flight Simulator UI](docs/assets/ui.png)
+![DM100 Local Browser Flight Simulator UI (English — Stage Separation Replay)](docs/assets/ui.png)
+
+![DM100 Downloadable H.264 MP4 Flight Recorder Preview](docs/assets/dm100-mp4-preview.png)
 
 ---
 

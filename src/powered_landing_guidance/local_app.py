@@ -522,6 +522,8 @@ def _json_value(value: Any) -> Any:
 
 
 def _chart_data(raw: dict, maximum: int = 1200) -> dict:
+    from powered_landing_guidance.recovery_physics import mass_properties
+
     steps = raw.get("steps", [])
     if not steps:
         return dict(samples=[], events=[])
@@ -538,6 +540,16 @@ def _chart_data(raw: dict, maximum: int = 1200) -> dict:
                 range(len(steps)), key=lambda i: abs(steps[i]["time_s"] - event["time_s"])
             )
             required.add(nearest)
+            if key == "separation":
+                for offset in (0.5, 2.0, 3.5, 5.0, 8.0, 12.0):
+                    target_t = event["time_s"] + offset
+                    if target_t <= steps[-1]["time_s"]:
+                        required.add(
+                            min(
+                                range(len(steps)),
+                                key=lambda i: abs(steps[i]["time_s"] - target_t),
+                            )
+                        )
     # Preserve extrema as well as event-adjacent samples when reducing transport.
     for state_index in (0, 1, 2, 3, 4, 5):
         required.add(min(range(len(steps)), key=lambda i: steps[i]["state"][state_index]))
@@ -553,22 +565,42 @@ def _chart_data(raw: dict, maximum: int = 1200) -> dict:
         selected = [
             selected[round(i * (len(selected) - 1) / (maximum - 1))] for i in range(maximum)
         ]
+    design = raw.get("design") or {}
+    default_design = Design()
+    dry_mass_kg = float(design.get("dry_mass_kg", default_design.dry_mass_kg))
+    upper_mass_kg = float(design.get("upper_mass_kg", default_design.upper_mass_kg))
+    phys_raw = raw.get("physics") or {}
+    upper_station_m = float(phys_raw.get("upper_station_m", PHYSICS.upper_station_m))
+    sep_raw = raw.get("separation") or {}
+    sep_time_s = (
+        float(sep_raw["time_s"]) if _is_finite_number(sep_raw.get("time_s")) else float("inf")
+    )
     samples = []
     for index in selected:
         step = steps[index]
         state = step["state"]
         ctrl = step.get("control")
+        gear_ext = float(state[8]) if len(state) > 8 else 0.0
+        mass = dry_mass_kg + float(state[6]) + float(state[7])
+        cg = mass_properties(mass, gear_ext, PHYSICS).cg_m
+        if float(step["time_s"]) < sep_time_s:
+            cg = (mass * cg + upper_mass_kg * upper_station_m) / (mass + upper_mass_kg)
+        theta = float(state[4])
+        base_x_m = float(state[0]) - math.sin(theta) * cg
+        base_z_m = float(state[1]) - math.cos(theta) * cg
         samples.append(
             dict(
                 time_s=step["time_s"],
                 phase=step["phase"],
                 x_m=state[0],
                 z_m=state[1],
+                base_x_m=base_x_m,
+                base_z_m=base_z_m,
                 vx_m_s=state[2],
                 vz_m_s=state[3],
                 attitude_deg=math.degrees(state[4]),
                 angular_rate_deg_s=math.degrees(state[5]),
-                gear_extension=state[8] if len(state) > 8 else 0.0,
+                gear_extension=gear_ext,
                 fin_deflection_deg=math.degrees(state[9]) if len(state) > 9 else 0.0,
                 fin_extension=state[10] if len(state) > 10 else 0.0,
                 gimbal_deg=math.degrees(state[11]) if len(state) > 11 else 0.0,
@@ -902,6 +934,38 @@ def summarize_result(raw: dict, job_id: str) -> dict:
         trajectory_png=f"{base}/trajectory.png",
         replay_3d_json=f"{base}/replay_3d.json",
     )
+    sep_raw = raw.get("separation")
+    sep_payload = None
+    if isinstance(sep_raw, dict) and _is_finite_number(sep_raw.get("time_s")):
+        sep_state = sep_raw.get("state")
+        imp_raw = sep_raw.get("impulse_model")
+        sep_payload = dict(
+            time_s=float(sep_raw["time_s"]),
+            theta_rad=float(sep_state[4])
+            if isinstance(sep_state, list | tuple)
+            and len(sep_state) > 4
+            and _is_finite_number(sep_state[4])
+            else None,
+            impulse_model=imp_raw if isinstance(imp_raw, dict) else None,
+        )
+    phys_raw = raw.get("physics") or {}
+    geom_raw = phys_raw.get("geometry") or {}
+    gear_raw = phys_raw.get("gear") or {}
+    design_raw = raw.get("design") or {}
+    default_design = Design()
+    vehicle_geometry = dict(
+        body_length_m=float(geom_raw.get("body_length_m", PHYSICS.geometry.body_length_m)),
+        body_radius_m=float(geom_raw.get("body_radius_m", PHYSICS.geometry.body_radius_m)),
+        upper_length_m=float(phys_raw.get("upper_length_m", PHYSICS.upper_length_m)),
+        upper_station_m=float(phys_raw.get("upper_station_m", PHYSICS.upper_station_m)),
+        pad_half_width_m=float(gear_raw.get("pad_half_width_m", PHYSICS.gear.pad_half_width_m)),
+        main_propellant_kg=float(
+            design_raw.get("main_propellant_kg", default_design.main_propellant_kg)
+        ),
+        rcs_propellant_kg=float(
+            design_raw.get("rcs_propellant_kg", default_design.rcs_propellant_kg)
+        ),
+    )
     return _json_value(
         dict(
             success=bool(engine_accepted and category_passed and contact_finite and result_valid),
@@ -931,6 +995,8 @@ def summarize_result(raw: dict, job_id: str) -> dict:
             peak_fin_deflection_deg=raw.get("peak_fin_deflection_deg"),
             post_contact=raw.get("post_contact"),
             upper_stage_orbit=raw.get("upper_stage_orbit"),
+            separation=sep_payload,
+            vehicle_geometry=vehicle_geometry,
             phases=raw.get("phases"),
             charts=_chart_data(raw),
             files=files_map,
